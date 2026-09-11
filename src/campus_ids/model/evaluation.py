@@ -1,0 +1,505 @@
+"""模型评估模块 — 混淆矩阵、指标计算、交叉验证、融合评估、报告生成。"""
+from __future__ import annotations
+
+import logging
+from pathlib import Path
+
+import numpy as np
+import pandas as pd
+from sklearn.linear_model import LogisticRegression
+from sklearn.metrics import (
+    accuracy_score,
+    classification_report,
+    confusion_matrix,
+    f1_score,
+    precision_score,
+    recall_score,
+    roc_auc_score,
+)
+from sklearn.model_selection import cross_val_score
+from sklearn.preprocessing import LabelEncoder, StandardScaler
+
+from campus_ids.config import CONFUSION_MATRIX_PATH, EVALUATION_PATH
+
+logger = logging.getLogger(__name__)
+
+
+# ── 混淆矩阵保存 ──────────────────────────────────────────────────
+
+def _save_confusion_matrix(y_test, y_pred, labels, path: Path) -> None:
+    """P0-17: 保存混淆矩阵为图片。"""
+    try:
+        import matplotlib
+        matplotlib.use("Agg")
+        import matplotlib.pyplot as plt
+
+        # labels 可能是字符串类别名，但 y_test/y_pred 是编码后的整数
+        # 需要确保 labels 与 y 的类型一致
+        cm = confusion_matrix(y_test, y_pred)
+        display_labels = labels if labels is not None else sorted(set(y_test) | set(y_pred))
+        fig, ax = plt.subplots(figsize=(8, 6))
+        im = ax.imshow(cm, interpolation="nearest", cmap=plt.cm.Blues)
+        ax.figure.colorbar(im, ax=ax)
+        ax.set(xticks=np.arange(cm.shape[1]),
+               yticks=np.arange(cm.shape[0]),
+               xticklabels=display_labels, yticklabels=display_labels,
+               title="Confusion Matrix",
+               ylabel="True label",
+               xlabel="Predicted label")
+
+        # 在格子中显示数值
+        thresh = cm.max() / 2.
+        for i in range(cm.shape[0]):
+            for j in range(cm.shape[1]):
+                ax.text(j, i, format(cm[i, j], "d"),
+                        ha="center", va="center",
+                        color="white" if cm[i, j] > thresh else "black")
+
+        fig.tight_layout()
+        fig.savefig(path, dpi=150)
+        plt.close(fig)
+        logger.info("混淆矩阵已保存至 %s", path)
+    except ImportError:
+        logger.warning("matplotlib 未安装，跳过混淆矩阵图片生成")
+    except Exception as exc:
+        logger.warning("混淆矩阵保存失败: %s", exc)
+
+
+# ── 模型评估 ──────────────────────────────────────────────────────
+
+def evaluate_model(y_test, y_pred, label_encoder, model_name: str = "Model") -> dict:
+    """P0-16 + P2-11: 评估模型，输出指标（含 Per-Class F1 和误报率）。"""
+    labels = label_encoder.classes_
+    acc = accuracy_score(y_test, y_pred)
+    prec = precision_score(y_test, y_pred, average="weighted", zero_division=0)
+    rec = recall_score(y_test, y_pred, average="weighted", zero_division=0)
+    f1 = f1_score(y_test, y_pred, average="weighted", zero_division=0)
+
+    report = classification_report(y_test, y_pred, target_names=labels, zero_division=0)
+
+    # P2-11: Per-Class F1 分数
+    per_class_f1 = {}
+    per_class_report = classification_report(
+        y_test, y_pred, target_names=labels, output_dict=True, zero_division=0
+    )
+    for label_name in labels:
+        if label_name in per_class_report:
+            per_class_f1[label_name] = per_class_report[label_name]["f1-score"]
+
+    # P2-11: 误报率（False Positive Rate）
+    # FPR = FP / (FP + TN)，即正常流量被误判为攻击的比例
+    fpr = None
+    cm = confusion_matrix(y_test, y_pred)
+    if cm.shape == (2, 2):
+        # 二分类：[[TN, FP], [FN, TP]]
+        tn, fp, fn, tp = cm.ravel()
+        fpr = fp / (fp + tn) if (fp + tn) > 0 else 0.0
+    else:
+        # 多分类：计算每个类别的 FPR 并取宏平均
+        fpr_per_class = []
+        for i in range(cm.shape[0]):
+            fp_i = cm[:, i].sum() - cm[i, i]
+            tn_i = cm.sum() - cm[i, :].sum() - cm[:, i].sum() + cm[i, i]
+            fpr_i = fp_i / (fp_i + tn_i) if (fp_i + tn_i) > 0 else 0.0
+            fpr_per_class.append(fpr_i)
+        fpr = np.mean(fpr_per_class)
+
+    metrics = {
+        "model": model_name,
+        "accuracy": acc,
+        "precision": prec,
+        "recall": rec,
+        "f1_score": f1,
+        "report": report,
+        "per_class_f1": per_class_f1,
+        "false_positive_rate": fpr,
+    }
+
+    logger.info("=" * 60)
+    logger.info("模型: %s", model_name)
+    logger.info("准确率: %.4f  精确率: %.4f  召回率: %.4f  F1: %.4f", acc, prec, rec, f1)
+    logger.info("Per-Class F1: %s", {k: f"{v:.4f}" for k, v in per_class_f1.items()})
+    if fpr is not None:
+        logger.info("误报率 (FPR): %.4f", fpr)
+    logger.info("分类报告:\n%s", report)
+    logger.info("=" * 60)
+
+    return metrics
+
+
+# ── 交叉验证 ──────────────────────────────────────────────────────
+
+def cross_validate_models(X: pd.DataFrame, y: pd.Series,
+                           class_weight_dict: dict | None = None,
+                           cv: int = 5) -> list[dict]:
+    """P1-7c: 5 折交叉验证 + ROC-AUC 对比。
+
+    Returns:
+        各模型交叉验证结果列表
+    """
+    from sklearn.ensemble import RandomForestClassifier
+    from sklearn.model_selection import StratifiedKFold
+
+    le = LabelEncoder()
+    y_encoded = le.fit_transform(y)
+    scaler = StandardScaler()
+    X_scaled = scaler.fit_transform(X)
+
+    skf = StratifiedKFold(n_splits=cv, shuffle=True, random_state=42)
+
+    model_configs = [
+        ("RF_CV", "rf"),
+        ("LR_CV", "lr"),
+        ("XGB_CV", "xgb"),
+        ("LGB_CV", "lgb"),
+        ("MLP_CV", "mlp"),
+    ]
+
+    results = []
+    for name, mtype in model_configs:
+        try:
+            # 临时训练模型用于交叉验证
+            from campus_ids.model.train import train_model
+            _, tmp_scaler, tmp_le, X_test, y_test, y_pred = train_model(
+                X, y, class_weight_dict, model_type=mtype
+            )
+
+            # 交叉验证 F1 — 使用 "balanced" 避免 class_weight 键类型问题
+            if mtype == "rf":
+                clf = RandomForestClassifier(n_estimators=100, random_state=42,
+                                             class_weight="balanced", n_jobs=-1)
+            elif mtype == "lr":
+                clf = LogisticRegression(max_iter=1000, random_state=42,
+                                         class_weight="balanced")
+            elif mtype == "xgb":
+                try:
+                    from xgboost import XGBClassifier
+                    clf = XGBClassifier(n_estimators=100, max_depth=6, learning_rate=0.1,
+                                        random_state=42, n_jobs=-1)
+                except ImportError:
+                    continue
+            elif mtype == "lgb":
+                try:
+                    from lightgbm import LGBMClassifier
+                    clf = LGBMClassifier(n_estimators=100, max_depth=6, learning_rate=0.1,
+                                         random_state=42, n_jobs=-1, verbose=-1)
+                except ImportError:
+                    continue
+            elif mtype == "mlp":
+                from sklearn.neural_network import MLPClassifier
+                clf = MLPClassifier(hidden_layer_sizes=(128, 64, 32), max_iter=300,
+                                    random_state=42, early_stopping=True, validation_fraction=0.1)
+            else:
+                continue
+
+            cv_f1 = cross_val_score(clf, X_scaled, y_encoded, cv=skf, scoring="f1_weighted")
+
+            # ROC-AUC（仅二分类时计算）
+            roc_auc = None
+            n_classes = len(le.classes_)
+            if n_classes == 2 and hasattr(clf, "predict_proba"):
+                try:
+                    clf.fit(X_scaled, y_encoded)
+                    y_proba = clf.predict_proba(X_scaled)
+                    roc_auc = roc_auc_score(y_encoded, y_proba[:, 1])
+                except Exception:
+                    pass
+
+            metrics = {
+                "model": name,
+                "accuracy": float(cv_f1.mean()),
+                "precision": float(cv_f1.mean()),
+                "recall": float(cv_f1.mean()),
+                "f1_score": float(cv_f1.mean()),
+                "cv_f1_mean": float(cv_f1.mean()),
+                "cv_f1_std": float(cv_f1.std()),
+                "roc_auc": roc_auc,
+            }
+            results.append(metrics)
+            logger.info("%s: CV-F1=%.4f(±%.4f)%s", name, cv_f1.mean(), cv_f1.std(),
+                        f"  ROC-AUC={roc_auc:.4f}" if roc_auc else "")
+
+        except Exception as exc:
+            logger.warning("%s 交叉验证失败: %s", name, exc)
+
+    return results
+
+
+# ── 双引擎融合评估 ────────────────────────────────────────────────
+
+def _evaluate_dual_fusion(X: pd.DataFrame, y: pd.Series,
+                           class_weight_dict: dict | None = None) -> dict | None:
+    """P1-7d: 双引擎融合方案评估。
+
+    模拟规则+ML融合：规则检测判定+ML预测，双引擎触发则标记为攻击。
+    """
+    try:
+        from campus_ids.detector.detector import AnomalyDetector
+        from campus_ids.model.train import train_model
+        detector = AnomalyDetector()
+
+        # 训练 ML 模型
+        rf_clf, rf_scaler, rf_le, rf_X_test, rf_y_test, rf_y_pred = train_model(
+            X, y, class_weight_dict, model_type="rf"
+        )
+
+        # 规则判定
+        y_rule = []
+        for _, row in X.iterrows():
+            is_attack = False
+            pkt_count = row.get("pkt_count", row.get("Length", 0))
+            syn_ratio = row.get("syn_flag_ratio", 0)
+            port_entropy = row.get("dst_port_entropy", 0)
+            if pkt_count > 100:
+                is_attack = True
+            if syn_ratio > 0.8:
+                is_attack = True
+            if port_entropy > 2.0:
+                is_attack = True
+            y_rule.append(1 if is_attack else 0)
+
+        # ML 预测
+        X_scaled = rf_scaler.transform(X)
+        y_ml = rf_clf.predict(X_scaled)
+
+        # 融合：任一引擎触发即为攻击
+        y_fusion = [1 if (r == 1 or m == 1) else 0 for r, m in zip(y_rule, y_ml)]
+        y_true = rf_le.transform(y)
+
+        acc = accuracy_score(y_true, y_fusion)
+        prec = precision_score(y_true, y_fusion, average="weighted", zero_division=0)
+        rec = recall_score(y_true, y_fusion, average="weighted", zero_division=0)
+        f1 = f1_score(y_true, y_fusion, average="weighted", zero_division=0)
+
+        metrics = {
+            "model": "DualFusion(Rule+RF)",
+            "accuracy": acc,
+            "precision": prec,
+            "recall": rec,
+            "f1_score": f1,
+            "data_source": "same_as_ml",
+        }
+        logger.info("双引擎融合: 准确率=%.4f  F1=%.4f", acc, f1)
+        return metrics
+
+    except Exception as exc:
+        logger.warning("双引擎融合评估失败: %s", exc)
+        return None
+
+
+# ── 规则检测基线 ──────────────────────────────────────────────────
+
+def _evaluate_rule_baseline(X: pd.DataFrame, y: pd.Series) -> dict | None:
+    """P0-20: 规则检测基线评估。"""
+    try:
+        from campus_ids.detector.detector import AnomalyDetector
+        detector = AnomalyDetector()
+
+        # 基于规则对每条样本做判定
+        y_pred_rule = []
+        for _, row in X.iterrows():
+            is_attack = False
+            # 简化规则映射
+            pkt_count = row.get("pkt_count", row.get("Length", 0))
+            syn_ratio = row.get("syn_flag_ratio", 0)
+            port_entropy = row.get("dst_port_entropy", 0)
+
+            if pkt_count > 100:
+                is_attack = True
+            if syn_ratio > 0.8:
+                is_attack = True
+            if port_entropy > 2.0:
+                is_attack = True
+
+            y_pred_rule.append("Attack" if is_attack else "Normal")
+
+        y_pred_arr = pd.Series(y_pred_rule, index=y.index)
+
+        # 计算指标
+        acc = accuracy_score(y, y_pred_arr)
+        prec = precision_score(y, y_pred_arr, average="weighted", zero_division=0)
+        rec = recall_score(y, y_pred_arr, average="weighted", zero_division=0)
+        f1 = f1_score(y, y_pred_arr, average="weighted", zero_division=0)
+
+        metrics = {
+            "model": "RuleBaseline",
+            "accuracy": acc,
+            "precision": prec,
+            "recall": rec,
+            "f1_score": f1,
+            "data_source": "same_as_ml",
+        }
+
+        logger.info("规则检测基线: 准确率=%.4f  F1=%.4f", acc, f1)
+        return metrics
+
+    except Exception as exc:
+        logger.warning("规则基线评估失败: %s", exc)
+        return None
+
+
+# ── 对比表打印 ────────────────────────────────────────────────────
+
+def _print_comparison_table(metrics_list: list[dict]) -> None:
+    """打印算法对比表。"""
+    logger.info("\n" + "=" * 70)
+    logger.info("算法对比表")
+    logger.info("=" * 70)
+    logger.info("%-25s  %-10s  %-10s  %-10s  %-10s", "模型", "准确率", "精确率", "召回率", "F1")
+    logger.info("-" * 70)
+    for m in metrics_list:
+        logger.info("%-25s  %-10.4f  %-10.4f  %-10.4f  %-10.4f",
+                     m["model"], m["accuracy"], m["precision"], m["recall"], m["f1_score"])
+    logger.info("=" * 70)
+
+
+# ── 评估报告保存 ──────────────────────────────────────────────────
+
+def _save_evaluation_report(metrics_list: list[dict], data_source: str) -> None:
+    """P2-11: 保存评估报告到文件（含 Per-Class F1、误报率、检测延迟）。"""
+    lines = []
+    lines.append("=" * 70)
+    lines.append("AI-NIDS 模型评估报告")
+    lines.append(f"数据来源: {data_source}")
+    lines.append("=" * 70)
+    lines.append("")
+    for m in metrics_list:
+        lines.append(f"模型: {m['model']}")
+        lines.append(f"  准确率: {m['accuracy']:.4f}")
+        lines.append(f"  精确率: {m['precision']:.4f}")
+        lines.append(f"  召回率: {m['recall']:.4f}")
+        lines.append(f"  F1:     {m['f1_score']:.4f}")
+        if m.get("cv_f1_mean") is not None:
+            lines.append(f"  CV-F1:  {m['cv_f1_mean']:.4f} (±{m['cv_f1_std']:.4f})")
+        if m.get("roc_auc") is not None:
+            lines.append(f"  ROC-AUC: {m['roc_auc']:.4f}")
+        # P2-11: Per-Class F1
+        if m.get("per_class_f1"):
+            lines.append("  Per-Class F1:")
+            for cls_name, f1_val in m["per_class_f1"].items():
+                lines.append(f"    {cls_name}: {f1_val:.4f}")
+        # P2-11: 误报率
+        if m.get("false_positive_rate") is not None:
+            lines.append(f"  误报率 (FPR): {m['false_positive_rate']:.4f}")
+        # P2-11: 检测延迟
+        lat = m.get("detection_latency_ms")
+        if lat is not None:
+            if isinstance(lat, dict):
+                lines.append("  检测延迟:")
+                for k, v in lat.items():
+                    lines.append(f"    {k}: {v:.3f} ms" if isinstance(v, float) else f"    {k}: {v}")
+            else:
+                lines.append(f"  检测延迟: {lat:.2f} ms")
+        if "report" in m:
+            lines.append(f"  分类报告:\n{m['report']}")
+        lines.append("")
+
+    # 算法对比表
+    lines.append("算法对比表")
+    lines.append(f"{'模型':<25}  {'准确率':<10}  {'精确率':<10}  {'召回率':<10}  {'F1':<10}  {'FPR':<10}")
+    lines.append("-" * 80)
+    for m in metrics_list:
+        fpr_str = f"{m['false_positive_rate']:.4f}" if m.get("false_positive_rate") is not None else "N/A"
+        lines.append(f"{m['model']:<25}  {m['accuracy']:<10.4f}  {m['precision']:<10.4f}  {m['recall']:<10.4f}  {m['f1_score']:<10.4f}  {fpr_str:<10}")
+
+    # P2-11: Per-Class F1 对比表
+    all_classes = set()
+    for m in metrics_list:
+        if m.get("per_class_f1"):
+            all_classes.update(m["per_class_f1"].keys())
+    if all_classes:
+        lines.append("")
+        lines.append("Per-Class F1 对比表")
+        class_names = sorted(all_classes)
+        header = f"{'模型':<25}  " + "  ".join(f"{c:<12}" for c in class_names)
+        lines.append(header)
+        lines.append("-" * (25 + 14 * len(class_names)))
+        for m in metrics_list:
+            if m.get("per_class_f1"):
+                row = f"{m['model']:<25}  " + "  ".join(
+                    f"{m['per_class_f1'].get(c, 0):.4f}      " for c in class_names
+                )
+                lines.append(row)
+
+    EVALUATION_PATH.write_text("\n".join(lines), encoding="utf-8")
+    logger.info("评估报告已保存至 %s", EVALUATION_PATH)
+
+
+# ── 检测延迟基准测试 ──────────────────────────────────────────────
+
+def _benchmark_detection_latency(X: pd.DataFrame, n_samples: int = 100) -> dict | None:
+    """P2-11: 检测延迟基准测试。
+
+    测量规则检测和 ML 推理的单次延迟，输出统计指标。
+    """
+    import time as _time
+
+    try:
+        from campus_ids.detector.detector import AnomalyDetector
+        from campus_ids.model.train import load_model
+        detector = AnomalyDetector()
+
+        # 规则检测延迟测试
+        rule_latencies = []
+        for i in range(min(n_samples, len(X))):
+            row = X.iloc[i]
+            t0 = _time.perf_counter()
+            # 模拟规则检测调用
+            pkt_count = row.get("pkt_count", row.get("Length", 0))
+            if pkt_count > 100:
+                detector.check_ddos(int(pkt_count))
+            syn_ratio = row.get("syn_flag_ratio", 0)
+            if syn_ratio > 0.5:
+                detector.check_syn_flood(int(syn_ratio * 100))
+            port_entropy = row.get("dst_port_entropy", 0)
+            if port_entropy > 1.0:
+                detector.check_port_scan(int(port_entropy * 10))
+            rule_latencies.append((_time.perf_counter() - t0) * 1000)
+
+        # ML 推理延迟测试（如果模型可用）
+        ml_latencies = []
+        artifact = load_model()
+        if artifact is not None:
+            clf = artifact["model"]
+            scaler = artifact.get("scaler")
+            for i in range(min(n_samples, len(X))):
+                row = X.iloc[i:i+1]
+                t0 = _time.perf_counter()
+                if scaler:
+                    X_scaled = scaler.transform(row)
+                else:
+                    X_scaled = row.values
+                clf.predict(X_scaled)
+                ml_latencies.append((_time.perf_counter() - t0) * 1000)
+
+        metrics = {
+            "model": "DetectionLatency",
+            "accuracy": 0.0,  # 占位，非评估指标
+            "precision": 0.0,
+            "recall": 0.0,
+            "f1_score": 0.0,
+            "detection_latency_ms": {
+                "rule_mean": round(np.mean(rule_latencies), 3),
+                "rule_p50": round(np.percentile(rule_latencies, 50), 3),
+                "rule_p95": round(np.percentile(rule_latencies, 95), 3),
+                "rule_p99": round(np.percentile(rule_latencies, 99), 3),
+                "rule_max": round(max(rule_latencies), 3),
+            },
+        }
+        if ml_latencies:
+            metrics["detection_latency_ms"]["ml_mean"] = round(np.mean(ml_latencies), 3)
+            metrics["detection_latency_ms"]["ml_p50"] = round(np.percentile(ml_latencies, 50), 3)
+            metrics["detection_latency_ms"]["ml_p95"] = round(np.percentile(ml_latencies, 95), 3)
+            metrics["detection_latency_ms"]["ml_p99"] = round(np.percentile(ml_latencies, 99), 3)
+            metrics["detection_latency_ms"]["ml_max"] = round(max(ml_latencies), 3)
+
+        logger.info("检测延迟基准: 规则 mean=%.3fms p95=%.3fms | ML mean=%.3fms p95=%.3fms",
+                     metrics["detection_latency_ms"]["rule_mean"],
+                     metrics["detection_latency_ms"]["rule_p95"],
+                     metrics["detection_latency_ms"].get("ml_mean", 0),
+                     metrics["detection_latency_ms"].get("ml_p95", 0))
+        return metrics
+
+    except Exception as exc:
+        logger.warning("检测延迟基准测试失败: %s", exc)
+        return None

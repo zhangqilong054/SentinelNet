@@ -1,0 +1,386 @@
+"""增强特征提取模块 — 多维度网络流量特征。
+
+P0-9:  流级特征（平均包长、标准差、上下行比、包数）
+P0-10: TCP 行为特征（SYN/FIN/RST/PSH 比例、窗口大小均值）
+P0-11: 端口特征（目标端口熵值）、时间特征（包间隔均值方差）
+P0-12: 加密流量特征（JA3 哈希、TLS 版本、加密套件数量）
+
+特征总数达 15+，统一管理。
+"""
+from __future__ import annotations
+
+import csv
+import hashlib
+import logging
+import math
+from collections import defaultdict
+from dataclasses import dataclass, field
+from pathlib import Path
+from typing import Optional
+
+import numpy as np
+
+from campus_ids.config import TRAFFIC_CSV
+
+logger = logging.getLogger(__name__)
+
+OUTPUT_CSV = TRAFFIC_CSV
+
+# ── 特征名称列表（统一管理，训练 / 检测共用） ────────────────────────
+FEATURE_NAMES = [
+    # 流级特征 (P0-9)
+    "avg_pkt_len",          # 平均包长
+    "std_pkt_len",          # 包长标准差
+    "up_down_byte_ratio",   # 上下行字节比
+    "pkt_count",            # 包数
+    "total_bytes",          # 总字节数
+    # TCP 行为特征 (P0-10)
+    "syn_flag_ratio",       # SYN 标志比例
+    "fin_flag_ratio",       # FIN 标志比例
+    "rst_flag_ratio",       # RST 标志比例
+    "psh_flag_ratio",       # PSH 标志比例
+    "avg_window_size",      # 窗口大小均值
+    # 端口特征 (P0-11)
+    "dst_port_entropy",     # 目标端口熵值
+    # 时间特征 (P0-11)
+    "avg_pkt_interval",     # 包间隔均值
+    "std_pkt_interval",     # 包间隔方差
+    # 加密流量特征 (P0-12)
+    "ja3_hash_enc",         # JA3 哈希编码（数值化）
+    "tls_version_enc",      # TLS 版本编码
+    "cipher_suite_count",   # 加密套件数量
+    # 基础特征
+    "max_pkt_len",          # 最大包长（区别于 avg_pkt_len，反映异常大包/小包）
+    "duration",             # 持续时间
+]
+
+# TLS 版本编码映射
+TLS_VERSION_ENCODE = {
+    "SSL 3.0": 0,
+    "TLS 1.0": 1,
+    "TLS 1.1": 2,
+    "TLS 1.2": 3,
+    "TLS 1.3": 4,
+    "": -1,
+}
+
+
+@dataclass
+class PacketInfo:
+    """单个包的信息。"""
+    src_ip: str = ""
+    dst_ip: str = ""
+    src_port: int = 0
+    dst_port: int = 0
+    proto: str = ""          # TCP / UDP / Other
+    length: int = 0
+    timestamp: float = 0.0
+    # TCP 标志
+    is_syn: bool = False
+    is_fin: bool = False
+    is_rst: bool = False
+    is_psh: bool = False
+    window_size: int = 0
+    # TLS 信息
+    ja3_hash: str = ""
+    tls_version: str = ""
+    cipher_suite_count: int = 0
+
+
+@dataclass
+class FlowFeatures:
+    """一条流（五元组）的聚合特征。"""
+    src_ip: str = ""
+    dst_ip: str = ""
+    src_port: int = 0
+    dst_port: int = 0
+    proto: str = ""
+    # 流级特征
+    avg_pkt_len: float = 0.0
+    std_pkt_len: float = 0.0
+    up_down_byte_ratio: float = 0.0
+    pkt_count: int = 0
+    total_bytes: int = 0
+    # TCP 行为特征
+    syn_flag_ratio: float = 0.0
+    fin_flag_ratio: float = 0.0
+    rst_flag_ratio: float = 0.0
+    psh_flag_ratio: float = 0.0
+    avg_window_size: float = 0.0
+    # 端口特征
+    dst_port_entropy: float = 0.0
+    # 时间特征
+    avg_pkt_interval: float = 0.0
+    std_pkt_interval: float = 0.0
+    # 加密流量特征
+    ja3_hash_enc: float = 0.0
+    tls_version_enc: float = -1.0
+    cipher_suite_count: int = 0
+    # 基础特征
+    max_pkt_len: float = 0.0
+    duration: float = 0.0
+    # 标签
+    label: str = "Normal"
+
+
+def _compute_entropy(values: list) -> float:
+    """计算信息熵。"""
+    if not values:
+        return 0.0
+    counts: dict = defaultdict(int)
+    for v in values:
+        counts[v] += 1
+    total = len(values)
+    entropy = 0.0
+    for c in counts.values():
+        p = c / total
+        if p > 0:
+            entropy -= p * math.log2(p)
+    return entropy
+
+
+def _ja3_to_numeric(ja3_hash: str) -> float:
+    """将 JA3 哈希转为数值特征（取前 8 位 hex 转 int，归一化到 0~1）。"""
+    if not ja3_hash:
+        return 0.0
+    try:
+        return int(ja3_hash[:8], 16) / 0xFFFFFFFF
+    except (ValueError, ZeroDivisionError):
+        return 0.0
+
+
+def extract_packet_info(pkt) -> Optional[PacketInfo]:
+    """从 Scapy 包中提取 PacketInfo。"""
+    try:
+        from scapy.all import IP, TCP, UDP
+
+        if not pkt.haslayer(IP):
+            return None
+        if not (pkt.haslayer(TCP) or pkt.haslayer(UDP)):
+            return None
+
+        ip = pkt[IP]
+        l4 = pkt[TCP] if pkt.haslayer(TCP) else pkt[UDP]
+        proto = "TCP" if pkt.haslayer(TCP) else "UDP"
+
+        info = PacketInfo(
+            src_ip=ip.src,
+            dst_ip=ip.dst,
+            src_port=int(l4.sport),
+            dst_port=int(l4.dport),
+            proto=proto,
+            length=len(pkt),
+            timestamp=float(pkt.time),
+        )
+
+        # TCP 标志
+        if pkt.haslayer(TCP):
+            flags = pkt[TCP].flags
+            info.is_syn = bool(flags & 0x02)
+            info.is_fin = bool(flags & 0x01)
+            info.is_rst = bool(flags & 0x04)
+            info.is_psh = bool(flags & 0x08)
+            info.window_size = int(pkt[TCP].window)
+
+        return info
+
+    except Exception as exc:
+        logger.debug("包信息提取失败: %s", exc)
+        return None
+
+
+def aggregate_flow_features(packets: list[PacketInfo],
+                            tls_records: list[dict] | None = None) -> list[FlowFeatures]:
+    """将包列表按五元组聚合为流特征。
+
+    Args:
+        packets: PacketInfo 列表
+        tls_records: 来自 tls_analyzer 的 TLS 记录列表（可选）
+
+    Returns:
+        FlowFeatures 列表
+    """
+    # 按五元组分组
+    flows: dict[tuple, list[PacketInfo]] = defaultdict(list)
+    for pkt in packets:
+        key = (pkt.src_ip, pkt.dst_ip, pkt.src_port, pkt.dst_port, pkt.proto)
+        flows[key].append(pkt)
+
+    # 构建 TLS 信息索引：(src_ip, src_port) -> TLS 记录
+    tls_map: dict[tuple, dict] = {}
+    if tls_records:
+        for rec in tls_records:
+            tls_key = (rec.get("src_ip", ""), rec.get("src_port", 0))
+            tls_map[tls_key] = rec
+
+    results: list[FlowFeatures] = []
+
+    for key, pkts in flows.items():
+        src_ip, dst_ip, src_port, dst_port, proto = key
+        n = len(pkts)
+
+        # 包长统计
+        lengths = [p.length for p in pkts]
+        avg_len = np.mean(lengths) if lengths else 0.0
+        std_len = float(np.std(lengths)) if len(lengths) > 1 else 0.0
+        total_bytes = sum(lengths)
+
+        # 上下行字节比（上行: src->dst, 下行: dst->src，简化为总字节/包数）
+        up_down_ratio = total_bytes / n if n > 0 else 0.0
+
+        # TCP 行为特征
+        syn_count = sum(1 for p in pkts if p.is_syn)
+        fin_count = sum(1 for p in pkts if p.is_fin)
+        rst_count = sum(1 for p in pkts if p.is_rst)
+        psh_count = sum(1 for p in pkts if p.is_psh)
+        window_sizes = [p.window_size for p in pkts if p.window_size > 0]
+
+        # 端口熵（同一流内通常只有 1 个目标端口，熵为 0；跨流聚合时有用）
+        dst_ports = [p.dst_port for p in pkts]
+        port_entropy = _compute_entropy(dst_ports)
+
+        # 时间特征
+        timestamps = sorted([p.timestamp for p in pkts])
+        intervals = [timestamps[i + 1] - timestamps[i] for i in range(len(timestamps) - 1)] if len(timestamps) > 1 else [0.0]
+        avg_interval = float(np.mean(intervals)) if intervals else 0.0
+        std_interval = float(np.std(intervals)) if len(intervals) > 1 else 0.0
+
+        # 加密流量特征
+        tls_info = tls_map.get((src_ip, src_port), {})
+        ja3_hash = tls_info.get("ja3_hash", "")
+        tls_version = tls_info.get("tls_version", "")
+        cipher_count = tls_info.get("cipher_count", 0)
+
+        # 最大包长（区别于 avg_pkt_len，反映异常大包/小包）
+        max_len = max(lengths) if lengths else 0.0
+
+        # 持续时间
+        duration = (timestamps[-1] - timestamps[0]) if len(timestamps) > 1 else 0.0
+
+        # 标签（基于启发式规则）
+        label = _heuristic_label(pkts, port_entropy, syn_count, n)
+
+        flow = FlowFeatures(
+            src_ip=src_ip, dst_ip=dst_ip, src_port=src_port, dst_port=dst_port,
+            proto=proto,
+            avg_pkt_len=avg_len, std_pkt_len=std_len,
+            up_down_byte_ratio=up_down_ratio, pkt_count=n, total_bytes=total_bytes,
+            syn_flag_ratio=syn_count / n if n > 0 else 0.0,
+            fin_flag_ratio=fin_count / n if n > 0 else 0.0,
+            rst_flag_ratio=rst_count / n if n > 0 else 0.0,
+            psh_flag_ratio=psh_count / n if n > 0 else 0.0,
+            avg_window_size=float(np.mean(window_sizes)) if window_sizes else 0.0,
+            dst_port_entropy=port_entropy,
+            avg_pkt_interval=avg_interval, std_pkt_interval=std_interval,
+            ja3_hash_enc=_ja3_to_numeric(ja3_hash),
+            tls_version_enc=TLS_VERSION_ENCODE.get(tls_version, -1),
+            cipher_suite_count=cipher_count,
+            max_pkt_len=max_len, duration=duration,
+            label=label,
+        )
+        results.append(flow)
+
+    return results
+
+
+def _heuristic_label(pkts: list[PacketInfo], port_entropy: float,
+                     syn_count: int, pkt_count: int) -> str:
+    """基于启发式规则给流打标签。"""
+    # SYN 洪水：SYN 比例高
+    if pkt_count > 0 and syn_count / pkt_count > 0.8 and pkt_count > 10:
+        return "Attack"
+    # 端口扫描：端口熵高
+    if port_entropy > 2.0:
+        return "Attack"
+    # 高频发包
+    if pkt_count > 100:
+        return "Attack"
+    return "Normal"
+
+
+def flow_to_feature_vector(flow: FlowFeatures) -> list[float]:
+    """将 FlowFeatures 转为特征向量（与 FEATURE_NAMES 对应）。"""
+    return [
+        flow.avg_pkt_len, flow.std_pkt_len, flow.up_down_byte_ratio,
+        flow.pkt_count, flow.total_bytes,
+        flow.syn_flag_ratio, flow.fin_flag_ratio, flow.rst_flag_ratio,
+        flow.psh_flag_ratio, flow.avg_window_size,
+        flow.dst_port_entropy,
+        flow.avg_pkt_interval, flow.std_pkt_interval,
+        flow.ja3_hash_enc, flow.tls_version_enc, flow.cipher_suite_count,
+        flow.max_pkt_len, flow.duration,
+    ]
+
+
+def flow_to_csv_row(flow: FlowFeatures) -> list:
+    """将 FlowFeatures 转为 CSV 行（含元信息 + 特征 + 标签）。"""
+    return [
+        flow.src_ip, flow.dst_ip, flow.src_port, flow.dst_port, flow.proto,
+        flow.avg_pkt_len, flow.std_pkt_len, flow.up_down_byte_ratio,
+        flow.pkt_count, flow.total_bytes,
+        flow.syn_flag_ratio, flow.fin_flag_ratio, flow.rst_flag_ratio,
+        flow.psh_flag_ratio, flow.avg_window_size,
+        flow.dst_port_entropy,
+        flow.avg_pkt_interval, flow.std_pkt_interval,
+        flow.ja3_hash_enc, flow.tls_version_enc, flow.cipher_suite_count,
+        flow.max_pkt_len, flow.duration,
+        flow.label,
+    ]
+
+
+CSV_HEADER = [
+    "Src_IP", "Dst_IP", "Src_Port", "Dst_Port", "Protocol",
+    *FEATURE_NAMES,
+    "Label",
+]
+
+
+def save_flows_to_csv(flows: list[FlowFeatures], path: Path | None = None) -> Path:
+    """将流特征保存到 CSV 文件。"""
+    out = path or OUTPUT_CSV
+    with out.open("w", newline="", encoding="utf-8") as f:
+        writer = csv.writer(f)
+        writer.writerow(CSV_HEADER)
+        for flow in flows:
+            writer.writerow(flow_to_csv_row(flow))
+    logger.info("流特征数据已保存至 %s（%d 条流）", out, len(flows))
+    return out
+
+
+def start_enhanced_capture(duration: int = 60) -> bool:
+    """增强版抓包：提取多维度流特征并保存。"""
+    from scapy.all import sniff
+    from campus_ids.capture.tls_analyzer import tls_analyzer
+
+    logger.info("开始增强抓包，持续 %s 秒...", duration)
+    packets_info: list[PacketInfo] = []
+
+    def _on_pkt(pkt):
+        info = extract_packet_info(pkt)
+        if info:
+            packets_info.append(info)
+        # 同时解析 TLS
+        if pkt.haslayer(IP) and pkt.haslayer(TCP):
+            tls_analyzer.parse_tls_from_packet(pkt)
+
+    try:
+        sniff(prn=_on_pkt, store=False, timeout=duration)
+    except RuntimeError as exc:
+        logger.error("抓包失败: %s", exc)
+        return False
+
+    # 获取 TLS 记录
+    tls_records = tls_analyzer.get_suspicious_records(limit=10000)
+    # 也包含非可疑记录（通过公开方法获取）
+    all_tls = [
+        {"src_ip": r.src_ip, "src_port": r.src_port, "ja3_hash": r.ja3_hash,
+         "tls_version": r.tls_version, "cipher_count": r.cipher_count}
+        for r in tls_analyzer.get_all_records()
+    ]
+
+    # 聚合流特征
+    flows = aggregate_flow_features(packets_info, all_tls)
+    save_flows_to_csv(flows)
+
+    logger.info("增强抓包完成：捕获 %d 个包，聚合为 %d 条流", len(packets_info), len(flows))
+    return True

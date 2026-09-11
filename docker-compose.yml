@@ -1,0 +1,29 @@
+# 校园网加密流量入侵检测系统（AI-NIDS）
+# 一键启动: docker compose up --build
+# 访问: http://localhost:5000
+version: "3.8"
+
+services:
+  web:
+    build: .
+    container_name: campus-ids
+    ports:
+      - "5000:5000"
+    volumes:
+      - model-data:/app/data
+      - log-data:/app/logs
+    environment:
+      - CAMPUS_IDS_DATA_DIR=/app/data
+      - CAMPUS_IDS_LOG_DIR=/app/logs
+      - CAMPUS_IDS_DEMO_MODE=1
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:5000/api/traffic')"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+
+volumes:
+  model-data:
+  log-data:

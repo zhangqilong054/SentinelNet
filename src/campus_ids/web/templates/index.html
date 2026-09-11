@@ -1,0 +1,241 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI-NIDS 校园网流量监控中心</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/dashboard.css') }}">
+</head>
+<body>
+    <header class="topbar">
+        <h1>🛡️ AI-NIDS 校园网加密流量入侵检测系统</h1>
+        <div class="topbar-meta">
+            <span class="update-time">最后更新: <span id="updateTime">--</span></span>
+            <span class="conn-status" id="connStatus">
+                <span class="conn-dot"></span><span id="connText">连接中…</span>
+            </span>
+            <button class="btn" id="pauseBtn">⏸ 暂停刷新</button>
+        </div>
+    </header>
+
+    <div class="banner" id="globalBanner"></div>
+
+    <nav class="tabs">
+        <button class="tab-btn active" data-tab="overview">📊 总览</button>
+        <button class="tab-btn" data-tab="tls">🔒 加密流量</button>
+        <button class="tab-btn" data-tab="dual">🤖 双引擎</button>
+        <button class="tab-btn" data-tab="alerts">🔔 告警</button>
+        <button class="tab-btn" data-tab="payload">🧪 载荷检测</button>
+        <button class="tab-btn" data-tab="control">🎛️ 控制</button>
+    </nav>
+
+    <main class="dashboard">
+
+        <!-- ============ 总览 ============ -->
+        <section class="tab-pane active" id="tab-overview">
+            <div class="metric-grid">
+                <div class="card">
+                    <div class="card-title">QPS（每秒请求数）</div>
+                    <div class="card-value" id="qps">--</div>
+                </div>
+                <div class="card">
+                    <div class="card-title">活跃连接数</div>
+                    <div class="card-value" id="connections">--</div>
+                </div>
+                <div class="card">
+                    <div class="card-title">数据包计数</div>
+                    <div class="card-value" id="packetCount">--</div>
+                </div>
+                <div class="card">
+                    <div class="card-title">访问端口数</div>
+                    <div class="card-value" id="portCount">--</div>
+                </div>
+                <div class="card">
+                    <div class="card-title">来源 IP 数</div>
+                    <div class="card-value" id="srcIpCount">--</div>
+                </div>
+                <div class="card">
+                    <div class="card-title">安全状态</div>
+                    <div class="card-value" id="status">--</div>
+                </div>
+            </div>
+
+            <div class="metric-grid">
+                <div class="card">
+                    <div class="card-title">TCP SYN 包</div>
+                    <div class="card-value" id="synPackets">--</div>
+                </div>
+                <div class="card">
+                    <div class="card-title">UDP 包</div>
+                    <div class="card-value" id="udpPackets">--</div>
+                </div>
+                <div class="card">
+                    <div class="card-title">DNS 查询</div>
+                    <div class="card-value" id="dnsPackets">--</div>
+                </div>
+            </div>
+
+            <div class="chart-card">
+                <div class="chart-title">📈 QPS 实时趋势（红线为 DDoS 阈值）</div>
+                <div class="chart-canvas-wrap"><canvas id="qpsChart"></canvas></div>
+            </div>
+
+            <div class="chart-card">
+                <div class="chart-title">🥧 攻击类型分布</div>
+                <div class="pie-wrap">
+                    <div class="pie-canvas-wrap"><canvas id="attackPieChart"></canvas></div>
+                    <div id="attackTypeList" class="pie-legend">暂无数据</div>
+                </div>
+            </div>
+        </section>
+
+        <!-- ============ 加密流量 ============ -->
+        <section class="tab-pane" id="tab-tls">
+            <div class="metric-grid">
+                <div class="card">
+                    <div class="card-title">🔒 TLS 加密流量</div>
+                    <div class="card-value" id="tlsFlows">--</div>
+                </div>
+                <div class="card">
+                    <div class="card-title">🔑 JA3 指纹数</div>
+                    <div class="card-value" id="ja3Count">--</div>
+                </div>
+                <div class="card">
+                    <div class="card-title">⚠️ 可疑 TLS</div>
+                    <div class="card-value" id="suspiciousTls">--</div>
+                </div>
+            </div>
+            <div class="metric-grid">
+                <div class="card">
+                    <div class="card-title">TLS 版本分布</div>
+                    <div class="detail-block" id="tlsVersionDist">--</div>
+                </div>
+                <div class="card">
+                    <div class="card-title">异常 SNI 列表</div>
+                    <div class="detail-block" id="suspiciousSni">--</div>
+                </div>
+                <div class="card">
+                    <div class="card-title">JA3 Top 指纹</div>
+                    <div class="detail-block" id="ja3Top">--</div>
+                </div>
+            </div>
+        </section>
+
+        <!-- ============ 双引擎 ============ -->
+        <section class="tab-pane" id="tab-dual">
+            <div class="metric-grid">
+                <div class="card">
+                    <div class="card-title">🤖 ML 模型状态</div>
+                    <div class="card-value" id="mlStatus" style="font-size:24px;">未加载</div>
+                </div>
+                <div class="card">
+                    <div class="card-title">🎯 ML 预测结果</div>
+                    <div class="card-value" id="mlPrediction" style="font-size:24px;">--</div>
+                </div>
+                <div class="card">
+                    <div class="card-title">📊 ML 置信度</div>
+                    <div class="card-value" id="mlConfidence" style="font-size:24px;">--</div>
+                </div>
+            </div>
+            <div class="metric-grid">
+                <div class="card">
+                    <div class="card-title">🔍 规则告警次数</div>
+                    <div class="card-value" id="ruleAlertCount">0</div>
+                </div>
+                <div class="card">
+                    <div class="card-title">🧠 ML 检测次数</div>
+                    <div class="card-value" id="mlPredictCount">0</div>
+                </div>
+                <div class="card">
+                    <div class="card-title">⚠️ ML 攻击检出</div>
+                    <div class="card-value" id="mlAttackCount">0</div>
+                </div>
+            </div>
+            <div class="panel">
+                <div class="panel-title">🤖 ML 模型控制</div>
+                <div class="btn-row">
+                    <button class="btn btn-primary" id="btnLoadML">📥 加载 ML 模型</button>
+                    <button class="btn btn-danger" id="btnStopML">⏹ 停止 ML 预测</button>
+                    <span class="status-text" id="mlLoadStatus">模型未加载</span>
+                </div>
+            </div>
+        </section>
+
+        <!-- ============ 告警 ============ -->
+        <section class="tab-pane" id="tab-alerts">
+            <div class="filter-bar">
+                <button class="filter-chip active" data-level="all">全部<span class="chip-count" id="cnt-all">0</span></button>
+                <button class="filter-chip" data-level="high">高危<span class="chip-count" id="cnt-high">0</span></button>
+                <button class="filter-chip" data-level="medium">中危<span class="chip-count" id="cnt-medium">0</span></button>
+                <button class="filter-chip" data-level="low">低危<span class="chip-count" id="cnt-low">0</span></button>
+            </div>
+            <div class="alerts-scroll" id="alertsContainer">
+                <p class="no-alert">系统运行正常，暂无安全警报...</p>
+            </div>
+        </section>
+
+        <!-- ============ 载荷检测 ============ -->
+        <section class="tab-pane" id="tab-payload">
+            <div class="panel">
+                <div class="panel-title">🧪 应用层载荷检测（SQL 注入 / XSS 规则）</div>
+                <textarea class="payload-textarea" id="payloadInput"
+                    placeholder="粘贴 HTTP 请求 URL / 参数 / 文本载荷，例如：/login?username=admin' OR '1'='1"></textarea>
+                <div class="btn-row" style="margin-top:12px;">
+                    <button class="btn btn-info" id="btnPayloadCheck">🔍 检测载荷</button>
+                    <button class="btn" data-sample="sqli">示例：SQL 注入</button>
+                    <button class="btn" data-sample="xss">示例：XSS</button>
+                    <button class="btn" data-sample="normal">示例：正常请求</button>
+                </div>
+                <div class="payload-result" id="payloadResult"></div>
+            </div>
+        </section>
+
+        <!-- ============ 控制 ============ -->
+        <section class="tab-pane" id="tab-control">
+            <div class="panel">
+                <div class="panel-title">🎛️ 检测阈值配置（保存后立即生效）</div>
+                <div class="config-grid">
+                    <div class="config-item">
+                        <label for="cfg_ddos">DDoS 阈值 (QPS)</label>
+                        <input type="number" id="cfg_ddos" min="1" step="1" value="500">
+                    </div>
+                    <div class="config-item">
+                        <label for="cfg_scan">端口扫描阈值</label>
+                        <input type="number" id="cfg_scan" min="1" step="1" value="50">
+                    </div>
+                    <div class="config-item">
+                        <label for="cfg_syn">SYN 洪水阈值</label>
+                        <input type="number" id="cfg_syn" min="1" step="1" value="100">
+                    </div>
+                    <div class="config-item">
+                        <label for="cfg_udp">UDP 洪水阈值</label>
+                        <input type="number" id="cfg_udp" min="1" step="1" value="200">
+                    </div>
+                </div>
+                <div class="btn-row">
+                    <button class="btn btn-primary" id="btnSaveConfig">💾 保存阈值</button>
+                    <button class="btn" id="btnResetConfig">↩ 恢复原值</button>
+                    <span class="form-msg" id="configMsg"></span>
+                </div>
+            </div>
+
+            <div class="panel">
+                <div class="panel-title">📡 实时抓包控制</div>
+                <div class="btn-row">
+                    <button class="btn btn-primary" id="btnStartCapture">▶ 开始抓包</button>
+                    <button class="btn btn-danger" id="btnStopCapture">⏹ 停止抓包</button>
+                    <span class="status-text" id="captureStatus">未启动（当前为模拟数据）</span>
+                </div>
+                <div class="btn-row" style="margin-top:12px;">
+                    <button class="btn" id="btnSaveCsv">💽 保存流量统计到 traffic_stats.csv</button>
+                    <span class="form-msg" id="saveMsg"></span>
+                </div>
+            </div>
+        </section>
+
+    </main>
+
+    <script src="{{ url_for('static', filename='js/chart.umd.min.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/dashboard.js') }}"></script>
+</body>
+</html>

@@ -1,0 +1,164 @@
+from __future__ import annotations
+
+import logging
+import re
+from collections import defaultdict
+from time import time
+
+logger = logging.getLogger(__name__)
+
+# P1-#9: 应用层攻击载荷特征
+_SQL_INJECTION_PATTERNS = [
+    re.compile(r"(\bunion\b.*\bselect\b)", re.IGNORECASE),
+    re.compile(r"(\bselect\b.*\bfrom\b)", re.IGNORECASE),
+    re.compile(r"(\binsert\b.*\binto\b)", re.IGNORECASE),
+    re.compile(r"(\bdrop\b\s+table\b)", re.IGNORECASE),
+    re.compile(r"(\bor\b\s+1\s*=\s*1)", re.IGNORECASE),
+    re.compile(r"(\b'\s*or\s*'\s*=\s*')", re.IGNORECASE),
+    re.compile(r"(\bexec\b.*\bxp_cmdshell\b)", re.IGNORECASE),
+    re.compile(r"(;\s*--)", re.IGNORECASE),
+]
+
+_XSS_PATTERNS = [
+    re.compile(r"<script[^>]*>", re.IGNORECASE),
+    re.compile(r"javascript\s*:", re.IGNORECASE),
+    re.compile(r"on(error|load|click|mouseover)\s*=", re.IGNORECASE),
+    re.compile(r"<img[^>]+on\w+\s*=", re.IGNORECASE),
+    re.compile(r"<iframe[^>]*>", re.IGNORECASE),
+    re.compile(r"document\.(cookie|location|write)", re.IGNORECASE),
+    re.compile(r"eval\s*\(", re.IGNORECASE),
+]
+
+
+class AnomalyDetector:
+    def __init__(self, ddos_threshold=500, port_scan_threshold=50,
+                 syn_flood_threshold=100, udp_flood_threshold=200,
+                 brute_force_threshold=10, brute_force_window=60,
+                 lateral_movement_threshold=5):
+        self.ddos_threshold = ddos_threshold
+        self.port_scan_threshold = port_scan_threshold
+        self.syn_flood_threshold = syn_flood_threshold
+        self.udp_flood_threshold = udp_flood_threshold
+
+        # P1-#9: 暴力破解检测参数
+        self.brute_force_threshold = brute_force_threshold  # 同一IP同一端口最大连接数
+        self.brute_force_window = brute_force_window  # 时间窗口（秒）
+
+        # P1-#9: 横向移动检测参数
+        self.lateral_movement_threshold = lateral_movement_threshold  # 同一IP访问不同内网IP数阈值
+
+        # 暴力破解追踪: {(src_ip, dport): [timestamp, ...]}
+        self._bf_tracker: dict[tuple[str, int], list[float]] = defaultdict(list)
+        # 横向移动追踪: {src_ip: set(dst_ip)}
+        self._lateral_tracker: dict[str, set[str]] = defaultdict(set)
+
+    def check_ddos(self, packet_count_per_second):
+        if packet_count_per_second > self.ddos_threshold:
+            return True, f"检测到疑似 DDoS 攻击 (QPS: {packet_count_per_second})"
+        return False, ""
+
+    def check_port_scan(self, unique_ports_accessed):
+        if unique_ports_accessed > self.port_scan_threshold:
+            return True, f"检测到疑似端口扫描行为 (访问端口数: {unique_ports_accessed})"
+        return False, ""
+
+    def check_syn_flood(self, syn_count):
+        if syn_count > self.syn_flood_threshold:
+            return True, f"检测到疑似 TCP SYN 洪水攻击 (SYN包: {syn_count})"
+        return False, ""
+
+    def check_udp_flood(self, udp_count):
+        if udp_count > self.udp_flood_threshold:
+            return True, f"检测到疑似 UDP 洪水攻击 (UDP包: {udp_count})"
+        return False, ""
+
+    # ---- P1-#9: 扩展检测类型 ----
+
+    def check_sql_injection(self, payload: str) -> tuple[bool, str]:
+        """检测 SQL 注入攻击载荷。基于正则匹配常见 SQL 注入模式。
+
+        Args:
+            payload: HTTP 请求载荷字符串（URL、body 等）
+        """
+        for pattern in _SQL_INJECTION_PATTERNS:
+            match = pattern.search(payload)
+            if match:
+                return True, f"检测到疑似 SQL 注入攻击 (匹配: {match.group()[:50]})"
+        return False, ""
+
+    def check_xss(self, payload: str) -> tuple[bool, str]:
+        """检测 XSS 跨站脚本攻击载荷。基于正则匹配常见 XSS 模式。
+
+        Args:
+            payload: HTTP 请求载荷字符串
+        """
+        for pattern in _XSS_PATTERNS:
+            match = pattern.search(payload)
+            if match:
+                return True, f"检测到疑似 XSS 攻击 (匹配: {match.group()[:50]})"
+        return False, ""
+
+    def check_brute_force(self, src_ip: str, dport: int) -> tuple[bool, str]:
+        """检测暴力破解行为。追踪同一源IP对同一目标端口的连接频率。
+
+        Args:
+            src_ip: 源 IP 地址
+            dport: 目标端口
+        """
+        now = time()
+        key = (src_ip, dport)
+        # 清理过期记录
+        self._bf_tracker[key] = [t for t in self._bf_tracker[key]
+                                  if now - t < self.brute_force_window]
+        self._bf_tracker[key].append(now)
+
+        count = len(self._bf_tracker[key])
+        if count >= self.brute_force_threshold:
+            return True, (f"检测到疑似暴力破解行为 "
+                          f"(IP: {src_ip}, 端口: {dport}, "
+                          f"{self.brute_force_window}s内{count}次连接)")
+        return False, ""
+
+    def check_lateral_movement(self, src_ip: str, dst_ip: str) -> tuple[bool, str]:
+        """检测横向移动行为。追踪同一源IP访问不同内网目标IP的数量。
+
+        Args:
+            src_ip: 源 IP 地址
+            dst_ip: 目标内网 IP 地址
+        """
+        self._lateral_tracker[src_ip].add(dst_ip)
+        count = len(self._lateral_tracker[src_ip])
+        if count >= self.lateral_movement_threshold:
+            return True, (f"检测到疑似横向移动行为 "
+                          f"(IP: {src_ip}, 访问{count}个不同内网主机)")
+        return False, ""
+
+    def check_payload(self, payload: str) -> list[str]:
+        """对 HTTP 载荷执行应用层检测（SQL 注入 + XSS）。
+
+        Args:
+            payload: HTTP 请求载荷字符串
+
+        Returns:
+            告警消息列表
+        """
+        alerts = []
+        is_sqli, sqli_msg = self.check_sql_injection(payload)
+        if is_sqli:
+            alerts.append(sqli_msg)
+        is_xss, xss_msg = self.check_xss(payload)
+        if is_xss:
+            alerts.append(xss_msg)
+        return alerts
+
+
+def demo_detection():
+    detector = AnomalyDetector()
+    is_attack, msg = detector.check_ddos(600)
+    if is_attack:
+        logger.warning("警报: %s", msg)
+
+
+if __name__ == "__main__":
+    logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
+    demo_detection()
