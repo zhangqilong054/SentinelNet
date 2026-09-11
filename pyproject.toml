@@ -3,9 +3,9 @@ requires = ["setuptools"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "campus-ids"
+name = "sentinel-net"
 version = "0.1.0"
-description = "校园网加密流量入侵检测系统（AI-NIDS）"
+description = "SentinelNet 哨兵网络 — 校园网加密流量入侵检测系统"
 requires-python = ">=3.10"
 dependencies = [
     "flask>=3.0",

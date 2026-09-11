@@ -1,4 +1,4 @@
-# 校园网加密流量入侵检测系统（AI-NIDS）依赖清单
+# SentinelNet 哨兵网络 — 校园网加密流量入侵检测系统依赖清单
 # 安装: pip install -r requirements.txt
 
 # Web 监控面板

@@ -359,7 +359,7 @@ def _save_evaluation_report(metrics_list: list[dict], data_source: str) -> None:
     """P2-11: 保存评估报告到文件（含 Per-Class F1、误报率、检测延迟）。"""
     lines = []
     lines.append("=" * 70)
-    lines.append("AI-NIDS 模型评估报告")
+    lines.append("SentinelNet 模型评估报告")
     lines.append(f"数据来源: {data_source}")
     lines.append("=" * 70)
     lines.append("")

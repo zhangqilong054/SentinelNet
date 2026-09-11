@@ -1,4 +1,4 @@
-# 校园网加密流量入侵检测系统（AI-NIDS）
+# SentinelNet 哨兵网络 — 校园网加密流量入侵检测系统
 # 一键启动: docker compose up --build
 # 访问: http://localhost:5000
 version: "3.8"

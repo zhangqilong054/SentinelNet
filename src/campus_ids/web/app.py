@@ -204,7 +204,7 @@ def api_payload_check():
 
 
 def run_app():
-    logger.info("AI-NIDS 监控系统启动成功")
+    logger.info("SentinelNet 监控系统启动成功")
     logger.info("访问地址: http://localhost:%s", CONFIG['port'])
     logger.info("刷新间隔: %sms", CONFIG['refresh_interval'])
     logger.info("数据保存文件: %s", OUTPUT_CSV)

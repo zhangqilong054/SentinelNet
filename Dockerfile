@@ -1,4 +1,4 @@
-# 校园网加密流量入侵检测系统（AI-NIDS）Docker 镜像
+# SentinelNet 哨兵网络 — 校园网加密流量入侵检测系统 Docker 镜像
 # 用法: docker compose up --build
 # 多阶段构建：减少最终镜像体积
 
