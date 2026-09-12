@@ -12,14 +12,17 @@ P0-20: 算法对比（随机森林 vs 规则检测）
 from __future__ import annotations
 
 import logging
+import warnings
 from pathlib import Path
 
 import numpy as np
 import pandas as pd
 from sklearn.ensemble import RandomForestClassifier
+from sklearn.exceptions import ConvergenceWarning
 from sklearn.linear_model import LogisticRegression
 from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import LabelEncoder, StandardScaler
+from tqdm import tqdm
 
 from campus_ids.config import (
     CONFUSION_MATRIX_PATH,
@@ -113,22 +116,64 @@ def train_model(X: pd.DataFrame, y: pd.Series,
     n_classes = len(le.classes_)
 
     if model_type == "rf":
+        rf_n_estimators = 100
+        rf_batch = max(1, rf_n_estimators // 10)
         clf = RandomForestClassifier(
-            n_estimators=100, random_state=42,
+            n_estimators=rf_batch, random_state=42,
             class_weight=effective_cw,
-            n_jobs=-1,
+            n_jobs=-1, warm_start=True,
         )
+        # tqdm 实时进度条（每批 10 棵树更新，抑制 warm_start+class_weight 兼容警告）
+        pbar_rf = tqdm(total=rf_n_estimators, desc="RF 迭代", unit="树", leave=False)
+        fitted = 0
+        try:
+            with warnings.catch_warnings():
+                warnings.filterwarnings("ignore", message="class_weight presets.*warm_start")
+                while fitted < rf_n_estimators:
+                    batch = min(rf_batch, rf_n_estimators - fitted)
+                    clf.n_estimators = fitted + batch
+                    clf.fit(X_train_scaled, y_train_encoded)
+                    pbar_rf.update(batch)
+                    fitted += batch
+        finally:
+            pbar_rf.close()
+        y_pred = clf.predict(X_test_scaled)
+        return clf, scaler, le, X_test_scaled, y_test_encoded, y_pred
     elif model_type == "lr":
+        lr_max_iter = 1000
         clf = LogisticRegression(
-            max_iter=1000, random_state=42,
+            max_iter=1, random_state=42,
             class_weight=effective_cw,
+            warm_start=True,
         )
-    # P1-7a: XGBoost / LightGBM 算法
+        # tqdm 实时进度条（每迭代更新，自动收敛检测）
+        pbar_lr = tqdm(total=lr_max_iter, desc="LR 迭代", unit="iter", leave=False)
+        prev_coef = None
+        converged = False
+        try:
+            with warnings.catch_warnings():
+                warnings.filterwarnings("ignore", category=ConvergenceWarning)
+                for _ in range(lr_max_iter):
+                    clf.fit(X_train_scaled, y_train_encoded)
+                    pbar_lr.update(1)
+                    if hasattr(clf, "coef_") and prev_coef is not None:
+                        if np.allclose(clf.coef_, prev_coef, atol=1e-6):
+                            pbar_lr.set_description("LR 收敛")
+                            converged = True
+                            break
+                    if hasattr(clf, "coef_"):
+                        prev_coef = clf.coef_.copy()
+        finally:
+            pbar_lr.close()
+        y_pred = clf.predict(X_test_scaled)
+        return clf, scaler, le, X_test_scaled, y_test_encoded, y_pred
+    # P1-7a: XGBoost — 带 tqdm 实时进度条
     elif model_type == "xgb":
         try:
             from xgboost import XGBClassifier
         except ImportError:
             raise ImportError("xgboost 未安装，请运行: pip install xgboost")
+        xgb_n_estimators = 100
         # P3: 多分类安全性 — scale_pos_weight 仅适用于二分类
         if n_classes == 2:
             from collections import Counter
@@ -136,36 +181,54 @@ def train_model(X: pd.DataFrame, y: pd.Series,
             neg_count = label_counts.get(0, 1)
             pos_count = label_counts.get(1, 1)
             spw = neg_count / pos_count if pos_count > 0 else 1.0
-            # P5: 数据已均衡时不设置 scale_pos_weight
             if class_weight_dict is False:
                 spw = 1.0
             clf = XGBClassifier(
-                n_estimators=100, max_depth=6, learning_rate=0.1,
-                random_state=42, n_jobs=-1,
-                scale_pos_weight=spw,
+                n_estimators=xgb_n_estimators, max_depth=6, learning_rate=0.1,
+                random_state=42, n_jobs=-1, scale_pos_weight=spw,
             )
         else:
             logger.info("XGBoost: %d 分类模式，使用 sample_weight 替代 scale_pos_weight", n_classes)
-            from sklearn.utils import compute_sample_weight
             clf = XGBClassifier(
-                n_estimators=100, max_depth=6, learning_rate=0.1,
+                n_estimators=xgb_n_estimators, max_depth=6, learning_rate=0.1,
                 random_state=42, n_jobs=-1,
             )
-            if effective_cw is not None:
-                sw = compute_sample_weight(
-                    effective_cw if isinstance(effective_cw, dict) else "balanced",
-                    y_train_encoded,
-                )
-                clf.fit(X_train_scaled, y_train_encoded, sample_weight=sw)
-            else:
-                clf.fit(X_train_scaled, y_train_encoded)
-            y_pred = clf.predict(X_test_scaled)
-            return clf, scaler, le, X_test_scaled, y_test_encoded, y_pred
+        # 构造 fit 参数
+        xgb_fit_kwargs = {"eval_set": [(X_test_scaled, y_test_encoded)], "verbose": False}
+        if n_classes > 2 and effective_cw is not None:
+            from sklearn.utils import compute_sample_weight
+            xgb_fit_kwargs["sample_weight"] = compute_sample_weight(
+                effective_cw if isinstance(effective_cw, dict) else "balanced",
+                y_train_encoded,
+            )
+        # tqdm 实时进度条（每轮提升）
+        pbar_xgb = tqdm(total=xgb_n_estimators, desc="XGBoost 迭代", unit="轮", leave=False)
+        try:
+            from xgboost.callback import TrainingCallback
+            class _XGBTqdm(TrainingCallback):
+                def after_iteration(self, model, epoch, evals_log):
+                    pbar_xgb.update(1)
+                    if evals_log:
+                        for _d, metrics in evals_log.items():
+                            for mn, vs in metrics.items():
+                                if vs:
+                                    pbar_xgb.set_postfix_str(f"{mn}={vs[-1]:.4f}")
+                    return False  # 继续训练
+            xgb_fit_kwargs["callbacks"] = [_XGBTqdm()]
+        except (ImportError, AttributeError):
+            pass  # 旧版 xgboost 不支持 TrainingCallback
+        clf.fit(X_train_scaled, y_train_encoded, **xgb_fit_kwargs)
+        pbar_xgb.close()
+        y_pred = clf.predict(X_test_scaled)
+        return clf, scaler, le, X_test_scaled, y_test_encoded, y_pred
+
+    # P1-7a: LightGBM — 带 tqdm 实时进度条
     elif model_type == "lgb":
         try:
             from lightgbm import LGBMClassifier
         except ImportError:
             raise ImportError("lightgbm 未安装，请运行: pip install lightgbm")
+        lgb_n_estimators = 100
         # P3: 多分类安全性 — scale_pos_weight 仅适用于二分类
         if n_classes == 2:
             from collections import Counter
@@ -176,51 +239,84 @@ def train_model(X: pd.DataFrame, y: pd.Series,
             if class_weight_dict is False:
                 spw = 1.0
             clf = LGBMClassifier(
-                n_estimators=100, max_depth=6, learning_rate=0.1,
-                random_state=42, n_jobs=-1, verbose=-1,
-                scale_pos_weight=spw,
+                n_estimators=lgb_n_estimators, max_depth=6, learning_rate=0.1,
+                random_state=42, n_jobs=-1, verbose=-1, scale_pos_weight=spw,
             )
         else:
             logger.info("LightGBM: %d 分类模式，使用 sample_weight 替代 scale_pos_weight", n_classes)
-            from sklearn.utils import compute_sample_weight
             clf = LGBMClassifier(
-                n_estimators=100, max_depth=6, learning_rate=0.1,
+                n_estimators=lgb_n_estimators, max_depth=6, learning_rate=0.1,
                 random_state=42, n_jobs=-1, verbose=-1,
             )
-            if effective_cw is not None:
-                sw = compute_sample_weight(
-                    effective_cw if isinstance(effective_cw, dict) else "balanced",
-                    y_train_encoded,
-                )
-                clf.fit(X_train_scaled, y_train_encoded, sample_weight=sw)
-            else:
-                clf.fit(X_train_scaled, y_train_encoded)
-            y_pred = clf.predict(X_test_scaled)
-            return clf, scaler, le, X_test_scaled, y_test_encoded, y_pred
-    # P1-7b: MLP 深度学习模型
+        # 构造 fit 参数
+        lgb_fit_kwargs = {"eval_set": [(X_test_scaled, y_test_encoded)]}
+        if n_classes > 2 and effective_cw is not None:
+            from sklearn.utils import compute_sample_weight
+            lgb_fit_kwargs["sample_weight"] = compute_sample_weight(
+                effective_cw if isinstance(effective_cw, dict) else "balanced",
+                y_train_encoded,
+            )
+        # tqdm 实时进度条（每轮提升）
+        pbar_lgb = tqdm(total=lgb_n_estimators, desc="LightGBM 迭代", unit="轮", leave=False)
+        def _lgb_tqdm_cb(env):
+            pbar_lgb.update(1)
+            if env.evaluation_result_list:
+                for item in env.evaluation_result_list:
+                    if len(item) >= 3:
+                        pbar_lgb.set_postfix_str(f"{item[1]}={item[2]:.4f}")
+        lgb_fit_kwargs["callbacks"] = [_lgb_tqdm_cb]
+        clf.fit(X_train_scaled, y_train_encoded, **lgb_fit_kwargs)
+        pbar_lgb.close()
+        y_pred = clf.predict(X_test_scaled)
+        return clf, scaler, le, X_test_scaled, y_test_encoded, y_pred
+
+    # P1-7b: MLP 深度学习模型 — 带 tqdm 实时进度条
     elif model_type == "mlp":
         from sklearn.neural_network import MLPClassifier
+        mlp_max_iter = 300
+        mlp_n_iter_no_change = 10
         clf = MLPClassifier(
-            hidden_layer_sizes=(128, 64, 32), max_iter=300,
-            random_state=42, early_stopping=True,
-            validation_fraction=0.1,
+            hidden_layer_sizes=(128, 64, 32), max_iter=1,
+            random_state=42, warm_start=True,
+            early_stopping=False,  # 手动实现早停
         )
+        # 计算样本权重
+        sw = None
+        if effective_cw is not None:
+            from sklearn.utils import compute_sample_weight
+            sw = compute_sample_weight(
+                effective_cw if isinstance(effective_cw, dict) else "balanced",
+                y_train_encoded,
+            )
+        # tqdm 实时进度条（每 epoch 更新，抑制 max_iter=1 的 ConvergenceWarning）
+        pbar_mlp = tqdm(total=mlp_max_iter, desc="MLP 迭代", unit="epoch", leave=False)
+        best_loss = float("inf")
+        no_improve_count = 0
+        with warnings.catch_warnings():
+            warnings.filterwarnings("ignore", category=ConvergenceWarning)
+            for _epoch in range(mlp_max_iter):
+                if sw is not None:
+                    clf.fit(X_train_scaled, y_train_encoded, sample_weight=sw)
+                else:
+                    clf.fit(X_train_scaled, y_train_encoded)
+                pbar_mlp.update(1)
+                if hasattr(clf, "loss_curve_") and clf.loss_curve_:
+                    cur_loss = clf.loss_curve_[-1]
+                    pbar_mlp.set_postfix(loss=f"{cur_loss:.4f}")
+                    if cur_loss < best_loss - 1e-4:
+                        best_loss = cur_loss
+                        no_improve_count = 0
+                    else:
+                        no_improve_count += 1
+                    if no_improve_count >= mlp_n_iter_no_change:
+                        pbar_mlp.set_description("MLP 早停")
+                        break
+        pbar_mlp.close()
+        y_pred = clf.predict(X_test_scaled)
+        return clf, scaler, le, X_test_scaled, y_test_encoded, y_pred
+
     else:
         raise ValueError(f"未知模型类型: {model_type}")
-
-    # MLP 不支持 class_weight 参数，使用 sample_weight 传入
-    if model_type == "mlp" and effective_cw is not None:
-        from sklearn.utils import compute_sample_weight
-        sw = compute_sample_weight(
-            effective_cw if isinstance(effective_cw, dict) else "balanced",
-            y_train_encoded,
-        )
-        clf.fit(X_train_scaled, y_train_encoded, sample_weight=sw)
-    else:
-        clf.fit(X_train_scaled, y_train_encoded)
-    y_pred = clf.predict(X_test_scaled)
-
-    return clf, scaler, le, X_test_scaled, y_test_encoded, y_pred
 
 
 # ── 模型持久化 ────────────────────────────────────────────────────
@@ -351,12 +447,34 @@ def train(dataset_path: Path | None = None,
         # 合成数据：全量做均衡（train_model 内部会划分）
         X_bal, y_bal, class_weight_dict = balance_classes(X, y, balance_method)
 
+    # ── 进度条：训练流程 12 步 ──
+    steps = [
+        ("数据预处理", "preprocess"),
+        ("随机森林", "rf"),
+        ("逻辑回归", "lr"),
+        ("XGBoost", "xgb"),
+        ("LightGBM", "lgb"),
+        ("MLP 神经网络", "mlp"),
+        ("5 折交叉验证", "cv"),
+        ("双引擎融合", "fusion"),
+        ("规则基线", "rule"),
+        ("延迟基准", "latency"),
+        ("对比表输出", "table"),
+        ("保存报告", "report"),
+    ]
+
     # P0-20: 算法对比
     results = {}
     all_metrics = []
 
-    # 随机森林
-    logger.info("训练随机森林模型...")
+    pbar = tqdm(steps, desc="训练流程", unit="步", bar_format="{l_bar}{bar}| {n_fmt}/{total_fmt} [{elapsed}<{remaining}] {desc}")
+
+    # Step 1: 数据预处理（已完成，直接更新）
+    pbar.set_description_str("✓ 数据预处理完成")
+    pbar.update(1)
+
+    # Step 2: 随机森林
+    pbar.set_description_str("训练随机森林...")
     rf_clf, rf_scaler, rf_le, rf_X_test, rf_y_test, rf_y_pred = train_model(
         X_bal, y_bal, class_weight_dict, model_type="rf",
         X_test=X_test_held, y_test=y_test_held,
@@ -364,16 +482,14 @@ def train(dataset_path: Path | None = None,
     rf_metrics = evaluate_model(rf_y_test, rf_y_pred, rf_le, "RandomForest")
     rf_metrics["data_source"] = data_source
     all_metrics.append(rf_metrics)
-
-    # P0-17: 混淆矩阵
     _save_confusion_matrix(rf_y_test, rf_y_pred, rf_le.classes_, CONFUSION_MATRIX_PATH)
-
-    # 保存最优模型（随机森林）
     actual_feature_cols = list(X_bal.columns)
     save_model(rf_clf, rf_scaler, rf_le, feature_columns=actual_feature_cols)
+    pbar.set_description_str("✓ 随机森林完成")
+    pbar.update(1)
 
-    # 逻辑回归对比
-    logger.info("训练逻辑回归模型（对比基线）...")
+    # Step 3: 逻辑回归
+    pbar.set_description_str("训练逻辑回归...")
     try:
         lr_clf, lr_scaler, lr_le, lr_X_test, lr_y_test, lr_y_pred = train_model(
             X_bal, y_bal, class_weight_dict, model_type="lr",
@@ -383,9 +499,11 @@ def train(dataset_path: Path | None = None,
         all_metrics.append(lr_metrics)
     except Exception as exc:
         logger.warning("逻辑回归训练失败: %s", exc)
+    pbar.set_description_str("✓ 逻辑回归完成")
+    pbar.update(1)
 
-    # P1-7a: XGBoost 对比
-    logger.info("训练 XGBoost 模型...")
+    # Step 4: XGBoost
+    pbar.set_description_str("训练 XGBoost...")
     try:
         xgb_clf, xgb_scaler, xgb_le, xgb_X_test, xgb_y_test, xgb_y_pred = train_model(
             X_bal, y_bal, class_weight_dict, model_type="xgb",
@@ -395,9 +513,11 @@ def train(dataset_path: Path | None = None,
         all_metrics.append(xgb_metrics)
     except Exception as exc:
         logger.warning("XGBoost 训练失败（可能未安装）: %s", exc)
+    pbar.set_description_str("✓ XGBoost 完成")
+    pbar.update(1)
 
-    # P1-7a: LightGBM 对比
-    logger.info("训练 LightGBM 模型...")
+    # Step 5: LightGBM
+    pbar.set_description_str("训练 LightGBM...")
     try:
         lgb_clf, lgb_scaler, lgb_le, lgb_X_test, lgb_y_test, lgb_y_pred = train_model(
             X_bal, y_bal, class_weight_dict, model_type="lgb",
@@ -407,9 +527,11 @@ def train(dataset_path: Path | None = None,
         all_metrics.append(lgb_metrics)
     except Exception as exc:
         logger.warning("LightGBM 训练失败（可能未安装）: %s", exc)
+    pbar.set_description_str("✓ LightGBM 完成")
+    pbar.update(1)
 
-    # P1-7b: MLP 深度学习模型
-    logger.info("训练 MLP 神经网络模型...")
+    # Step 6: MLP
+    pbar.set_description_str("训练 MLP...")
     try:
         mlp_clf, mlp_scaler, mlp_le, mlp_X_test, mlp_y_test, mlp_y_pred = train_model(
             X_bal, y_bal, class_weight_dict, model_type="mlp",
@@ -419,17 +541,22 @@ def train(dataset_path: Path | None = None,
         all_metrics.append(mlp_metrics)
     except Exception as exc:
         logger.warning("MLP 训练失败: %s", exc)
+    pbar.set_description_str("✓ MLP 完成")
+    pbar.update(1)
 
-    # P1-7c: 交叉验证 + ROC-AUC 对比（在训练集上做 CV）
-    logger.info("执行 5 折交叉验证...")
+    # Step 7: 交叉验证
+    pbar.set_description_str("5 折交叉验证...")
     try:
         cv_results = cross_validate_models(X_bal, y_bal, class_weight_dict)
         if cv_results:
             all_metrics.extend(cv_results)
     except Exception as exc:
         logger.warning("交叉验证失败: %s", exc)
+    pbar.set_description_str("✓ 交叉验证完成")
+    pbar.update(1)
 
-    # P1-7d: 双引擎融合方案 F1 对比（P1 修复：使用 held-out 测试集）
+    # Step 8: 双引擎融合
+    pbar.set_description_str("双引擎融合评估...")
     try:
         fusion_metrics = _evaluate_dual_fusion(
             X_bal, y_bal, class_weight_dict,
@@ -439,25 +566,41 @@ def train(dataset_path: Path | None = None,
             all_metrics.append(fusion_metrics)
     except Exception as exc:
         logger.warning("双引擎融合评估失败: %s", exc)
+    pbar.set_description_str("✓ 融合评估完成")
+    pbar.update(1)
 
-    # P0-20: 规则检测基线（P4 修复：使用 held-out 测试集）
+    # Step 9: 规则基线
+    pbar.set_description_str("规则基线评估...")
     rule_metrics = _evaluate_rule_baseline(
         X_test_held if X_test_held is not None else X,
         y_test_held if y_test_held is not None else y,
     )
     if rule_metrics:
         all_metrics.append(rule_metrics)
+    pbar.set_description_str("✓ 规则基线完成")
+    pbar.update(1)
 
-    # P2-11: 检测延迟基准测试
+    # Step 10: 延迟基准
+    pbar.set_description_str("延迟基准测试...")
     latency_metrics = _benchmark_detection_latency(X_bal)
     if latency_metrics:
         all_metrics.append(latency_metrics)
+    pbar.set_description_str("✓ 延迟基准完成")
+    pbar.update(1)
 
-    # 输出对比表
+    # Step 11: 对比表
+    pbar.set_description_str("输出对比表...")
     _print_comparison_table(all_metrics)
+    pbar.set_description_str("✓ 对比表完成")
+    pbar.update(1)
 
-    # 保存评估报告
+    # Step 12: 保存报告
+    pbar.set_description_str("保存评估报告...")
     _save_evaluation_report(all_metrics, data_source)
+    pbar.set_description_str("✓ 报告已保存")
+    pbar.update(1)
+
+    pbar.close()
 
     results["metrics"] = all_metrics
     results["best_model"] = "RandomForest"

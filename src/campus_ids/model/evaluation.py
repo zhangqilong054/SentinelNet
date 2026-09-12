@@ -18,6 +18,7 @@ from sklearn.metrics import (
 )
 from sklearn.model_selection import cross_val_score
 from sklearn.preprocessing import LabelEncoder, StandardScaler
+from tqdm import tqdm
 
 from campus_ids.config import CONFUSION_MATRIX_PATH, EVALUATION_PATH
 
@@ -168,7 +169,9 @@ def cross_validate_models(X: pd.DataFrame, y: pd.Series,
         effective_cw = encoded_cw if encoded_cw else "balanced"
 
     results = []
-    for name, mtype in model_configs:
+    pbar_cv = tqdm(model_configs, desc="交叉验证", unit="模型", leave=False)
+    for name, mtype in pbar_cv:
+        pbar_cv.set_description_str(f"CV {name}")
         try:
             # P2 修复：移除冗余 train_model 调用，直接创建分类器做交叉验证
             if mtype == "rf":
@@ -226,6 +229,7 @@ def cross_validate_models(X: pd.DataFrame, y: pd.Series,
 
         except Exception as exc:
             logger.warning("%s 交叉验证失败: %s", name, exc)
+    pbar_cv.close()
 
     return results
 
@@ -256,7 +260,8 @@ def _evaluate_dual_fusion(X: pd.DataFrame, y: pd.Series,
 
         # 规则判定（在测试集上）
         y_rule = []
-        for _, row in eval_X.iterrows():
+        pbar_rule = tqdm(eval_X.iterrows(), total=len(eval_X), desc="规则判定", unit="样本", leave=False)
+        for _, row in pbar_rule:
             is_attack = False
             pkt_count = row.get("pkt_count", row.get("Length", 0))
             syn_ratio = row.get("syn_flag_ratio", 0)
@@ -268,6 +273,7 @@ def _evaluate_dual_fusion(X: pd.DataFrame, y: pd.Series,
             if port_entropy > 2.0:
                 is_attack = True
             y_rule.append(1 if is_attack else 0)
+        pbar_rule.close()
 
         # ML 预测（在测试集上）
         X_scaled = rf_scaler.transform(eval_X.replace([np.inf, -np.inf], np.nan).fillna(0))
@@ -308,7 +314,8 @@ def _evaluate_rule_baseline(X: pd.DataFrame, y: pd.Series) -> dict | None:
 
         # 基于规则对每条样本做判定
         y_pred_rule = []
-        for _, row in X.iterrows():
+        pbar_rule = tqdm(X.iterrows(), total=len(X), desc="规则检测", unit="样本", leave=False)
+        for _, row in pbar_rule:
             is_attack = False
             # 简化规则映射
             pkt_count = row.get("pkt_count", row.get("Length", 0))
@@ -323,6 +330,7 @@ def _evaluate_rule_baseline(X: pd.DataFrame, y: pd.Series) -> dict | None:
                 is_attack = True
 
             y_pred_rule.append("Attack" if is_attack else "Normal")
+        pbar_rule.close()
 
         y_pred_arr = pd.Series(y_pred_rule, index=y.index)
 
@@ -451,8 +459,10 @@ def _benchmark_detection_latency(X: pd.DataFrame, n_samples: int = 100) -> dict 
         detector = AnomalyDetector()
 
         # 规则检测延迟测试
+        n = min(n_samples, len(X))
         rule_latencies = []
-        for i in range(min(n_samples, len(X))):
+        pbar_rule_lat = tqdm(range(n), desc="规则延迟测试", unit="样本", leave=False)
+        for i in pbar_rule_lat:
             row = X.iloc[i]
             t0 = _time.perf_counter()
             # 模拟规则检测调用
@@ -466,6 +476,7 @@ def _benchmark_detection_latency(X: pd.DataFrame, n_samples: int = 100) -> dict 
             if port_entropy > 1.0:
                 detector.check_port_scan(int(port_entropy * 10))
             rule_latencies.append((_time.perf_counter() - t0) * 1000)
+        pbar_rule_lat.close()
 
         # ML 推理延迟测试（如果模型可用）
         ml_latencies = []
@@ -473,7 +484,8 @@ def _benchmark_detection_latency(X: pd.DataFrame, n_samples: int = 100) -> dict 
         if artifact is not None:
             clf = artifact["model"]
             scaler = artifact.get("scaler")
-            for i in range(min(n_samples, len(X))):
+            pbar_ml_lat = tqdm(range(n), desc="ML 延迟测试", unit="样本", leave=False)
+            for i in pbar_ml_lat:
                 row = X.iloc[i:i+1]
                 t0 = _time.perf_counter()
                 if scaler:
@@ -482,6 +494,7 @@ def _benchmark_detection_latency(X: pd.DataFrame, n_samples: int = 100) -> dict 
                     X_scaled = row.values
                 clf.predict(X_scaled)
                 ml_latencies.append((_time.perf_counter() - t0) * 1000)
+            pbar_ml_lat.close()
 
         metrics = {
             "model": "DetectionLatency",
