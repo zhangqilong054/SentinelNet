@@ -151,28 +151,84 @@ def _load_cicids2017_dir(dir_path: Path, max_rows_per_file: int = 100000) -> tup
 
 
 def _map_cicids2017_features(df: pd.DataFrame) -> tuple[pd.DataFrame, pd.Series] | None:
-    """将 CICIDS2017 原始列映射到系统特征空间。"""
-    # 映射 CICIDS2017 特征到我们的特征空间
+    """将 CICIDS2017 原始列映射到系统特征空间。
+
+    注意: CICIDS2017 每行是一条流记录，无法计算真正的端口熵。
+    dst_port_entropy 使用端口类别的信息量作为代理：
+    - 知名端口 (0-1023): 低熵代理值 0.5
+    - 注册端口 (1024-49151): 中熵代理值 1.5
+    - 动态端口 (49152-65535): 高熵代理值 2.5
+
+    增强映射 (v2):
+    - pkt_count: Total Fwd Packets + Total Backward Packets（总包数）
+    - total_bytes: Total Length of Fwd Packets + Total Length of Bwd Packets（总字节数）
+    - up_down_byte_ratio: Down/Up Ratio（CICIDS2017 直接提供）
+    - avg_pkt_len / std_pkt_len: 使用全局 Packet Length Mean/Std（更准确）
+    - avg_window_size: 前向+后向窗口均值
+    """
+    # ── 基础映射：直接列名对应 ──
     feature_map = {
         "Flow Duration": "duration",
-        "Total Fwd Packets": "pkt_count",
-        "Fwd Packet Length Mean": "avg_pkt_len",
-        "Fwd Packet Length Std": "std_pkt_len",
-        "Flow Bytes/s": "total_bytes",
+        "Fwd Packet Length Max": "max_pkt_len",
         "Flow IAT Mean": "avg_pkt_interval",
         "Flow IAT Std": "std_pkt_interval",
         "SYN Flag Count": "syn_flag_ratio",
         "FIN Flag Count": "fin_flag_ratio",
         "RST Flag Count": "rst_flag_ratio",
         "PSH Flag Count": "psh_flag_ratio",
-        "Init_Win_bytes_forward": "avg_window_size",
-        "Destination Port": "dst_port_entropy",
     }
 
     mapped_cols = {}
     for src_col, dst_col in feature_map.items():
         if src_col in df.columns:
             mapped_cols[dst_col] = df[src_col]
+
+    # ── 组合映射：需要多列计算 ──
+
+    # pkt_count = Total Fwd Packets + Total Backward Packets
+    fwd_pkts = df.get("Total Fwd Packets", pd.Series(0, index=df.index)).fillna(0)
+    bwd_pkts = df.get("Total Backward Packets", pd.Series(0, index=df.index)).fillna(0)
+    mapped_cols["pkt_count"] = fwd_pkts + bwd_pkts
+
+    # total_bytes = Total Length of Fwd Packets + Total Length of Bwd Packets
+    fwd_bytes = df.get("Total Length of Fwd Packets", pd.Series(0, index=df.index)).fillna(0)
+    bwd_bytes = df.get("Total Length of Bwd Packets", pd.Series(0, index=df.index)).fillna(0)
+    mapped_cols["total_bytes"] = fwd_bytes + bwd_bytes
+
+    # avg_pkt_len: 优先使用全局 Packet Length Mean，回退到 Fwd Packet Length Mean
+    if " Packet Length Mean" in df.columns:
+        mapped_cols["avg_pkt_len"] = df[" Packet Length Mean"].fillna(0)
+    elif "Fwd Packet Length Mean" in df.columns:
+        mapped_cols["avg_pkt_len"] = df["Fwd Packet Length Mean"].fillna(0)
+
+    # std_pkt_len: 优先使用全局 Packet Length Std，回退到 Fwd Packet Length Std
+    if " Packet Length Std" in df.columns:
+        mapped_cols["std_pkt_len"] = df[" Packet Length Std"].fillna(0)
+    elif "Fwd Packet Length Std" in df.columns:
+        mapped_cols["std_pkt_len"] = df["Fwd Packet Length Std"].fillna(0)
+
+    # up_down_byte_ratio: CICIDS2017 直接提供 Down/Up Ratio
+    if " Down/Up Ratio" in df.columns:
+        mapped_cols["up_down_byte_ratio"] = df[" Down/Up Ratio"].fillna(0).astype(float)
+    elif "Total Length of Bwd Packets" in df.columns and "Total Length of Fwd Packets" in df.columns:
+        # 回退：下行/上行 = bwd_bytes / fwd_bytes
+        ratio = bwd_bytes / fwd_bytes.replace(0, 1)
+        mapped_cols["up_down_byte_ratio"] = ratio.replace([np.inf, -np.inf], 0).fillna(0)
+
+    # avg_window_size: 前向+后向窗口均值
+    fwd_win = df.get("Init_Win_bytes_forward", pd.Series(0, index=df.index)).fillna(0)
+    bwd_win = df.get(" Init_Win_bytes_backward", pd.Series(0, index=df.index)).fillna(0)
+    mapped_cols["avg_window_size"] = (fwd_win + bwd_win) / 2
+
+    # dst_port_entropy: 从 Destination Port 计算端口类别信息量代理
+    if "Destination Port" in df.columns or " Destination Port" in df.columns:
+        port_col = "Destination Port" if "Destination Port" in df.columns else " Destination Port"
+        ports = df[port_col].fillna(0).astype(float)
+        dst_port_entropy = np.where(
+            ports <= 1023, 0.5,       # 知名端口：低熵
+            np.where(ports <= 49151, 1.5, 2.5)  # 注册/动态端口：中/高熵
+        )
+        mapped_cols["dst_port_entropy"] = dst_port_entropy
 
     if not mapped_cols:
         logger.warning("CICIDS2017 数据集特征列不匹配")
@@ -183,8 +239,8 @@ def _map_cicids2017_features(df: pd.DataFrame) -> tuple[pd.DataFrame, pd.Series]
     # 替换无穷大值（Flow Bytes/s 等列在流时长为0时会产生 inf）
     X = X.replace([np.inf, -np.inf], 0)
 
-    # 归一化 SYN/FIN/RST/PSH 为比例
-    if "pkt_count" in X.columns and "pkt_count" in X:
+    # 归一化 SYN/FIN/RST/PSH 为比例（除以总包数）
+    if "pkt_count" in X.columns:
         pkt_count = X["pkt_count"].replace(0, 1)
         for flag_col in ["syn_flag_ratio", "fin_flag_ratio", "rst_flag_ratio", "psh_flag_ratio"]:
             if flag_col in X.columns:
@@ -447,3 +503,36 @@ def split_and_save_dataset(
     logger.info("测试集类别分布: %s", dict(y_test.value_counts()))
 
     return X_train, y_train, X_test, y_test
+
+
+# ── 特征对齐 ──────────────────────────────────────────────────────
+
+def align_features(X: pd.DataFrame, expected_features: list[str]) -> pd.DataFrame:
+    """对齐特征列：补缺失、删多余、排序一致。
+
+    训练时模型使用的特征列表可能与推理时数据列不完全匹配：
+    - CICIDS2017 映射后仅 14 个特征，而 ENHANCED_FEATURE_COLUMNS 有 18 个
+    - 合成数据有全部 18 个特征，CICIDS2017 缺少 TLS 相关 4 个
+    - scaler.transform() 要求特征名和顺序完全一致
+
+    Args:
+        X: 待对齐的特征 DataFrame
+        expected_features: 模型训练时的特征列表（从 feature_list.json 加载）
+
+    Returns:
+        对齐后的 DataFrame，列与 expected_features 完全一致，缺失特征填 0
+    """
+    X_aligned = X.copy()
+
+    # 补缺失特征（填 0）
+    for col in expected_features:
+        if col not in X_aligned.columns:
+            X_aligned[col] = 0
+
+    # 删除多余特征
+    extra_cols = [c for c in X_aligned.columns if c not in expected_features]
+    if extra_cols:
+        X_aligned = X_aligned.drop(columns=extra_cols)
+
+    # 按 expected_features 顺序排列
+    return X_aligned[expected_features]

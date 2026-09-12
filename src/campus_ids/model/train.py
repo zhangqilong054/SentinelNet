@@ -27,6 +27,7 @@ from tqdm import tqdm
 from campus_ids.config import (
     BEST_JSON,
     CONFUSION_MATRIX_PATH,
+    DATA_DIR,
     LATEST_JSON,
     MODEL_PATH,
     MODELS_DIR,
@@ -100,22 +101,24 @@ def train_model(X: pd.DataFrame, y: pd.Series,
                 logger.warning("class_weight 中的类别 %r 不在标签中，已忽略", cls_name)
         effective_cw = encoded_cw if encoded_cw else "balanced"
 
-    # 特征标准化 — 仅在训练集上 fit，避免数据泄漏
+    # 特征标准化 — 先划分再 fit，避免数据泄漏
     X = X.replace([np.inf, -np.inf], np.nan).fillna(0)
     scaler = StandardScaler()
-    X_train_scaled = scaler.fit_transform(X)
 
     # 获取测试集
     if X_test is not None and y_test is not None:
         X_test_clean = X_test.replace([np.inf, -np.inf], np.nan).fillna(0)
+        X_train_scaled = scaler.fit_transform(X)
         X_test_scaled = scaler.transform(X_test_clean)
         y_test_encoded = le.transform(y_test)
         y_train_encoded = y_encoded
     else:
-        # 向后兼容：从训练数据中划分
-        X_train_scaled, X_test_scaled, y_train_encoded, y_test_encoded = train_test_split(
-            X_train_scaled, y_encoded, test_size=0.2, random_state=42, stratify=y_encoded
+        # 向后兼容：从训练数据中划分 — 先 split 再 fit scaler，避免数据泄漏
+        X_train_raw, X_test_raw, y_train_encoded, y_test_encoded = train_test_split(
+            X, y_encoded, test_size=0.2, random_state=42, stratify=y_encoded
         )
+        X_train_scaled = scaler.fit_transform(X_train_raw)
+        X_test_scaled = scaler.transform(X_test_raw)
 
     # 训练模型
     n_classes = len(le.classes_)
@@ -278,8 +281,8 @@ def train_model(X: pd.DataFrame, y: pd.Series,
     # P1-7b: MLP 深度学习模型 — 带 tqdm 实时进度条
     elif model_type == "mlp":
         from sklearn.neural_network import MLPClassifier
-        mlp_max_iter = 300
-        mlp_n_iter_no_change = 10
+        mlp_max_iter = 150
+        mlp_n_iter_no_change = 5
         clf = MLPClassifier(
             hidden_layer_sizes=(128, 64, 32), max_iter=1,
             random_state=42, warm_start=True,
@@ -670,12 +673,11 @@ def predict(csv_path: Path | None = None) -> tuple | None:
     if df.empty:
         return None
 
-    available_cols = [c for c in feature_cols if c in df.columns]
-    if not available_cols:
-        logger.warning("数据中无匹配特征列")
-        return None
+    # 特征对齐：补缺失特征填0、删多余特征、排序一致
+    from campus_ids.model.data_loader import align_features
+    X = align_features(df, feature_cols)
+    X = X.replace([np.inf, -np.inf], np.nan).fillna(0)
 
-    X = df[available_cols].fillna(0)
     if scaler:
         X_scaled = scaler.transform(X)
     else:
@@ -694,13 +696,15 @@ def predict(csv_path: Path | None = None) -> tuple | None:
 
 def train(dataset_path: Path | None = None,
           dataset_type: str = "auto",
-          balance_method: str = "class_weight") -> dict:
+          balance_method: str = "class_weight",
+          quick: bool = False) -> dict:
     """完整训练流程。
 
     Args:
         dataset_path: 数据集路径（None 则使用本地抓包数据）
         dataset_type: auto / local / cicids2017 / nsl_kdd
         balance_method: class_weight / smote / undersample
+        quick: 快速模式 — 仅训练 RF+LGB，跳过 CV/融合/跨数据集评估
 
     Returns:
         训练结果字典
@@ -791,33 +795,41 @@ def train(dataset_path: Path | None = None,
     pbar.set_description_str("✓ 随机森林完成")
     pbar.update(1)
 
-    # Step 3: 逻辑回归
-    pbar.set_description_str("训练逻辑回归...")
-    try:
-        lr_clf, lr_scaler, lr_le, lr_X_test, lr_y_test, lr_y_pred = train_model(
-            X_bal, y_bal, class_weight_dict, model_type="lr",
-            X_test=X_test_held, y_test=y_test_held,
-        )
-        lr_metrics = evaluate_model(lr_y_test, lr_y_pred, lr_le, "LogisticRegression")
-        all_metrics.append(lr_metrics)
-    except Exception as exc:
-        logger.warning("逻辑回归训练失败: %s", exc)
-    pbar.set_description_str("✓ 逻辑回归完成")
-    pbar.update(1)
+    # Step 3: 逻辑回归（快速模式跳过）
+    if quick:
+        pbar.set_description_str("⏩ 快速模式：跳过 LR")
+        pbar.update(1)
+    else:
+        pbar.set_description_str("训练逻辑回归...")
+        try:
+            lr_clf, lr_scaler, lr_le, lr_X_test, lr_y_test, lr_y_pred = train_model(
+                X_bal, y_bal, class_weight_dict, model_type="lr",
+                X_test=X_test_held, y_test=y_test_held,
+            )
+            lr_metrics = evaluate_model(lr_y_test, lr_y_pred, lr_le, "LogisticRegression")
+            all_metrics.append(lr_metrics)
+        except Exception as exc:
+            logger.warning("逻辑回归训练失败: %s", exc)
+        pbar.set_description_str("✓ 逻辑回归完成")
+        pbar.update(1)
 
-    # Step 4: XGBoost
-    pbar.set_description_str("训练 XGBoost...")
-    try:
-        xgb_clf, xgb_scaler, xgb_le, xgb_X_test, xgb_y_test, xgb_y_pred = train_model(
-            X_bal, y_bal, class_weight_dict, model_type="xgb",
-            X_test=X_test_held, y_test=y_test_held,
-        )
-        xgb_metrics = evaluate_model(xgb_y_test, xgb_y_pred, xgb_le, "XGBoost")
-        all_metrics.append(xgb_metrics)
-    except Exception as exc:
-        logger.warning("XGBoost 训练失败（可能未安装）: %s", exc)
-    pbar.set_description_str("✓ XGBoost 完成")
-    pbar.update(1)
+    # Step 4: XGBoost（快速模式跳过）
+    if quick:
+        pbar.set_description_str("⏩ 快速模式：跳过 XGBoost")
+        pbar.update(1)
+    else:
+        pbar.set_description_str("训练 XGBoost...")
+        try:
+            xgb_clf, xgb_scaler, xgb_le, xgb_X_test, xgb_y_test, xgb_y_pred = train_model(
+                X_bal, y_bal, class_weight_dict, model_type="xgb",
+                X_test=X_test_held, y_test=y_test_held,
+            )
+            xgb_metrics = evaluate_model(xgb_y_test, xgb_y_pred, xgb_le, "XGBoost")
+            all_metrics.append(xgb_metrics)
+        except Exception as exc:
+            logger.warning("XGBoost 训练失败（可能未安装）: %s", exc)
+        pbar.set_description_str("✓ XGBoost 完成")
+        pbar.update(1)
 
     # Step 5: LightGBM
     pbar.set_description_str("训练 LightGBM...")
@@ -833,44 +845,56 @@ def train(dataset_path: Path | None = None,
     pbar.set_description_str("✓ LightGBM 完成")
     pbar.update(1)
 
-    # Step 6: MLP
-    pbar.set_description_str("训练 MLP...")
-    try:
-        mlp_clf, mlp_scaler, mlp_le, mlp_X_test, mlp_y_test, mlp_y_pred = train_model(
-            X_bal, y_bal, class_weight_dict, model_type="mlp",
-            X_test=X_test_held, y_test=y_test_held,
-        )
-        mlp_metrics = evaluate_model(mlp_y_test, mlp_y_pred, mlp_le, "MLP")
-        all_metrics.append(mlp_metrics)
-    except Exception as exc:
-        logger.warning("MLP 训练失败: %s", exc)
-    pbar.set_description_str("✓ MLP 完成")
-    pbar.update(1)
+    # Step 6: MLP（快速模式跳过）
+    if quick:
+        pbar.set_description_str("⏩ 快速模式：跳过 MLP")
+        pbar.update(1)
+    else:
+        pbar.set_description_str("训练 MLP...")
+        try:
+            mlp_clf, mlp_scaler, mlp_le, mlp_X_test, mlp_y_test, mlp_y_pred = train_model(
+                X_bal, y_bal, class_weight_dict, model_type="mlp",
+                X_test=X_test_held, y_test=y_test_held,
+            )
+            mlp_metrics = evaluate_model(mlp_y_test, mlp_y_pred, mlp_le, "MLP")
+            all_metrics.append(mlp_metrics)
+        except Exception as exc:
+            logger.warning("MLP 训练失败: %s", exc)
+        pbar.set_description_str("✓ MLP 完成")
+        pbar.update(1)
 
-    # Step 7: 交叉验证
-    pbar.set_description_str("5 折交叉验证...")
-    try:
-        cv_results = cross_validate_models(X_bal, y_bal, class_weight_dict)
-        if cv_results:
-            all_metrics.extend(cv_results)
-    except Exception as exc:
-        logger.warning("交叉验证失败: %s", exc)
-    pbar.set_description_str("✓ 交叉验证完成")
-    pbar.update(1)
+    # Step 7: 交叉验证（快速模式跳过）
+    if quick:
+        pbar.set_description_str("⏩ 快速模式：跳过交叉验证")
+        pbar.update(1)
+    else:
+        pbar.set_description_str("3 折交叉验证...")
+        try:
+            cv_results = cross_validate_models(X_bal, y_bal, class_weight_dict)
+            if cv_results:
+                all_metrics.extend(cv_results)
+        except Exception as exc:
+            logger.warning("交叉验证失败: %s", exc)
+        pbar.set_description_str("✓ 交叉验证完成")
+        pbar.update(1)
 
-    # Step 8: 双引擎融合
-    pbar.set_description_str("双引擎融合评估...")
-    try:
-        fusion_metrics = _evaluate_dual_fusion(
-            X_bal, y_bal, class_weight_dict,
-            X_test=X_test_held, y_test=y_test_held,
-        )
-        if fusion_metrics:
-            all_metrics.append(fusion_metrics)
-    except Exception as exc:
-        logger.warning("双引擎融合评估失败: %s", exc)
-    pbar.set_description_str("✓ 融合评估完成")
-    pbar.update(1)
+    # Step 8: 双引擎融合（快速模式跳过）
+    if quick:
+        pbar.set_description_str("⏩ 快速模式：跳过融合评估")
+        pbar.update(1)
+    else:
+        pbar.set_description_str("双引擎融合评估...")
+        try:
+            fusion_metrics = _evaluate_dual_fusion(
+                X_bal, y_bal, class_weight_dict,
+                X_test=X_test_held, y_test=y_test_held,
+            )
+            if fusion_metrics:
+                all_metrics.append(fusion_metrics)
+        except Exception as exc:
+            logger.warning("双引擎融合评估失败: %s", exc)
+        pbar.set_description_str("✓ 融合评估完成")
+        pbar.update(1)
 
     # Step 9: 规则基线
     pbar.set_description_str("规则基线评估...")
@@ -890,6 +914,37 @@ def train(dataset_path: Path | None = None,
         all_metrics.append(latency_metrics)
     pbar.set_description_str("✓ 延迟基准完成")
     pbar.update(1)
+
+    # Step 10.5: 跨数据集泛化评估（快速模式跳过）
+    if quick:
+        pbar.set_description_str("⏩ 快速模式：跳过跨数据集评估")
+        pbar.update(0)
+    else:
+        pbar.set_description_str("跨数据集泛化评估...")
+        try:
+            from campus_ids.model.evaluation import cross_dataset_evaluate
+            # CICIDS2017 数据位于 data/ 子目录
+            cicids_dir = Path(DATA_DIR) / "data"
+            if not cicids_dir.exists():
+                cicids_dir = Path(DATA_DIR)
+            if cicids_dir.exists():
+                # 排除当前训练数据集，对其他数据集做跨日评估
+                current_ds_name = dataset_path.name if dataset_path else ""
+                other_csvs = [
+                    (f, f.stem.replace(".pcap_ISCX", ""))
+                    for f in sorted(cicids_dir.glob("*.csv"))
+                    if f.name != current_ds_name
+                ]
+                if other_csvs and data_source != "synthetic_demo":
+                    rf_artifact = {"model": rf_clf, "scaler": rf_scaler, "label_encoder": rf_le, "feature_columns": actual_feature_cols}
+                    cross_metrics = cross_dataset_evaluate(rf_artifact, other_csvs)
+                    if cross_metrics:
+                        all_metrics.extend(cross_metrics)
+                        logger.info("跨数据集评估完成: %d 个数据集", len(cross_metrics))
+        except Exception as exc:
+            logger.warning("跨数据集评估失败: %s", exc)
+        pbar.set_description_str("✓ 跨数据集评估完成")
+        pbar.update(0)  # 不增加进度，因为这是可选步骤
 
     # Step 11: 对比表
     pbar.set_description_str("输出对比表...")
@@ -913,5 +968,9 @@ def train(dataset_path: Path | None = None,
 
 
 if __name__ == "__main__":
+    import argparse
     logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
-    train()
+    parser = argparse.ArgumentParser(description="SentinelNet 训练管道")
+    parser.add_argument("--quick", action="store_true", help="快速模式：仅训练 RF+LGB，跳过 CV/融合/跨数据集评估")
+    args = parser.parse_args()
+    train(quick=args.quick)

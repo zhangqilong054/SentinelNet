@@ -94,6 +94,7 @@ python My_task.py <command> [args]
 | `capture [秒]` | 基础抓包（8 字段） | `python My_task.py capture 60` |
 | `ecapture [秒]` | 增强抓包（18 维特征） | `python My_task.py ecapture 60` |
 | `train` | 模型训练 | `python My_task.py train` |
+| `train --quick` | 快速训练（仅 RF+LGB） | `python My_task.py train --quick` |
 | `detect` | 入侵检测 | `python My_task.py detect` |
 | `app` | 启动 Web 面板 | `python My_task.py app` |
 | `demo` | 一键演示 | `python My_task.py demo` |
@@ -123,17 +124,25 @@ python My_task.py ecapture [秒数]
 ### 2. 训练检测模型
 
 ```
-python My_task.py train
+python My_task.py train [--dataset NAME] [--quick]
 ```
 
 - 默认读取本地 `traffic_data.csv`；样本不足 100 条时自动回退到合成数据并给出明显警告（合成模型无实际检测能力）
 - 可指定数据源：`python My_task.py train --dataset cicids2017|nsl_kdd|synthetic`，也可直接传数据集文件路径
-- 支持算法对比：随机森林 / XGBoost / LightGBM / MLP 神经网络 / 逻辑回归 / 规则基线，含 5 折交叉验证与 ROC-AUC
+- `--quick` 快速模式：仅训练 RF+LGB，跳过 CV/融合/跨数据集评估，CICIDS2017 DDoS 约 3 秒完成
+- 支持算法对比：随机森林 / XGBoost / LightGBM / MLP 神经网络 / 逻辑回归 / 规则基线，含 3 折交叉验证与 ROC-AUC
 - 类别均衡处理（SMOTE 过采样 / class_weight / undersample 三种策略）
 - **严格防泄漏**：先 80/20 分层划分训练/测试集，类别均衡仅在训练集上执行，所有模型统一使用 held-out 测试集评估
 - 输出评估指标：准确率、精确率、召回率、F1、Per-Class F1、误报率 FPR、检测延迟、混淆矩阵
 - 训练完成后模型保存为 `model.pkl`，评估报告保存为 `evaluation_report.txt`
 - 自动生成 `train_data.csv` / `test_data.csv`（真实数据集时）
+
+**训练模式对比**：
+
+| 模式 | 训练模型 | 典型耗时（CICIDS2017 DDoS） |
+|------|----------|---------------------------|
+| 完整模式（默认） | RF + LR + XGB + LGB + MLP | ~4 分钟 |
+| 快速模式（`--quick`） | RF + LGB | ~3 秒 |
 
 ### 3. 入侵检测
 
@@ -250,7 +259,7 @@ Task-main/
 ├── Dockerfile                     # Docker 容器构建
 ├── docker-compose.yml             # Docker Compose 一键部署
 ├── traffic_data.csv               # 抓包数据（运行时生成）
-├── model.pkl                      # 训练模型（运行时生成）
+├── model.pkl                      # 训练模型（CICIDS2017, RF, Attack F1=0.9998）
 ├── confusion_matrix.png           # 混淆矩阵图（训练时生成）
 ├── evaluation_report.txt          # 评估报告（训练时生成）
 ├── tests/                         # 单元测试（67 个）
@@ -268,9 +277,9 @@ Task-main/
     │   ├── enhanced_features.py   # 增强特征提取（18 维流特征）
     │   └── tls_analyzer.py        # TLS 加密流量分析（JA3 指纹）
     ├── model/
-    │   ├── train.py               # 模型训练 + 多算法对比主流程（防泄漏：外部测试集 + 仅训练集 fit）
+    │   ├── train.py               # 模型训练 + 多算法对比主流程（防泄漏 + --quick 快速模式）
     │   ├── data_loader.py         # 数据集加载（本地/CICIDS2017/NSL-KDD/合成）+ 类别均衡
-    │   └── evaluation.py          # 指标评估 + 交叉验证 + 混淆矩阵 + 延迟基准（防泄漏评估）
+    │   └── evaluation.py          # 指标评估 + 交叉验证 + 混淆矩阵 + 延迟基准（向量化优化）
     ├── detector/
     │   ├── detector.py            # 规则异常检测（8 类规则）
     │   └── dual_detector.py       # 双引擎检测器（规则 + ML 融合）
@@ -353,21 +362,42 @@ Task-main/
 
 ## 八、模型评估
 
-### 算法对比（合成数据演示，2026-09-12 实测）
+### 算法对比（CICIDS2017 DDoS 数据集，2026-09-12 实测）
 
-| 模型 | 准确率 | 精确率 | 召回率 | F1 | 备注 |
-|------|--------|--------|--------|-----|------|
-| RandomForest | 1.00 | 1.00 | 1.00 | 1.00 | |
-| LogisticRegression | 1.00 | 1.00 | 1.00 | 1.00 | |
-| XGBoost | 1.00 | 1.00 | 1.00 | 1.00 | |
-| LightGBM | 1.00 | 1.00 | 1.00 | 1.00 | |
-| MLP | 0.98 | 0.98 | 0.98 | 0.98 | |
-| RF_CV | 1.00 | — | — | 1.00±0.00 | ROC-AUC=1.00 |
-| XGB_CV | 1.00 | — | — | 1.00±0.00 | ROC-AUC=1.00 |
-| DualFusion（规则+RF） | 0.80 | 0.64 | 0.80 | 0.71 | 规则阈值与合成数据不匹配 |
-| RuleBaseline | 1.00 | 1.00 | 1.00 | 1.00 | |
+| 模型 | F1 | Attack F1 | FPR | 备注 |
+|------|-----|-----------|-----|------|
+| RandomForest | 0.9998 | 0.9998 | 0.0003 | |
+| LogisticRegression | 0.9795 | 0.9823 | 0.0005 | |
+| LightGBM | 0.9998 | 0.9998 | 0.0004 | |
+| MLP | 0.9986 | 0.9988 | 0.0012 | |
+| RF_CV | 0.9998±0.0001 | — | — | ROC-AUC=1.0000 |
+| LGB_CV | 0.9998±0.0000 | — | — | ROC-AUC=1.0000 |
+| XGB_CV | 0.9997±0.0000 | — | — | ROC-AUC=1.0000 |
+| DualFusion（规则+RF） | 0.9998 | — | — | |
+| RuleBaseline | 0.6139 | — | — | |
 
-> **防泄漏说明**：所有模型统一使用 held-out 测试集评估（80/20 分层划分），类别均衡仅在训练集上执行，scaler 仅在训练集上 fit，交叉验证 ROC-AUC 使用 `cross_val_score` 而非全量数据拟合。合成数据每次运行均重新随机生成，上表数值会波动，仅用于验证训练/评估流程。使用 CICIDS2017 等公开数据集训练后，指标才具有实际意义。完整输出见训练时生成的 `evaluation_report.txt`。
+**跨数据集泛化**（以 DDoS 训练，在其他 CICIDS2017 子集上评估）：
+
+| 测试数据集 | F1 | 备注 |
+|------------|-----|------|
+| PortScan | 0.9845 | |
+| Friday-Morning | 0.9986 | |
+| Thursday-Infilteration | 0.9996 | |
+| Thursday-WebAttacks | 0.9807 | |
+| Tuesday | 0.9535 | |
+| Wednesday | 0.4964 | 攻击类型差异大 |
+
+**训练管线性能优化**：
+
+| 优化项 | 优化前 | 优化后 | 加速比 |
+|--------|--------|--------|--------|
+| 规则基线/融合评估 | iterrows 逐行判定 | numpy 布尔向量运算 | 10x+ |
+| MLP 训练 | max_iter=300 | max_iter=150 + 更激进早停 | ~5x |
+| 交叉验证 | 5 模型 × 5 折 | 3 模型 × 3 折 | ~2.8x |
+| CICIDS2017 DDoS 端到端 | ~81 分钟 | ~4 分钟 | ~20x |
+| 快速模式端到端 | — | ~3 秒 | ~1600x |
+
+> **防泄漏说明**：所有模型统一使用 held-out 测试集评估（80/20 分层划分），类别均衡仅在训练集上执行，scaler 仅在训练集上 fit，交叉验证 ROC-AUC 使用 `cross_val_score` 而非全量数据拟合。完整输出见训练时生成的 `evaluation_report.txt`。
 
 ## 九、Docker 部署
 
@@ -433,7 +463,8 @@ python My_task.py menu
 
 # 方式三：逐步执行（精细控制）
 python My_task.py ecapture 60    # 增强抓包
-python My_task.py train          # 模型训练
+python My_task.py train          # 模型训练（完整模式，约4分钟）
+python My_task.py train --quick  # 模型训练（快速模式，约3秒）
 python My_task.py detect         # 入侵检测
 python My_task.py app            # 启动面板
 

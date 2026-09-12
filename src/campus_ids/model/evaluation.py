@@ -21,6 +21,7 @@ from sklearn.preprocessing import LabelEncoder, StandardScaler
 from tqdm import tqdm
 
 from campus_ids.config import CONFUSION_MATRIX_PATH, EVALUATION_PATH
+from campus_ids.model.data_loader import ENHANCED_FEATURE_COLUMNS, align_features
 
 logger = logging.getLogger(__name__)
 
@@ -132,7 +133,7 @@ def evaluate_model(y_test, y_pred, label_encoder, model_name: str = "Model") -> 
 
 def cross_validate_models(X: pd.DataFrame, y: pd.Series,
                            class_weight_dict: dict | None = None,
-                           cv: int = 5) -> list[dict]:
+                           cv: int = 3) -> list[dict]:
     """P1-7c: 5 折交叉验证 + ROC-AUC 对比。
 
     Returns:
@@ -150,10 +151,8 @@ def cross_validate_models(X: pd.DataFrame, y: pd.Series,
 
     model_configs = [
         ("RF_CV", "rf"),
-        ("LR_CV", "lr"),
-        ("XGB_CV", "xgb"),
         ("LGB_CV", "lgb"),
-        ("MLP_CV", "mlp"),
+        ("XGB_CV", "xgb"),
     ]
 
     # P5: 解析 class_weight_dict → effective_cw（编码为整数键）
@@ -258,29 +257,60 @@ def _evaluate_dual_fusion(X: pd.DataFrame, y: pd.Series,
         eval_X = X_test if X_test is not None else X
         eval_y = y_test if y_test is not None else y
 
-        # 规则判定（在测试集上）
-        y_rule = []
-        pbar_rule = tqdm(eval_X.iterrows(), total=len(eval_X), desc="规则判定", unit="样本", leave=False)
-        for _, row in pbar_rule:
-            is_attack = False
-            pkt_count = row.get("pkt_count", row.get("Length", 0))
-            syn_ratio = row.get("syn_flag_ratio", 0)
-            port_entropy = row.get("dst_port_entropy", 0)
-            if pkt_count > 100:
-                is_attack = True
-            if syn_ratio > 0.8:
-                is_attack = True
-            if port_entropy > 2.0:
-                is_attack = True
-            y_rule.append(1 if is_attack else 0)
-        pbar_rule.close()
+        # ── 向量化规则判定（替代逐行 iterrows，10x+ 加速）──
+        pkt_count = eval_X["pkt_count"].values if "pkt_count" in eval_X.columns else np.zeros(len(eval_X))
+        syn_ratio = eval_X["syn_flag_ratio"].values if "syn_flag_ratio" in eval_X.columns else np.zeros(len(eval_X))
+        port_entropy = eval_X["dst_port_entropy"].values if "dst_port_entropy" in eval_X.columns else np.zeros(len(eval_X))
+        duration = eval_X["duration"].values if "duration" in eval_X.columns else np.zeros(len(eval_X))
+        psh_ratio = eval_X["psh_flag_ratio"].values if "psh_flag_ratio" in eval_X.columns else np.zeros(len(eval_X))
+        avg_pkt_len = eval_X["avg_pkt_len"].values if "avg_pkt_len" in eval_X.columns else np.zeros(len(eval_X))
+        up_down_ratio = eval_X["up_down_byte_ratio"].values if "up_down_byte_ratio" in eval_X.columns else np.zeros(len(eval_X))
+        rst_ratio = eval_X["rst_flag_ratio"].values if "rst_flag_ratio" in eval_X.columns else np.zeros(len(eval_X))
+
+        # DoS/DDoS
+        is_attack = (pkt_count > 500) | (syn_ratio > 0.8) | ((duration < 1) & (pkt_count > 200))
+        # PortScan
+        is_attack = is_attack | (port_entropy >= 2.5) | ((pkt_count > 10) & (duration > 0) & (duration < 0.1))
+        # Web Attack / BruteForce
+        is_attack = is_attack | ((psh_ratio > 0.6) & (duration > 10))
+        is_attack = is_attack | ((avg_pkt_len < 100) & (pkt_count > 20))
+        is_attack = is_attack | (up_down_ratio > 5)
+        is_attack = is_attack | ((rst_ratio > 0.5) & (pkt_count > 10))
+
+        y_rule = is_attack.astype(int)
 
         # ML 预测（在测试集上）
         X_scaled = rf_scaler.transform(eval_X.replace([np.inf, -np.inf], np.nan).fillna(0))
         y_ml = rf_clf.predict(X_scaled)
 
-        # 融合：任一引擎触发即为攻击
-        y_fusion = [1 if (r == 1 or m == 1) else 0 for r, m in zip(y_rule, y_ml)]
+        # ML 置信度（预测概率）
+        y_ml_proba = None
+        if hasattr(rf_clf, "predict_proba"):
+            y_ml_proba = rf_clf.predict_proba(X_scaled)
+
+        # 融合策略：加权置信度投票
+        # - ML 引擎权重 0.8（高精度），规则引擎权重 0.2（低精度但高召回）
+        # - 融合分数 = w_ml * ml_confidence + w_rule * rule_confidence
+        # - 阈值 > 0.5 则判定为攻击
+        ML_WEIGHT = 0.8
+        RULE_WEIGHT = 0.2
+        FUSION_THRESHOLD = 0.5
+
+        # 获取 LabelEncoder 的攻击标签编码（Attack=0, Normal=1 字母序）
+        attack_encoded = rf_le.transform(["Attack"])[0]
+        normal_encoded = 1 - attack_encoded
+
+        # ── 向量化融合投票（替代逐行循环）──
+        if y_ml_proba is not None:
+            attack_idx = list(rf_le.classes_).index("Attack") if "Attack" in rf_le.classes_ else 1
+            ml_conf = y_ml_proba[:, attack_idx]
+        else:
+            ml_conf = np.where(y_ml == attack_encoded, 1.0, 0.0)
+
+        rule_conf = y_rule.astype(float)
+        fusion_score = ML_WEIGHT * ml_conf + RULE_WEIGHT * rule_conf
+        y_fusion = np.where(fusion_score > FUSION_THRESHOLD, attack_encoded, normal_encoded).tolist()
+
         y_true = rf_le.transform(eval_y)
 
         acc = accuracy_score(y_true, y_fusion)
@@ -295,8 +325,11 @@ def _evaluate_dual_fusion(X: pd.DataFrame, y: pd.Series,
             "recall": rec,
             "f1_score": f1,
             "data_source": "same_as_ml",
+            "fusion_strategy": "weighted_voting",
+            "fusion_params": {"ml_weight": ML_WEIGHT, "rule_weight": RULE_WEIGHT, "threshold": FUSION_THRESHOLD},
         }
-        logger.info("双引擎融合: 准确率=%.4f  F1=%.4f", acc, f1)
+        logger.info("双引擎融合(加权投票): 准确率=%.4f  F1=%.4f  策略=ML×%.1f+Rule×%.1f>%.1f",
+                     acc, f1, ML_WEIGHT, RULE_WEIGHT, FUSION_THRESHOLD)
         return metrics
 
     except Exception as exc:
@@ -307,34 +340,53 @@ def _evaluate_dual_fusion(X: pd.DataFrame, y: pd.Series,
 # ── 规则检测基线 ──────────────────────────────────────────────────
 
 def _evaluate_rule_baseline(X: pd.DataFrame, y: pd.Series) -> dict | None:
-    """P0-20: 规则检测基线评估。"""
+    """P0-20: 规则检测基线评估。
+
+    规则阈值说明（基于 CICIDS2017 统计特征调整）：
+    DoS/DDoS 规则：
+    - pkt_count > 500: 大流量攻击（DDoS/DoS）通常有极高包数
+    - syn_ratio > 0.8: SYN Flood 攻击特征
+    - duration < 1 且 pkt_count > 200: 极短时间大量包（突发攻击）
+
+    PortScan 规则：
+    - dst_port_entropy >= 2.5: 动态端口（端口扫描常用）
+    - pkt_count > 10 且 duration < 0.1: 短时间多包（快速扫描特征）
+
+    Web Attack / BruteForce 规则：
+    - psh_flag_ratio > 0.6 且 duration > 10: 长连接高 PSH（HTTP暴力行为）
+    - avg_pkt_len < 100 且 pkt_count > 20: 小包高频（请求泛洪）
+    - up_down_byte_ratio > 5: 下行远大于上行（响应泛洪/数据泄露）
+    """
     try:
         from campus_ids.detector.detector import AnomalyDetector
         detector = AnomalyDetector()
 
-        # 基于规则对每条样本做判定
-        y_pred_rule = []
-        pbar_rule = tqdm(X.iterrows(), total=len(X), desc="规则检测", unit="样本", leave=False)
-        for _, row in pbar_rule:
-            is_attack = False
-            # 简化规则映射
-            pkt_count = row.get("pkt_count", row.get("Length", 0))
-            syn_ratio = row.get("syn_flag_ratio", 0)
-            port_entropy = row.get("dst_port_entropy", 0)
+        # ── 向量化规则判定（替代逐行 iterrows，10x+ 加速）──
+        y_pred_rule = np.full(len(X), "Normal", dtype=object)
 
-            if pkt_count > 100:
-                is_attack = True
-            if syn_ratio > 0.8:
-                is_attack = True
-            if port_entropy > 2.0:
-                is_attack = True
+        pkt_count = X["pkt_count"].values if "pkt_count" in X.columns else np.zeros(len(X))
+        syn_ratio = X["syn_flag_ratio"].values if "syn_flag_ratio" in X.columns else np.zeros(len(X))
+        port_entropy = X["dst_port_entropy"].values if "dst_port_entropy" in X.columns else np.zeros(len(X))
+        duration = X["duration"].values if "duration" in X.columns else np.zeros(len(X))
+        psh_ratio = X["psh_flag_ratio"].values if "psh_flag_ratio" in X.columns else np.zeros(len(X))
+        avg_pkt_len = X["avg_pkt_len"].values if "avg_pkt_len" in X.columns else np.zeros(len(X))
+        up_down_ratio = X["up_down_byte_ratio"].values if "up_down_byte_ratio" in X.columns else np.zeros(len(X))
+        rst_ratio = X["rst_flag_ratio"].values if "rst_flag_ratio" in X.columns else np.zeros(len(X))
 
-            y_pred_rule.append("Attack" if is_attack else "Normal")
-        pbar_rule.close()
+        # DoS/DDoS
+        is_attack = (pkt_count > 500) | (syn_ratio > 0.8) | ((duration < 1) & (pkt_count > 200))
+        # PortScan
+        is_attack = is_attack | (port_entropy >= 2.5) | ((pkt_count > 10) & (duration > 0) & (duration < 0.1))
+        # Web Attack / BruteForce
+        is_attack = is_attack | ((psh_ratio > 0.6) & (duration > 10))
+        is_attack = is_attack | ((avg_pkt_len < 100) & (pkt_count > 20))
+        is_attack = is_attack | (up_down_ratio > 5)
+        is_attack = is_attack | ((rst_ratio > 0.5) & (pkt_count > 10))
 
-        y_pred_arr = pd.Series(y_pred_rule, index=y.index)
+        y_pred_rule[is_attack] = "Attack"
 
         # 计算指标
+        y_pred_arr = pd.Series(y_pred_rule, index=y.index)
         acc = accuracy_score(y, y_pred_arr)
         prec = precision_score(y, y_pred_arr, average="weighted", zero_division=0)
         rec = recall_score(y, y_pred_arr, average="weighted", zero_division=0)
@@ -482,11 +534,16 @@ def _benchmark_detection_latency(X: pd.DataFrame, n_samples: int = 100) -> dict 
         ml_latencies = []
         artifact = load_model()
         if artifact is not None:
+            from campus_ids.model.data_loader import align_features
             clf = artifact["model"]
             scaler = artifact.get("scaler")
+            feature_cols = artifact.get("feature_columns", ENHANCED_FEATURE_COLUMNS)
             pbar_ml_lat = tqdm(range(n), desc="ML 延迟测试", unit="样本", leave=False)
             for i in pbar_ml_lat:
                 row = X.iloc[i:i+1]
+                # 对齐特征列：补缺失、删多余、排序一致
+                row = align_features(row, feature_cols)
+                row = row.replace([np.inf, -np.inf], np.nan).fillna(0)
                 t0 = _time.perf_counter()
                 if scaler:
                     X_scaled = scaler.transform(row)
@@ -527,3 +584,71 @@ def _benchmark_detection_latency(X: pd.DataFrame, n_samples: int = 100) -> dict 
     except Exception as exc:
         logger.warning("检测延迟基准测试失败: %s", exc)
         return None
+
+
+# ── 跨数据集泛化评估 ──────────────────────────────────────────────
+
+def cross_dataset_evaluate(artifact: dict, other_csvs: list[tuple]) -> list[dict]:
+    """跨数据集泛化评估：用训练好的模型在其他 CICIDS2017 子集上测试。
+
+    Args:
+        artifact: 模型 artifact 字典，含 model/scaler/label_encoder/feature_columns
+        other_csvs: [(csv_path, dataset_name), ...] 其他数据集列表
+
+    Returns:
+        各数据集的评估指标列表
+    """
+    from campus_ids.model.data_loader import load_dataset
+
+    results = []
+    clf = artifact["model"]
+    scaler = artifact.get("scaler")
+    le = artifact.get("label_encoder")
+    feature_cols = artifact.get("feature_columns", ENHANCED_FEATURE_COLUMNS)
+
+    pbar_cross = tqdm(other_csvs, desc="跨数据集评估", unit="数据集", leave=False)
+    for csv_path, ds_name in pbar_cross:
+        pbar_cross.set_description_str(f"评估 {ds_name}")
+        try:
+            result = load_dataset(csv_path, "cicids2017")
+            if result is None:
+                logger.warning("跨数据集 %s 加载失败，跳过", ds_name)
+                continue
+            X_test, y_test = result
+
+            # 关键修复：特征对齐 — 补缺失特征填0、删多余特征、排序一致
+            X_test = align_features(X_test, feature_cols)
+            X_test = X_test.replace([np.inf, -np.inf], np.nan).fillna(0)
+
+            if scaler:
+                X_scaled = scaler.transform(X_test)
+            else:
+                X_scaled = X_test.values
+
+            y_pred = clf.predict(X_scaled)
+            if le:
+                y_true = le.transform(y_test)
+            else:
+                y_true = y_test
+
+            acc = accuracy_score(y_true, y_pred)
+            prec = precision_score(y_true, y_pred, average="weighted", zero_division=0)
+            rec = recall_score(y_true, y_pred, average="weighted", zero_division=0)
+            f1 = f1_score(y_true, y_pred, average="weighted", zero_division=0)
+
+            metrics = {
+                "model": "RF_CrossDataset",
+                "accuracy": acc,
+                "precision": prec,
+                "recall": rec,
+                "f1_score": f1,
+                "data_source": ds_name,
+            }
+            results.append(metrics)
+            logger.info("跨数据集 %s: 准确率=%.4f  F1=%.4f", ds_name, acc, f1)
+
+        except Exception as exc:
+            logger.warning("跨数据集 %s 评估失败: %s", ds_name, exc)
+    pbar_cross.close()
+
+    return results
