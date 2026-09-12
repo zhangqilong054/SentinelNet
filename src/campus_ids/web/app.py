@@ -167,16 +167,44 @@ def api_dual_stats():
 
 @app.route("/api/dual/load", methods=['POST'])
 def api_dual_load():
-    """P1-#8: 加载 ML 模型 API。"""
+    """P1-#8: 加载 ML 模型 API。
+
+    支持三种加载方式（优先级: run_id > which > model_path）：
+    - run_id: 指定版本化 run 加载
+    - which: "best" 或 "latest" 指针加载
+    - model_path: 传统 pkl 路径加载（向后兼容）
+    """
     data = request.get_json() or {}
-    model_path = data.get('model_path', 'model.pkl')
-    if not isinstance(model_path, str) or not model_path.strip():
+    run_id = data.get('run_id')
+    which = data.get('which', 'best')
+    model_path = data.get('model_path')
+
+    # 参数校验
+    if run_id is not None and (not isinstance(run_id, str) or not run_id.strip()):
+        return jsonify({'status': 'failed', 'message': '无效的 run_id'}), 400
+    if which not in ('best', 'latest'):
+        return jsonify({'status': 'failed', 'message': 'which 必须为 best 或 latest'}), 400
+    if model_path is not None and (not isinstance(model_path, str) or not model_path.strip()):
         return jsonify({'status': 'failed', 'message': '无效的 model_path'}), 400
-    success = dual_detector.load_model(Path(model_path))
+
+    # 按优先级调用
+    if run_id:
+        success = dual_detector.load_model(run_id=run_id)
+    elif model_path:
+        success = dual_detector.load_model(model_path=Path(model_path))
+    else:
+        success = dual_detector.load_model(which=which)
+
     if success:
         dual_detector.start_ml_loop(packet_source=dual_detector._drain_flow_buffer)
-        return jsonify({'status': 'success', 'model_loaded': True, 'model_path': model_path})
-    return jsonify({'status': 'failed', 'model_loaded': False, 'model_path': model_path}), 400
+        artifact = dual_detector._artifact or {}
+        return jsonify({
+            'status': 'success',
+            'model_loaded': True,
+            'run_id': artifact.get('run_id', ''),
+            'model_type': type(artifact.get('model')).__name__ if artifact.get('model') else '',
+        })
+    return jsonify({'status': 'failed', 'model_loaded': False}), 400
 
 
 @app.route("/api/dual/stop", methods=['POST'])

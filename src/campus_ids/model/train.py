@@ -25,8 +25,13 @@ from sklearn.preprocessing import LabelEncoder, StandardScaler
 from tqdm import tqdm
 
 from campus_ids.config import (
+    BEST_JSON,
     CONFUSION_MATRIX_PATH,
+    LATEST_JSON,
     MODEL_PATH,
+    MODELS_DIR,
+    REGISTRY_JSON,
+    RUNS_DIR,
     TRAFFIC_CSV,
 )
 
@@ -319,10 +324,276 @@ def train_model(X: pd.DataFrame, y: pd.Series,
         raise ValueError(f"未知模型类型: {model_type}")
 
 
-# ── 模型持久化 ────────────────────────────────────────────────────
+# ── 模型注册表（版本化保存）────────────────────────────────────────
+
+def make_run_id() -> str:
+    """生成唯一 run_id: YYYYMMDD_HHMMSS_<6位随机>。"""
+    import random, string
+    from datetime import datetime
+    ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+    suffix = "".join(random.choices(string.ascii_lowercase + string.digits, k=6))
+    return f"{ts}_{suffix}"
+
+
+def _atomic_write_json(path: Path, data: dict) -> None:
+    """原子写入 JSON 文件：先写 .tmp 再 rename，防止半写。"""
+    import json
+    tmp = path.with_suffix(".json.tmp")
+    tmp.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+    tmp.replace(path)
+
+
+def save_run(
+    clf, scaler, label_encoder,
+    metrics: dict | None = None,
+    feature_columns: list | None = None,
+    params: dict | None = None,
+    confusion_matrix_path: Path | None = None,
+) -> tuple[str, Path]:
+    """将训练产物保存到版本化 run 目录。
+
+    Returns:
+        (run_id, run_dir) 元组
+    """
+    import json, joblib
+    from datetime import datetime, timezone
+
+    run_id = make_run_id()
+    run_dir = RUNS_DIR / run_id
+    run_dir.mkdir(parents=True, exist_ok=True)
+
+    # 1. 保存模型和 scaler
+    joblib.dump(clf, run_dir / "model.pkl")
+    if scaler is not None:
+        joblib.dump(scaler, run_dir / "scaler.pkl")
+
+    # 2. 保存特征列表
+    feat_cols = feature_columns or ENHANCED_FEATURE_COLUMNS
+    (run_dir / "feature_list.json").write_text(
+        json.dumps(feat_cols, ensure_ascii=False, indent=2), encoding="utf-8",
+    )
+
+    # 3. 保存标签映射
+    label_mapping = None
+    if label_encoder is not None:
+        label_mapping = {str(cls): int(idx) for idx, cls in enumerate(label_encoder.classes_)}
+        (run_dir / "label_mapping.json").write_text(
+            json.dumps(label_mapping, ensure_ascii=False, indent=2), encoding="utf-8",
+        )
+
+    # 4. 保存指标
+    if metrics is not None:
+        (run_dir / "metrics.json").write_text(
+            json.dumps(metrics, ensure_ascii=False, indent=2, default=str), encoding="utf-8",
+        )
+
+    # 5. 保存元数据
+    metadata = {
+        "run_id": run_id,
+        "created_at": datetime.now(timezone.utc).isoformat(),
+        "model_type": type(clf).__name__,
+        "n_features": len(feat_cols),
+        "params": params or {},
+    }
+    (run_dir / "metadata.json").write_text(
+        json.dumps(metadata, ensure_ascii=False, indent=2), encoding="utf-8",
+    )
+
+    # 6. 复制混淆矩阵图片（如已生成）
+    if confusion_matrix_path is not None and confusion_matrix_path.exists():
+        import shutil
+        shutil.copy2(confusion_matrix_path, run_dir / "confusion_matrix.png")
+
+    # 7. 原子更新 latest.json
+    latest_data = {
+        "run_id": run_id,
+        "run_dir": str(run_dir),
+        "created_at": metadata["created_at"],
+    }
+    _atomic_write_json(LATEST_JSON, latest_data)
+
+    # 8. 更新 registry.json
+    _update_registry(run_id, run_dir, metadata, metrics)
+
+    # 9. 同时保存到传统 model.pkl（向后兼容）
+    save_model(clf, scaler, label_encoder, feature_columns=feat_cols)
+
+    logger.info("模型已保存至 run: %s（特征数: %d）", run_dir, len(feat_cols))
+    return run_id, run_dir
+
+
+def _update_registry(run_id: str, run_dir: Path, metadata: dict, metrics: dict | None) -> None:
+    """更新 registry.json，追加新 run 记录。"""
+    import json
+    registry: list[dict] = []
+    if REGISTRY_JSON.exists():
+        try:
+            registry = json.loads(REGISTRY_JSON.read_text(encoding="utf-8"))
+        except (json.JSONDecodeError, OSError):
+            registry = []
+
+    entry = {
+        "run_id": run_id,
+        "run_dir": str(run_dir),
+        "created_at": metadata.get("created_at", ""),
+        "model_type": metadata.get("model_type", ""),
+        "n_features": metadata.get("n_features", 0),
+        "is_best": False,
+    }
+    if metrics:
+        entry["metrics"] = {
+            k: v for k, v in metrics.items()
+            if k in ("accuracy", "precision", "recall", "f1_score", "cv_f1_mean")
+        }
+    registry.append(entry)
+    _atomic_write_json(REGISTRY_JSON, registry)
+
+
+def update_best(run_id: str, run_dir: Path, metrics: dict, key: str = "f1_score") -> bool:
+    """检查新 run 是否为最佳模型，若是则更新 best.json。
+
+    Args:
+        key: 用于比较的指标键，默认 f1_score
+
+    Returns:
+        True 表示更新了 best（新模型更优）
+    """
+    import json
+    new_score = metrics.get(key, 0.0)
+    if isinstance(new_score, dict):
+        new_score = 0.0
+
+    # 读取当前 best
+    current_best: dict | None = None
+    if BEST_JSON.exists():
+        try:
+            current_best = json.loads(BEST_JSON.read_text(encoding="utf-8"))
+        except (json.JSONDecodeError, OSError):
+            current_best = None
+
+    current_score = 0.0
+    if current_best and "metrics" in current_best:
+        current_score = current_best["metrics"].get(key, 0.0)
+        if isinstance(current_score, dict):
+            current_score = 0.0
+
+    is_best = new_score > current_score
+    if is_best:
+        best_data = {
+            "run_id": run_id,
+            "run_dir": str(run_dir),
+            "metrics": {
+                k: v for k, v in metrics.items()
+                if k in ("accuracy", "precision", "recall", "f1_score", "cv_f1_mean")
+            },
+        }
+        _atomic_write_json(BEST_JSON, best_data)
+
+        # 更新 registry 中 is_best 标记
+        if REGISTRY_JSON.exists():
+            try:
+                registry = json.loads(REGISTRY_JSON.read_text(encoding="utf-8"))
+                for entry in registry:
+                    entry["is_best"] = (entry.get("run_id") == run_id)
+                _atomic_write_json(REGISTRY_JSON, registry)
+            except (json.JSONDecodeError, OSError):
+                pass
+
+        logger.info("新最佳模型: %s (%s=%.4f)", run_id, key, new_score)
+
+    return is_best
+
+
+def load_run(run_id: str | None = None, which: str = "best") -> dict | None:
+    """按 run_id 或指针加载模型 run。
+
+    Args:
+        run_id: 指定 run_id，优先级最高
+        which: "best" 或 "latest"，当 run_id 为 None 时使用
+
+    Returns:
+        与 load_model() 相同格式的 artifact dict，额外含 run_id
+    """
+    import json, joblib
+
+    # 1. 如果指定了 run_id，直接定位
+    if run_id is not None:
+        run_dir = RUNS_DIR / run_id
+        if not run_dir.exists():
+            logger.warning("run 目录不存在: %s", run_dir)
+            return None
+    else:
+        # 2. 按指针加载
+        pointer_map = {"best": BEST_JSON, "latest": LATEST_JSON}
+        pointer_path = pointer_map.get(which, BEST_JSON)
+        if not pointer_path.exists():
+            logger.info("指针文件不存在: %s，回退到传统 model.pkl", pointer_path)
+            return load_model()  # 向后兼容
+        try:
+            ptr = json.loads(pointer_path.read_text(encoding="utf-8"))
+            run_dir = Path(ptr["run_dir"])
+            if not run_dir.exists():
+                logger.warning("指针指向的 run 目录不存在: %s", run_dir)
+                return load_model()
+        except (json.JSONDecodeError, KeyError, OSError) as exc:
+            logger.warning("读取指针文件失败: %s，回退到 model.pkl", exc)
+            return load_model()
+
+    # 3. 加载 run 目录中的产物
+    model_path = run_dir / "model.pkl"
+    if not model_path.exists():
+        logger.warning("run 中无 model.pkl: %s", run_dir)
+        return None
+
+    try:
+        clf = joblib.load(model_path)
+
+        # 加载 scaler
+        scaler = None
+        scaler_path = run_dir / "scaler.pkl"
+        if scaler_path.exists():
+            scaler = joblib.load(scaler_path)
+
+        # 加载 label_mapping → 重建 LabelEncoder
+        label_encoder = None
+        lm_path = run_dir / "label_mapping.json"
+        if lm_path.exists():
+            try:
+                lm = json.loads(lm_path.read_text(encoding="utf-8"))
+                from sklearn.preprocessing import LabelEncoder
+                le = LabelEncoder()
+                le.classes_ = np.array(sorted(lm, key=lambda k: lm[k]))
+                label_encoder = le
+            except Exception:
+                pass
+
+        # 加载 feature_list
+        feature_columns = ENHANCED_FEATURE_COLUMNS
+        fl_path = run_dir / "feature_list.json"
+        if fl_path.exists():
+            try:
+                feature_columns = json.loads(fl_path.read_text(encoding="utf-8"))
+            except Exception:
+                pass
+
+        artifact = {
+            "model": clf,
+            "scaler": scaler,
+            "label_encoder": label_encoder,
+            "feature_columns": feature_columns,
+            "run_id": run_dir.name,  # 额外信息
+        }
+        logger.info("从 run 加载模型: %s", run_dir.name)
+        return artifact
+    except Exception as exc:
+        logger.warning("加载 run 失败: %s", exc)
+        return None
+
+
+# ── 模型持久化（传统格式，向后兼容）────────────────────────────────
 
 def save_model(clf, scaler, label_encoder, path: Path | None = None, feature_columns: list | None = None) -> None:
-    """持久化模型（含 scaler 和 label_encoder）。"""
+    """持久化模型（含 scaler 和 label_encoder）到单个 pkl 文件。"""
     import joblib
     out = path or MODEL_PATH
     artifact = {
@@ -335,17 +606,43 @@ def save_model(clf, scaler, label_encoder, path: Path | None = None, feature_col
     logger.info("模型已保存至 %s（特征数: %d）", out, len(artifact["feature_columns"]))
 
 
-def load_model(path: Path | None = None) -> dict | None:
-    """加载已保存的模型 artifact。"""
+def load_model(path: Path | None = None, which: str = "best") -> dict | None:
+    """加载已保存的模型 artifact。
+
+    优先从模型注册表加载（best/latest 指针），回退到传统 model.pkl。
+
+    Args:
+        path: 传统 pkl 路径（向后兼容，指定后跳过注册表）
+        which: 注册表指针 "best" 或 "latest"
+    """
+    # 如果显式指定了 path，走传统加载逻辑
+    if path is not None:
+        import joblib
+        if not path.exists():
+            return None
+        try:
+            artifact = joblib.load(path)
+            if isinstance(artifact, dict):
+                return artifact
+            return {"model": artifact, "scaler": None, "label_encoder": None, "feature_columns": LEGACY_FEATURE_COLUMNS}
+        except Exception as exc:
+            logger.warning("加载模型失败: %s", exc)
+            return None
+
+    # 优先从注册表加载
+    artifact = load_run(which=which)
+    if artifact is not None:
+        return artifact
+
+    # 回退到传统 model.pkl
     import joblib
-    p = path or MODEL_PATH
+    p = MODEL_PATH
     if not p.exists():
         return None
     try:
         artifact = joblib.load(p)
         if isinstance(artifact, dict):
             return artifact
-        # 兼容旧格式（直接是模型对象）
         return {"model": artifact, "scaler": None, "label_encoder": None, "feature_columns": LEGACY_FEATURE_COLUMNS}
     except Exception as exc:
         logger.warning("加载模型失败: %s", exc)
@@ -484,7 +781,13 @@ def train(dataset_path: Path | None = None,
     all_metrics.append(rf_metrics)
     _save_confusion_matrix(rf_y_test, rf_y_pred, rf_le.classes_, CONFUSION_MATRIX_PATH)
     actual_feature_cols = list(X_bal.columns)
-    save_model(rf_clf, rf_scaler, rf_le, feature_columns=actual_feature_cols)
+    # 模型注册表：版本化保存 + best 指针更新
+    run_id, run_dir = save_run(
+        rf_clf, rf_scaler, rf_le,
+        metrics=rf_metrics, feature_columns=actual_feature_cols,
+        confusion_matrix_path=CONFUSION_MATRIX_PATH,
+    )
+    update_best(run_id, run_dir, rf_metrics)
     pbar.set_description_str("✓ 随机森林完成")
     pbar.update(1)
 

@@ -478,7 +478,7 @@ def _benchmark_detection_latency(X: pd.DataFrame, n_samples: int = 100) -> dict 
             rule_latencies.append((_time.perf_counter() - t0) * 1000)
         pbar_rule_lat.close()
 
-        # ML 推理延迟测试（如果模型可用）
+        # ML 推理延迟测试（优先从注册表加载 best 模型）
         ml_latencies = []
         artifact = load_model()
         if artifact is not None:

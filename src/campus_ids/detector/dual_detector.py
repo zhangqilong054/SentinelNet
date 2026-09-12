@@ -86,17 +86,36 @@ class DualDetector:
         # P2-11: 检测延迟统计
         self._latency_samples: deque[float] = deque(maxlen=1000)
 
-    def load_model(self) -> bool:
-        """加载 ML 模型。"""
+    def load_model(self, model_path: Path | None = None, run_id: str | None = None,
+                    which: str = "best") -> bool:
+        """加载 ML 模型。
+
+        Args:
+            model_path: 传统 pkl 路径（向后兼容）
+            run_id: 指定 run_id 加载（优先级最高）
+            which: 注册表指针 "best" 或 "latest"
+        """
         try:
             from campus_ids.model.train import load_model
-            self._artifact = load_model(self.model_path)
+            # 优先级: run_id > 指针(which) > 传统路径
+            if run_id is not None:
+                from campus_ids.model.train import load_run
+                self._artifact = load_run(run_id=run_id)
+                source = f"run:{run_id}"
+            elif model_path is not None:
+                self.model_path = model_path
+                self._artifact = load_model(path=model_path)
+                source = str(model_path)
+            else:
+                self._artifact = load_model(which=which)
+                source = f"registry:{which}"
             if self._artifact is not None:
                 self._model_loaded = True
-                logger.info("ML 模型加载成功: %s", self.model_path)
+                rid = self._artifact.get("run_id", "")
+                logger.info("ML 模型加载成功: %s%s", source, f" (run_id={rid})" if rid else "")
                 return True
             else:
-                logger.warning("ML 模型文件不存在或加载失败: %s", self.model_path)
+                logger.warning("ML 模型文件不存在或加载失败: %s", source)
                 return False
         except Exception as exc:
             logger.warning("ML 模型加载异常: %s", exc)

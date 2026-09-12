@@ -29,12 +29,41 @@
 - [x] **P3 多分类安全**：XGBoost/LightGBM 的 `scale_pos_weight` 假设二分类 → 修复：多分类时使用 `sample_weight` 替代
 - [x] **P4 评估不一致**：规则基线在全量数据评估，ML 模型在 20% 测试集评估 → 修复：统一使用 held-out 测试集
 - [x] **P5 过度加权**：SMOTE/undersample 后仍用 `class_weight="balanced"` → 修复：`balance_classes()` 返回 `False` 表示不加权
-  - 问题背景：校园网安全现状 + 加密流量检测难题
-  - 系统架构图：抓包 → 特征提取 → 模型检测 → 规则检测 → 告警 全链路
-  - 技术创新点：JA3 指纹、多维度特征、规则 + ML 双引擎
-  - 实验结果：数据集说明、评估指标、对比实验图表
-  - 现场演示：实时攻击检测全链路
-  - 未来展望
+
+---
+
+## 训练 UX 改进 + 模型注册表（2026-09-12）
+
+> 为所有训练步骤添加实时 tqdm 进度条，并实现模型版本化保存（模型注册表），解决训练覆盖问题。
+
+### 实时进度条
+
+- [x] **RF 进度条**：warm_start=True 批量增量训练（10 树/批）+ class_weight 兼容警告抑制
+- [x] **LR 进度条**：warm_start + max_iter=1 逐迭代 + np.allclose(coef_) 收敛检测 + ConvergenceWarning 抑制
+- [x] **XGBoost 进度条**：TrainingCallback 回调 + eval_set + 旧版兼容
+- [x] **LightGBM 进度条**：callbacks 参数 + evaluation_result_list
+- [x] **MLP 进度条**：warm_start + max_iter=1 + loss_curve_ + 手动早停
+- [x] **CV 进度条**：tqdm(model_configs) + set_description_str
+- [x] **融合评估进度条**：tqdm(eval_X.iterrows())
+- [x] **规则基线进度条**：tqdm(X.iterrows())
+- [x] **延迟基准进度条**：双 tqdm（规则延迟 + ML 延迟）
+- [x] **12 步训练流程进度条**：tqdm(steps) 总流程进度
+
+### 模型注册表
+
+- [x] **config.py 路径常量**：MODELS_DIR/RUNS_DIR/LATEST_JSON/BEST_JSON/REGISTRY_JSON
+- [x] **make_run_id()**：YYYYMMDD_HHMMSS_6位随机 格式，保证唯一性和可排序性
+- [x] **_atomic_write_json()**：.json.tmp + rename 原子写入，防止半写损坏
+- [x] **save_run()**：保存到 runs/{run_id}/ 目录（model.pkl/scaler.pkl/feature_list.json/label_mapping.json/metrics.json/metadata.json/confusion_matrix.png）+ 更新 latest.json/registry.json + 兼容保存 model.pkl
+- [x] **_update_registry()**：追加 run 记录到 registry.json
+- [x] **update_best()**：比较 f1_score 更新 best.json + registry is_best 标记
+- [x] **load_run()**：按 run_id 或指针(best/latest)加载，重建 LabelEncoder，回退到 load_model()
+- [x] **train() 改造**：save_model() → save_run() + update_best()
+- [x] **load_model() 改造**：新增 which 参数，优先从注册表加载，回退到传统 model.pkl
+- [x] **DualDetector.load_model() 改造**：新增 run_id/which 参数，优先级 run_id > which > model_path
+- [x] **/api/dual/load 改造**：支持 run_id/which/model_path 三种加载方式，返回 run_id 和 model_type
+- [x] **端到端验证**：连续两次 save_run 生成独立 run 目录，best.json 自动指向最优，registry.json 累积记录
+- [x] **67 项单元测试全部通过**
 
 ---
 
@@ -171,7 +200,8 @@
 | P1 加分 | 约 14 项 | 14 | 100% |
 | P2 锦上添花 | 约 12 项 | 11 | 92% |
 | 数据泄漏修复 | 7 项 | 7 | 100% |
-| **合计** | **约 55 项** | **54** | **98%** |
+| 训练 UX + 模型注册表 | 22 项 | 22 | 100% |
+| **合计** | **约 77 项** | **76** | **99%** |
 
 > 仅剩「答辩 PPT / 演示文稿」1 项未完成。
 
@@ -187,7 +217,7 @@
 | 抓包 | `src/campus_ids/capture/features.py` | 基础抓包 + 启发式打标 |
 | 特征 | `src/campus_ids/capture/enhanced_features.py` | 18 维增强特征 |
 | TLS | `src/campus_ids/capture/tls_analyzer.py` | JA3 指纹 + SNI + 异常检测 |
-| 训练 | `src/campus_ids/model/train.py` | RF/XGB/LGBM/LR/MLP + 算法对比 + Per-Class F1 + FPR + 延迟基准 + 防泄漏 |
+| 训练 | `src/campus_ids/model/train.py` | RF/XGB/LGBM/LR/MLP + 算法对比 + Per-Class F1 + FPR + 延迟基准 + 防泄漏 + 模型注册表 + 实时进度条 |
 | 规则检测 | `src/campus_ids/detector/detector.py` | 8 类规则（DDoS/Scan/SYN/UDP/SQLi/XSS/BruteForce/LateralMove） |
 | 双引擎 | `src/campus_ids/detector/dual_detector.py` | 规则+ML 融合 + 告警分级 + 检测延迟测量 |
 | Web 面板 | `src/campus_ids/web/app.py` | Flask 实时仪表盘 + API 认证 + 配置化 |

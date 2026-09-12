@@ -21,6 +21,13 @@ TRAFFIC_STATS_CSV = DATA_DIR / "traffic_stats.csv"
 CONFUSION_MATRIX_PATH = DATA_DIR / "confusion_matrix.png"
 EVALUATION_PATH = DATA_DIR / "evaluation_report.txt"
 
+# 模型注册表（版本化保存）
+MODELS_DIR = DATA_DIR / "models"
+RUNS_DIR = MODELS_DIR / "runs"
+LATEST_JSON = MODELS_DIR / "latest.json"
+BEST_JSON = MODELS_DIR / "best.json"
+REGISTRY_JSON = MODELS_DIR / "registry.json"
+
 
 # ── Web 面板配置 ──────────────────────────────────────────────
 WEB_PORT = int(os.environ.get("CAMPUS_IDS_WEB_PORT", "5000"))
