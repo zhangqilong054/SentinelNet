@@ -59,48 +59,69 @@ logger = logging.getLogger(__name__)
 
 def train_model(X: pd.DataFrame, y: pd.Series,
                 class_weight_dict: dict | None = None,
-                model_type: str = "rf") -> tuple:
+                model_type: str = "rf",
+                X_test: pd.DataFrame | None = None,
+                y_test: pd.Series | None = None) -> tuple:
     """训练模型并返回 (model, scaler, le, X_test, y_test, y_pred)。
 
     Args:
+        X: 训练特征
+        y: 训练标签
+        class_weight_dict: 类别权重。None=自动均衡, False=不加权(数据已均衡), dict=自定义权重
         model_type: rf / lr / xgb / lgb / mlp
+        X_test: 测试特征（None 则从 X 中划分）
+        y_test: 测试标签（None 则从 y 中划分）
     """
     # 标签编码
     le = LabelEncoder()
     y_encoded = le.fit_transform(y)
 
-    # 将 class_weight_dict 的字符串键映射为编码后的整数键
-    if class_weight_dict is not None:
+    # 解析 class_weight_dict → effective_cw（传给模型的 class_weight 参数）
+    # None → "balanced"（默认自动均衡）
+    # False → None（数据已均衡，不加权）
+    # dict → 编码后的整数键字典
+    effective_cw: dict | str | None = "balanced"
+    if class_weight_dict is False:
+        effective_cw = None
+    elif class_weight_dict is not None:
         encoded_cw = {}
         for cls_name, weight in class_weight_dict.items():
             if cls_name in le.classes_:
                 encoded_cw[le.transform([cls_name])[0]] = weight
             else:
                 logger.warning("class_weight 中的类别 %r 不在标签中，已忽略", cls_name)
-        class_weight_dict = encoded_cw if encoded_cw else "balanced"
+        effective_cw = encoded_cw if encoded_cw else "balanced"
 
-    # 特征标准化
-    # 确保 X 中无 inf/nan（CICIDS2017 等数据集可能含除零产生的 inf）
+    # 特征标准化 — 仅在训练集上 fit，避免数据泄漏
     X = X.replace([np.inf, -np.inf], np.nan).fillna(0)
     scaler = StandardScaler()
-    X_scaled = scaler.fit_transform(X)
+    X_train_scaled = scaler.fit_transform(X)
 
-    # 划分训练/测试集
-    X_train, X_test, y_train, y_test = train_test_split(
-        X_scaled, y_encoded, test_size=0.2, random_state=42, stratify=y_encoded
-    )
+    # 获取测试集
+    if X_test is not None and y_test is not None:
+        X_test_clean = X_test.replace([np.inf, -np.inf], np.nan).fillna(0)
+        X_test_scaled = scaler.transform(X_test_clean)
+        y_test_encoded = le.transform(y_test)
+        y_train_encoded = y_encoded
+    else:
+        # 向后兼容：从训练数据中划分
+        X_train_scaled, X_test_scaled, y_train_encoded, y_test_encoded = train_test_split(
+            X_train_scaled, y_encoded, test_size=0.2, random_state=42, stratify=y_encoded
+        )
 
     # 训练模型
+    n_classes = len(le.classes_)
+
     if model_type == "rf":
         clf = RandomForestClassifier(
             n_estimators=100, random_state=42,
-            class_weight="balanced" if class_weight_dict is None else class_weight_dict,
+            class_weight=effective_cw,
             n_jobs=-1,
         )
     elif model_type == "lr":
         clf = LogisticRegression(
             max_iter=1000, random_state=42,
-            class_weight="balanced" if class_weight_dict is None else class_weight_dict,
+            class_weight=effective_cw,
         )
     # P1-7a: XGBoost / LightGBM 算法
     elif model_type == "xgb":
@@ -108,33 +129,74 @@ def train_model(X: pd.DataFrame, y: pd.Series,
             from xgboost import XGBClassifier
         except ImportError:
             raise ImportError("xgboost 未安装，请运行: pip install xgboost")
-        # 计算 scale_pos_weight 处理类别不平衡
-        from collections import Counter
-        label_counts = Counter(y_train)
-        neg_count = label_counts.get(0, 1)
-        pos_count = label_counts.get(1, 1)
-        spw = neg_count / pos_count if pos_count > 0 else 1.0
-        clf = XGBClassifier(
-            n_estimators=100, max_depth=6, learning_rate=0.1,
-            random_state=42, n_jobs=-1,
-            scale_pos_weight=spw,
-        )
+        # P3: 多分类安全性 — scale_pos_weight 仅适用于二分类
+        if n_classes == 2:
+            from collections import Counter
+            label_counts = Counter(y_train_encoded)
+            neg_count = label_counts.get(0, 1)
+            pos_count = label_counts.get(1, 1)
+            spw = neg_count / pos_count if pos_count > 0 else 1.0
+            # P5: 数据已均衡时不设置 scale_pos_weight
+            if class_weight_dict is False:
+                spw = 1.0
+            clf = XGBClassifier(
+                n_estimators=100, max_depth=6, learning_rate=0.1,
+                random_state=42, n_jobs=-1,
+                scale_pos_weight=spw,
+            )
+        else:
+            logger.info("XGBoost: %d 分类模式，使用 sample_weight 替代 scale_pos_weight", n_classes)
+            from sklearn.utils import compute_sample_weight
+            clf = XGBClassifier(
+                n_estimators=100, max_depth=6, learning_rate=0.1,
+                random_state=42, n_jobs=-1,
+            )
+            if effective_cw is not None:
+                sw = compute_sample_weight(
+                    effective_cw if isinstance(effective_cw, dict) else "balanced",
+                    y_train_encoded,
+                )
+                clf.fit(X_train_scaled, y_train_encoded, sample_weight=sw)
+            else:
+                clf.fit(X_train_scaled, y_train_encoded)
+            y_pred = clf.predict(X_test_scaled)
+            return clf, scaler, le, X_test_scaled, y_test_encoded, y_pred
     elif model_type == "lgb":
         try:
             from lightgbm import LGBMClassifier
         except ImportError:
             raise ImportError("lightgbm 未安装，请运行: pip install lightgbm")
-        # 计算 scale_pos_weight 处理类别不平衡
-        from collections import Counter
-        label_counts = Counter(y_train)
-        neg_count = label_counts.get(0, 1)
-        pos_count = label_counts.get(1, 1)
-        spw = neg_count / pos_count if pos_count > 0 else 1.0
-        clf = LGBMClassifier(
-            n_estimators=100, max_depth=6, learning_rate=0.1,
-            random_state=42, n_jobs=-1, verbose=-1,
-            scale_pos_weight=spw,
-        )
+        # P3: 多分类安全性 — scale_pos_weight 仅适用于二分类
+        if n_classes == 2:
+            from collections import Counter
+            label_counts = Counter(y_train_encoded)
+            neg_count = label_counts.get(0, 1)
+            pos_count = label_counts.get(1, 1)
+            spw = neg_count / pos_count if pos_count > 0 else 1.0
+            if class_weight_dict is False:
+                spw = 1.0
+            clf = LGBMClassifier(
+                n_estimators=100, max_depth=6, learning_rate=0.1,
+                random_state=42, n_jobs=-1, verbose=-1,
+                scale_pos_weight=spw,
+            )
+        else:
+            logger.info("LightGBM: %d 分类模式，使用 sample_weight 替代 scale_pos_weight", n_classes)
+            from sklearn.utils import compute_sample_weight
+            clf = LGBMClassifier(
+                n_estimators=100, max_depth=6, learning_rate=0.1,
+                random_state=42, n_jobs=-1, verbose=-1,
+            )
+            if effective_cw is not None:
+                sw = compute_sample_weight(
+                    effective_cw if isinstance(effective_cw, dict) else "balanced",
+                    y_train_encoded,
+                )
+                clf.fit(X_train_scaled, y_train_encoded, sample_weight=sw)
+            else:
+                clf.fit(X_train_scaled, y_train_encoded)
+            y_pred = clf.predict(X_test_scaled)
+            return clf, scaler, le, X_test_scaled, y_test_encoded, y_pred
     # P1-7b: MLP 深度学习模型
     elif model_type == "mlp":
         from sklearn.neural_network import MLPClassifier
@@ -147,15 +209,18 @@ def train_model(X: pd.DataFrame, y: pd.Series,
         raise ValueError(f"未知模型类型: {model_type}")
 
     # MLP 不支持 class_weight 参数，使用 sample_weight 传入
-    if model_type == "mlp" and class_weight_dict is not None:
+    if model_type == "mlp" and effective_cw is not None:
         from sklearn.utils import compute_sample_weight
-        sample_weight = compute_sample_weight("balanced", y_train)
-        clf.fit(X_train, y_train, sample_weight=sample_weight)
+        sw = compute_sample_weight(
+            effective_cw if isinstance(effective_cw, dict) else "balanced",
+            y_train_encoded,
+        )
+        clf.fit(X_train_scaled, y_train_encoded, sample_weight=sw)
     else:
-        clf.fit(X_train, y_train)
-    y_pred = clf.predict(X_test)
+        clf.fit(X_train_scaled, y_train_encoded)
+    y_pred = clf.predict(X_test_scaled)
 
-    return clf, scaler, le, X_test, y_test, y_pred
+    return clf, scaler, le, X_test_scaled, y_test_encoded, y_pred
 
 
 # ── 模型持久化 ────────────────────────────────────────────────────
@@ -275,13 +340,16 @@ def train(dataset_path: Path | None = None,
     if len(X) < MIN_TRAIN_SAMPLES:
         logger.warning("数据仅 %d 条，建议增加数据量以获得可靠模型。", len(X))
 
-    # 划分并保存训练/测试集（仅对真实数据集执行）
+    # P0 修复：划分训练/测试集，使用 held-out 测试集统一评估
+    X_test_held, y_test_held = None, None
     if data_source != "synthetic_demo":
         logger.info("划分训练/测试集（测试比例 20%%）...")
         X_train_full, y_train_full, X_test_held, y_test_held = split_and_save_dataset(X, y)
-
-    # P0-19: 类别均衡
-    X_bal, y_bal, class_weight_dict = balance_classes(X, y, balance_method)
+        # 仅在训练集上做类别均衡，避免测试集信息泄漏
+        X_bal, y_bal, class_weight_dict = balance_classes(X_train_full, y_train_full, balance_method)
+    else:
+        # 合成数据：全量做均衡（train_model 内部会划分）
+        X_bal, y_bal, class_weight_dict = balance_classes(X, y, balance_method)
 
     # P0-20: 算法对比
     results = {}
@@ -290,7 +358,8 @@ def train(dataset_path: Path | None = None,
     # 随机森林
     logger.info("训练随机森林模型...")
     rf_clf, rf_scaler, rf_le, rf_X_test, rf_y_test, rf_y_pred = train_model(
-        X_bal, y_bal, class_weight_dict, model_type="rf"
+        X_bal, y_bal, class_weight_dict, model_type="rf",
+        X_test=X_test_held, y_test=y_test_held,
     )
     rf_metrics = evaluate_model(rf_y_test, rf_y_pred, rf_le, "RandomForest")
     rf_metrics["data_source"] = data_source
@@ -307,7 +376,8 @@ def train(dataset_path: Path | None = None,
     logger.info("训练逻辑回归模型（对比基线）...")
     try:
         lr_clf, lr_scaler, lr_le, lr_X_test, lr_y_test, lr_y_pred = train_model(
-            X_bal, y_bal, class_weight_dict, model_type="lr"
+            X_bal, y_bal, class_weight_dict, model_type="lr",
+            X_test=X_test_held, y_test=y_test_held,
         )
         lr_metrics = evaluate_model(lr_y_test, lr_y_pred, lr_le, "LogisticRegression")
         all_metrics.append(lr_metrics)
@@ -318,7 +388,8 @@ def train(dataset_path: Path | None = None,
     logger.info("训练 XGBoost 模型...")
     try:
         xgb_clf, xgb_scaler, xgb_le, xgb_X_test, xgb_y_test, xgb_y_pred = train_model(
-            X_bal, y_bal, class_weight_dict, model_type="xgb"
+            X_bal, y_bal, class_weight_dict, model_type="xgb",
+            X_test=X_test_held, y_test=y_test_held,
         )
         xgb_metrics = evaluate_model(xgb_y_test, xgb_y_pred, xgb_le, "XGBoost")
         all_metrics.append(xgb_metrics)
@@ -329,7 +400,8 @@ def train(dataset_path: Path | None = None,
     logger.info("训练 LightGBM 模型...")
     try:
         lgb_clf, lgb_scaler, lgb_le, lgb_X_test, lgb_y_test, lgb_y_pred = train_model(
-            X_bal, y_bal, class_weight_dict, model_type="lgb"
+            X_bal, y_bal, class_weight_dict, model_type="lgb",
+            X_test=X_test_held, y_test=y_test_held,
         )
         lgb_metrics = evaluate_model(lgb_y_test, lgb_y_pred, lgb_le, "LightGBM")
         all_metrics.append(lgb_metrics)
@@ -340,14 +412,15 @@ def train(dataset_path: Path | None = None,
     logger.info("训练 MLP 神经网络模型...")
     try:
         mlp_clf, mlp_scaler, mlp_le, mlp_X_test, mlp_y_test, mlp_y_pred = train_model(
-            X_bal, y_bal, class_weight_dict, model_type="mlp"
+            X_bal, y_bal, class_weight_dict, model_type="mlp",
+            X_test=X_test_held, y_test=y_test_held,
         )
         mlp_metrics = evaluate_model(mlp_y_test, mlp_y_pred, mlp_le, "MLP")
         all_metrics.append(mlp_metrics)
     except Exception as exc:
         logger.warning("MLP 训练失败: %s", exc)
 
-    # P1-7c: 交叉验证 + ROC-AUC 对比
+    # P1-7c: 交叉验证 + ROC-AUC 对比（在训练集上做 CV）
     logger.info("执行 5 折交叉验证...")
     try:
         cv_results = cross_validate_models(X_bal, y_bal, class_weight_dict)
@@ -356,16 +429,22 @@ def train(dataset_path: Path | None = None,
     except Exception as exc:
         logger.warning("交叉验证失败: %s", exc)
 
-    # P1-7d: 双引擎融合方案 F1 对比
+    # P1-7d: 双引擎融合方案 F1 对比（P1 修复：使用 held-out 测试集）
     try:
-        fusion_metrics = _evaluate_dual_fusion(X_bal, y_bal, class_weight_dict)
+        fusion_metrics = _evaluate_dual_fusion(
+            X_bal, y_bal, class_weight_dict,
+            X_test=X_test_held, y_test=y_test_held,
+        )
         if fusion_metrics:
             all_metrics.append(fusion_metrics)
     except Exception as exc:
         logger.warning("双引擎融合评估失败: %s", exc)
 
-    # P0-20: 规则检测基线
-    rule_metrics = _evaluate_rule_baseline(X_bal, y_bal)
+    # P0-20: 规则检测基线（P4 修复：使用 held-out 测试集）
+    rule_metrics = _evaluate_rule_baseline(
+        X_test_held if X_test_held is not None else X,
+        y_test_held if y_test_held is not None else y,
+    )
     if rule_metrics:
         all_metrics.append(rule_metrics)
 

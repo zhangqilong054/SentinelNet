@@ -18,6 +18,26 @@
 
 ---
 
+## 训练管线数据泄漏修复（2026-09-12）
+
+> 代码审查发现训练管线存在多处数据泄漏和逻辑缺陷，已全部修复并通过 67 项单元测试 + 端到端训练验证。
+
+- [x] **P0 数据泄漏**：`train()` 调用 `split_and_save_dataset()` 的结果被丢弃，`train_model()` 对全量数据重新划分 → 修复：使用划分结果，仅训练集做类别均衡，统一 held-out 测试集评估
+- [x] **P0 外部测试集**：`train_model()` 不支持外部测试集 → 修复：新增 `X_test`/`y_test` 参数，scaler 仅 fit 训练集
+- [x] **P1 融合评估泄漏**：`_evaluate_dual_fusion()` 在全量数据上训练+预测 → 修复：接收 `X_test`/`y_test` 参数，仅在测试集上评估
+- [x] **P2 交叉验证冗余**：`cross_validate_models()` 先调用 `train_model()`（结果未使用）再创建新分类器 → 修复：移除冗余调用；ROC-AUC 改用交叉验证而非全量拟合
+- [x] **P3 多分类安全**：XGBoost/LightGBM 的 `scale_pos_weight` 假设二分类 → 修复：多分类时使用 `sample_weight` 替代
+- [x] **P4 评估不一致**：规则基线在全量数据评估，ML 模型在 20% 测试集评估 → 修复：统一使用 held-out 测试集
+- [x] **P5 过度加权**：SMOTE/undersample 后仍用 `class_weight="balanced"` → 修复：`balance_classes()` 返回 `False` 表示不加权
+  - 问题背景：校园网安全现状 + 加密流量检测难题
+  - 系统架构图：抓包 → 特征提取 → 模型检测 → 规则检测 → 告警 全链路
+  - 技术创新点：JA3 指纹、多维度特征、规则 + ML 双引擎
+  - 实验结果：数据集说明、评估指标、对比实验图表
+  - 现场演示：实时攻击检测全链路
+  - 未来展望
+
+---
+
 ## 已完成归档
 
 ### P0 — 必做（基础质量 + 核心竞争力 + 答辩不翻车）✅ 全部完成
@@ -150,7 +170,8 @@
 | P0 必做 | 约 22 项 | 22 | 100% |
 | P1 加分 | 约 14 项 | 14 | 100% |
 | P2 锦上添花 | 约 12 项 | 11 | 92% |
-| **合计** | **约 48 项** | **47** | **98%** |
+| 数据泄漏修复 | 7 项 | 7 | 100% |
+| **合计** | **约 55 项** | **54** | **98%** |
 
 > 仅剩「答辩 PPT / 演示文稿」1 项未完成。
 
@@ -166,7 +187,7 @@
 | 抓包 | `src/campus_ids/capture/features.py` | 基础抓包 + 启发式打标 |
 | 特征 | `src/campus_ids/capture/enhanced_features.py` | 18 维增强特征 |
 | TLS | `src/campus_ids/capture/tls_analyzer.py` | JA3 指纹 + SNI + 异常检测 |
-| 训练 | `src/campus_ids/model/train.py` | RF/XGB/LGBM/LR/MLP + 算法对比 + Per-Class F1 + FPR + 延迟基准 |
+| 训练 | `src/campus_ids/model/train.py` | RF/XGB/LGBM/LR/MLP + 算法对比 + Per-Class F1 + FPR + 延迟基准 + 防泄漏 |
 | 规则检测 | `src/campus_ids/detector/detector.py` | 8 类规则（DDoS/Scan/SYN/UDP/SQLi/XSS/BruteForce/LateralMove） |
 | 双引擎 | `src/campus_ids/detector/dual_detector.py` | 规则+ML 融合 + 告警分级 + 检测延迟测量 |
 | Web 面板 | `src/campus_ids/web/app.py` | Flask 实时仪表盘 + API 认证 + 配置化 |
@@ -175,7 +196,7 @@
 | 测试 | `tests/` | 67 个 pytest 测试 |
 | 容器 | `Dockerfile` + `docker-compose.yml` | 一键部署 + 健康检查 |
 | 文档 | `README.md` | 架构图 + 项目结构 + 检测能力 + API + Docker + 配置 + 日志 + 测试 |
-| 评估 | `evaluation_report.txt` + `confusion_matrix.png` | 算法对比 + Per-Class F1 + FPR |
+| 评估 | `evaluation_report.txt` + `confusion_matrix.png` | 算法对比 + Per-Class F1 + FPR + 防泄漏评估 |
 | 数据 | `train_data.csv` + `test_data.csv` | CICIDS2017 训练/测试集（640K/160K） |
 | 模型 | `model.pkl` | RandomForest, 13 特征, Attack F1=0.9828 |
 

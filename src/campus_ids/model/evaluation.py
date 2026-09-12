@@ -155,22 +155,28 @@ def cross_validate_models(X: pd.DataFrame, y: pd.Series,
         ("MLP_CV", "mlp"),
     ]
 
+    # P5: 解析 class_weight_dict → effective_cw（编码为整数键）
+    effective_cw: dict | str | None = "balanced"
+    if class_weight_dict is False:
+        effective_cw = None
+    elif class_weight_dict is not None and isinstance(class_weight_dict, dict):
+        # 将字符串键映射为编码后的整数键
+        encoded_cw = {}
+        for cls_name, weight in class_weight_dict.items():
+            if cls_name in le.classes_:
+                encoded_cw[le.transform([cls_name])[0]] = weight
+        effective_cw = encoded_cw if encoded_cw else "balanced"
+
     results = []
     for name, mtype in model_configs:
         try:
-            # 临时训练模型用于交叉验证
-            from campus_ids.model.train import train_model
-            _, tmp_scaler, tmp_le, X_test, y_test, y_pred = train_model(
-                X, y, class_weight_dict, model_type=mtype
-            )
-
-            # 交叉验证 F1 — 使用 "balanced" 避免 class_weight 键类型问题
+            # P2 修复：移除冗余 train_model 调用，直接创建分类器做交叉验证
             if mtype == "rf":
                 clf = RandomForestClassifier(n_estimators=100, random_state=42,
-                                             class_weight="balanced", n_jobs=-1)
+                                             class_weight=effective_cw, n_jobs=-1)
             elif mtype == "lr":
                 clf = LogisticRegression(max_iter=1000, random_state=42,
-                                         class_weight="balanced")
+                                         class_weight=effective_cw)
             elif mtype == "xgb":
                 try:
                     from xgboost import XGBClassifier
@@ -194,14 +200,13 @@ def cross_validate_models(X: pd.DataFrame, y: pd.Series,
 
             cv_f1 = cross_val_score(clf, X_scaled, y_encoded, cv=skf, scoring="f1_weighted")
 
-            # ROC-AUC（仅二分类时计算）
+            # P2 修复：ROC-AUC 使用交叉验证而非全量数据训练+预测
             roc_auc = None
             n_classes = len(le.classes_)
             if n_classes == 2 and hasattr(clf, "predict_proba"):
                 try:
-                    clf.fit(X_scaled, y_encoded)
-                    y_proba = clf.predict_proba(X_scaled)
-                    roc_auc = roc_auc_score(y_encoded, y_proba[:, 1])
+                    cv_auc = cross_val_score(clf, X_scaled, y_encoded, cv=skf, scoring="roc_auc")
+                    roc_auc = float(cv_auc.mean())
                 except Exception:
                     pass
 
@@ -228,24 +233,30 @@ def cross_validate_models(X: pd.DataFrame, y: pd.Series,
 # ── 双引擎融合评估 ────────────────────────────────────────────────
 
 def _evaluate_dual_fusion(X: pd.DataFrame, y: pd.Series,
-                           class_weight_dict: dict | None = None) -> dict | None:
+                           class_weight_dict: dict | None = None,
+                           X_test: pd.DataFrame | None = None,
+                           y_test: pd.Series | None = None) -> dict | None:
     """P1-7d: 双引擎融合方案评估。
 
     模拟规则+ML融合：规则检测判定+ML预测，双引擎触发则标记为攻击。
+    P1 修复：使用 held-out 测试集评估，避免数据泄漏。
     """
     try:
-        from campus_ids.detector.detector import AnomalyDetector
         from campus_ids.model.train import train_model
-        detector = AnomalyDetector()
 
-        # 训练 ML 模型
-        rf_clf, rf_scaler, rf_le, rf_X_test, rf_y_test, rf_y_pred = train_model(
-            X, y, class_weight_dict, model_type="rf"
+        # P1 修复：训练在训练集上，评估在测试集上
+        rf_clf, rf_scaler, rf_le, _, rf_y_test, rf_y_pred = train_model(
+            X, y, class_weight_dict, model_type="rf",
+            X_test=X_test, y_test=y_test,
         )
 
-        # 规则判定
+        # 确定评估数据集
+        eval_X = X_test if X_test is not None else X
+        eval_y = y_test if y_test is not None else y
+
+        # 规则判定（在测试集上）
         y_rule = []
-        for _, row in X.iterrows():
+        for _, row in eval_X.iterrows():
             is_attack = False
             pkt_count = row.get("pkt_count", row.get("Length", 0))
             syn_ratio = row.get("syn_flag_ratio", 0)
@@ -258,13 +269,13 @@ def _evaluate_dual_fusion(X: pd.DataFrame, y: pd.Series,
                 is_attack = True
             y_rule.append(1 if is_attack else 0)
 
-        # ML 预测
-        X_scaled = rf_scaler.transform(X)
+        # ML 预测（在测试集上）
+        X_scaled = rf_scaler.transform(eval_X.replace([np.inf, -np.inf], np.nan).fillna(0))
         y_ml = rf_clf.predict(X_scaled)
 
         # 融合：任一引擎触发即为攻击
         y_fusion = [1 if (r == 1 or m == 1) else 0 for r, m in zip(y_rule, y_ml)]
-        y_true = rf_le.transform(y)
+        y_true = rf_le.transform(eval_y)
 
         acc = accuracy_score(y_true, y_fusion)
         prec = precision_score(y_true, y_fusion, average="weighted", zero_division=0)

@@ -301,7 +301,8 @@ def balance_classes(X: pd.DataFrame, y: pd.Series, method: str = "class_weight")
             smote = SMOTE(random_state=42)
             X_res, y_res = smote.fit_resample(X, y)
             logger.info("SMOTE 过采样: %d → %d 条", len(y), len(y_res))
-            return X_res, y_res, None
+            # 数据已均衡，返回 False 表示不需要 class_weight 加权
+            return X_res, y_res, False
         except ImportError:
             logger.warning("imbalanced-learn 未安装，回退到 class_weight")
             return balance_classes(X, y, "class_weight")
@@ -315,7 +316,8 @@ def balance_classes(X: pd.DataFrame, y: pd.Series, method: str = "class_weight")
         X_res = pd.concat(dfs)
         y_res = pd.Series([y[idx] for idx in X_res.index], index=X_res.index)
         logger.info("欠采样: %d → %d 条", len(y), len(y_res))
-        return X_res, y_res, None
+        # 数据已均衡，返回 False 表示不需要 class_weight 加权
+        return X_res, y_res, False
 
     return X, y, None
 
