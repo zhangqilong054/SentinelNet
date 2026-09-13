@@ -704,6 +704,18 @@ def train(dataset_path: Path | None = None,
     X, y = None, None
     data_source = "unknown"
 
+    # 自动发现数据目录：当 dataset_type 指定了已知数据集但未传 dataset_path 时，
+    # 尝试在 DATA_DIR/data 或 DATA_DIR 下查找
+    known_dataset_types = {"cicids2017", "nsl_kdd"}
+    if dataset_type in known_dataset_types and not dataset_path:
+        candidate = Path(DATA_DIR) / "data"
+        if candidate.is_dir():
+            dataset_path = candidate
+            logger.info("自动发现数据目录: %s", dataset_path)
+        elif Path(DATA_DIR).is_dir():
+            dataset_path = Path(DATA_DIR)
+            logger.info("使用项目根目录作为数据目录: %s", dataset_path)
+
     if dataset_path:
         result = load_dataset(dataset_path, dataset_type)
         if result:

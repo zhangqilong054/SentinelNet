@@ -330,25 +330,29 @@ def main(argv: list[str] | None = None) -> int:
         from campus_ids.model.train import train
         from pathlib import Path
 
-        # 解析 --dataset 参数
+        # 解析 --dataset 和 --quick 参数
         dataset = None
+        quick = False
         remaining = args[1:]
         i = 0
         while i < len(remaining):
             if remaining[i] == "--dataset" and i + 1 < len(remaining):
                 dataset = remaining[i + 1]
                 i += 2
+            elif remaining[i] == "--quick":
+                quick = True
+                i += 1
             else:
                 i += 1
 
         # 映射到 train() 参数：已知数据集名 → dataset_type，路径 → dataset_path
         known_datasets = {"cicids2017", "nsl_kdd", "synthetic"}
         if dataset and dataset.lower() in known_datasets:
-            train(dataset_type=dataset.lower())
+            train(dataset_type=dataset.lower(), quick=quick)
         elif dataset:
-            train(dataset_path=Path(dataset))
+            train(dataset_path=Path(dataset), quick=quick)
         else:
-            train()
+            train(quick=quick)
         return 0
 
     if command == "detect":
