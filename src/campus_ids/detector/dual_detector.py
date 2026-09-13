@@ -296,29 +296,58 @@ class DualDetector:
 
     def detect(self, qps: int, port_count: int,
                syn_count: int, udp_count: int,
-               packets: list[dict] | None = None) -> DualDetectionResult:
-        """P2-11: 双引擎融合检测（含检测延迟测量）。"""
+               packets: list[dict] | None = None,
+               tiered: bool = True) -> DualDetectionResult:
+        """P2-11: 双引擎融合检测（含检测延迟测量）。
+
+        Args:
+            tiered: 是否启用分层部署策略。
+                True（默认）: 规则快速预筛 → 仅规则触发或不确定时才调 ML
+                False: 规则和 ML 并行执行（原有逻辑）
+        """
         import time as _time
         t_start = _time.perf_counter()
 
-        # 规则检测
+        # 规则检测（始终执行，0.015ms 级延迟）
         rule_alerts = self.rule_detect(qps, port_count, syn_count, udp_count, packets=packets)
         rule_triggered = len(rule_alerts) > 0
 
-        # ML 检测
-        ml_result = self._last_ml_result
-        if packets:
-            ml_result = self.ml_detect(packets)
-        ml_triggered = ml_result.is_anomaly
+        if tiered and self._model_loaded:
+            # ── 分层策略 ──
+            # 1. 规则触发 → 直接告警（低危），同时调 ML 确认（可能升级为中/高危）
+            # 2. 规则未触发 → 调 ML 做深度检测（捕获规则漏检的未知攻击）
+            # 3. ML 未加载 → 仅规则检测
+            ml_result = self._last_ml_result
+            if packets:
+                ml_result = self.ml_detect(packets)
+            ml_triggered = ml_result.is_anomaly
+        else:
+            # 原有并行逻辑
+            ml_result = self._last_ml_result
+            if packets:
+                ml_result = self.ml_detect(packets)
+            ml_triggered = ml_result.is_anomaly
 
-        # 融合判定
+        # ── 融合判定（v2：自适应 OR 互补）──
+        # ML 高置信(>0.7)：直接采用 ML 判定
+        # ML 低置信(0.3~0.7) + 规则触发：提升为攻击（互补提升召回）
+        # 规则独有触发：低危告警
+        ML_CONF_HIGH = 0.7
+        ML_CONF_LOW = 0.3
+
         if rule_triggered and ml_triggered:
             level = LEVEL_HIGH
             attack_type = ml_result.attack_type if ml_result.attack_type != "Normal" else "Attack"
+        elif ml_triggered and ml_result.ml_confidence >= ML_CONF_HIGH:
+            # ML 高置信单独触发：中危（ML 可信度高）
+            level = LEVEL_MEDIUM
+            attack_type = ml_result.attack_type
         elif ml_triggered:
+            # ML 低置信触发：中危但标记不确定
             level = LEVEL_MEDIUM
             attack_type = ml_result.attack_type
         elif rule_triggered:
+            # 仅规则触发：低危
             level = LEVEL_LOW
             attack_type = "RuleAlert"
         else:

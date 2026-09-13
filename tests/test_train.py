@@ -151,13 +151,16 @@ class TestTrainModel:
         acc = accuracy_score(y_test, y_pred)
         assert acc > 0.5
 
-    def test_train_lr(self):
-        """训练逻辑回归模型。"""
+    def test_train_xgb(self):
+        """训练 XGBoost 模型（替代已移除的 LR）。"""
         X, y = self._make_data()
-        model, scaler, le, X_test, y_test, y_pred = train_model(X, y, model_type="lr")
-        from sklearn.metrics import accuracy_score
-        acc = accuracy_score(y_test, y_pred)
-        assert acc > 0.3  # LR may be weaker
+        try:
+            model, scaler, le, X_test, y_test, y_pred = train_model(X, y, model_type="xgb")
+            from sklearn.metrics import accuracy_score
+            acc = accuracy_score(y_test, y_pred)
+            assert acc > 0.5
+        except ImportError:
+            pass  # XGBoost 未安装时跳过
 
     def test_model_types(self):
         """验证模型对象类型。"""

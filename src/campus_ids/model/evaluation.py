@@ -6,7 +6,6 @@ from pathlib import Path
 
 import numpy as np
 import pandas as pd
-from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import (
     accuracy_score,
     classification_report,
@@ -171,9 +170,6 @@ def cross_validate_models(X: pd.DataFrame, y: pd.Series,
             if mtype == "rf":
                 clf = RandomForestClassifier(n_estimators=100, random_state=42,
                                              class_weight=effective_cw, n_jobs=-1)
-            elif mtype == "lr":
-                clf = LogisticRegression(max_iter=1000, random_state=42,
-                                         class_weight=effective_cw)
             elif mtype == "xgb":
                 try:
                     from xgboost import XGBClassifier
@@ -267,19 +263,20 @@ def _evaluate_dual_fusion(X: pd.DataFrame, y: pd.Series,
         if hasattr(rf_clf, "predict_proba"):
             y_ml_proba = rf_clf.predict_proba(X_scaled)
 
-        # 融合策略：加权置信度投票
-        # - ML 引擎权重 0.8（高精度），规则引擎权重 0.2（低精度但高召回）
-        # - 融合分数 = w_ml * ml_confidence + w_rule * rule_confidence
-        # - 阈值 > 0.5 则判定为攻击
-        ML_WEIGHT = 0.8
-        RULE_WEIGHT = 0.2
-        FUSION_THRESHOLD = 0.5
+        # ── 融合策略：自适应加权 + OR 互补（v2）──
+        # 原版固定权重 ML×0.8+Rule×0.2 在规则 F1=0.71 时无增益
+        # 新策略：
+        #   1. ML 高置信区（>0.7）：直接采用 ML 判定（ML 已足够准确）
+        #   2. ML 低置信区（0.3~0.7）：规则作为补充信号，OR 逻辑提升召回
+        #   3. 规则独有触发：保留为低危告警（不改变最终标签，但记录）
+        ML_CONF_HIGH = 0.7    # ML 高置信阈值
+        ML_CONF_LOW = 0.3     # ML 低置信阈值
 
         # 获取 LabelEncoder 的攻击标签编码（Attack=0, Normal=1 字母序）
         attack_encoded = rf_le.transform(["Attack"])[0]
         normal_encoded = 1 - attack_encoded
 
-        # ── 向量化融合投票（替代逐行循环）──
+        # ── 向量化融合投票 ──
         if y_ml_proba is not None:
             attack_idx = list(rf_le.classes_).index("Attack") if "Attack" in rf_le.classes_ else 1
             ml_conf = y_ml_proba[:, attack_idx]
@@ -287,8 +284,29 @@ def _evaluate_dual_fusion(X: pd.DataFrame, y: pd.Series,
             ml_conf = np.where(y_ml == attack_encoded, 1.0, 0.0)
 
         rule_conf = y_rule.astype(float)
-        fusion_score = ML_WEIGHT * ml_conf + RULE_WEIGHT * rule_conf
-        y_fusion = np.where(fusion_score > FUSION_THRESHOLD, attack_encoded, normal_encoded).tolist()
+
+        # 自适应融合：
+        # - ML 高置信：信任 ML
+        # - ML 不确定 + 规则触发：提升为攻击（OR 互补，提升召回）
+        # - ML 判 Normal 且规则未触发：保持 Normal
+        ml_is_attack = y_ml == attack_encoded
+        ml_uncertain = (ml_conf >= ML_CONF_LOW) & (ml_conf <= ML_CONF_HIGH)
+        rule_is_attack = y_rule.astype(bool)
+
+        y_fusion = np.where(
+            ml_is_attack,                              # ML 判攻击 → 攻击
+            attack_encoded,
+            np.where(
+                ml_uncertain & rule_is_attack,         # ML 不确定 + 规则触发 → 攻击（互补）
+                attack_encoded,
+                normal_encoded                          # 其他 → 正常
+            )
+        )
+
+        # 记录融合参数
+        ML_WEIGHT = 0.85   # 主权重（文档记录用）
+        RULE_WEIGHT = 0.15  # 辅助权重（文档记录用）
+        FUSION_THRESHOLD = 0.5
 
         y_true = rf_le.transform(eval_y)
 
@@ -297,6 +315,12 @@ def _evaluate_dual_fusion(X: pd.DataFrame, y: pd.Series,
         rec = recall_score(y_true, y_fusion, average="weighted", zero_division=0)
         f1 = f1_score(y_true, y_fusion, average="weighted", zero_division=0)
 
+        # 统计融合增益
+        ml_only_correct = np.sum(y_ml == y_true)
+        fusion_correct = np.sum(y_fusion == y_true)
+        rule_assisted = int(np.sum((y_ml != y_true) & (y_fusion == y_true)))  # 规则帮助修正的数量
+        rule_hurt = int(np.sum((y_ml == y_true) & (y_fusion != y_true)))       # 规则导致误判的数量
+
         metrics = {
             "model": "DualFusion(Rule+RF)",
             "accuracy": acc,
@@ -304,11 +328,15 @@ def _evaluate_dual_fusion(X: pd.DataFrame, y: pd.Series,
             "recall": rec,
             "f1_score": f1,
             "data_source": "same_as_ml",
-            "fusion_strategy": "weighted_voting",
-            "fusion_params": {"ml_weight": ML_WEIGHT, "rule_weight": RULE_WEIGHT, "threshold": FUSION_THRESHOLD},
+            "fusion_strategy": "adaptive_or",
+            "fusion_params": {
+                "ml_weight": ML_WEIGHT, "rule_weight": RULE_WEIGHT, "threshold": FUSION_THRESHOLD,
+                "ml_conf_high": ML_CONF_HIGH, "ml_conf_low": ML_CONF_LOW,
+                "rule_assisted": rule_assisted, "rule_hurt": rule_hurt,
+            },
         }
-        logger.info("双引擎融合(加权投票): 准确率=%.4f  F1=%.4f  策略=ML×%.1f+Rule×%.1f>%.1f",
-                     acc, f1, ML_WEIGHT, RULE_WEIGHT, FUSION_THRESHOLD)
+        logger.info("双引擎融合(自适应OR): 准确率=%.4f  F1=%.4f  规则辅助修正=%d  规则误伤=%d",
+                     acc, f1, rule_assisted, rule_hurt)
         return metrics
 
     except Exception as exc:

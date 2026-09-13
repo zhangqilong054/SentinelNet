@@ -14,14 +14,6 @@ from campus_ids.config import (
 logger = logging.getLogger(__name__)
 
 
-def _protocol_name(proto_num: int) -> str:
-    if proto_num == 6:
-        return "TCP"
-    if proto_num == 17:
-        return "UDP"
-    return "Other"
-
-
 def process_packet(pkt, feature_list: list):
     """Process one captured packet, append to the given feature_list."""
     from campus_ids.capture.enhanced_features import _parse_base_fields

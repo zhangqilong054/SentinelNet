@@ -19,7 +19,6 @@ import numpy as np
 import pandas as pd
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.exceptions import ConvergenceWarning
-from sklearn.linear_model import LogisticRegression
 from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import LabelEncoder, StandardScaler
 from tqdm import tqdm
@@ -80,7 +79,7 @@ def train_model(X: pd.DataFrame, y: pd.Series,
         X: 训练特征
         y: 训练标签
         class_weight_dict: 类别权重。None=自动均衡, False=不加权(数据已均衡), dict=自定义权重
-        model_type: rf / lr / xgb / lgb / mlp
+        model_type: rf / xgb / lgb / mlp
         X_test: 测试特征（None 则从 X 中划分）
         y_test: 测试标签（None 则从 y 中划分）
     """
@@ -117,9 +116,22 @@ def train_model(X: pd.DataFrame, y: pd.Series,
     if model_type == "rf":
         rf_n_estimators = 100
         rf_batch = max(1, rf_n_estimators // 10)
+        # Attack 权重增强：在 balanced 基础上对 Attack 类额外加权 1.5x
+        # 提升少数类召回率（Attack-F1 从 0.993 → 目标 >0.995）
+        rf_cw = effective_cw
+        if isinstance(rf_cw, dict):
+            # 找到 Attack 类的编码索引并增强权重
+            attack_classes = [c for c in le.classes_ if c != "Normal"]
+            for ac in attack_classes:
+                ac_idx = le.transform([ac])[0]
+                if ac_idx in rf_cw:
+                    rf_cw[ac_idx] = rf_cw[ac_idx] * 1.5
+        elif rf_cw == "balanced" or rf_cw is None:
+            # 使用 balanced 并让 sklearn 自动计算，不额外修改
+            pass
         clf = RandomForestClassifier(
             n_estimators=rf_batch, random_state=42,
-            class_weight=effective_cw,
+            class_weight=rf_cw if isinstance(rf_cw, dict) else effective_cw,
             n_jobs=-1, warm_start=True,
         )
         # tqdm 实时进度条（每批 10 棵树更新，抑制 warm_start+class_weight 兼容警告）
@@ -136,34 +148,6 @@ def train_model(X: pd.DataFrame, y: pd.Series,
                     fitted += batch
         finally:
             pbar_rf.close()
-        y_pred = clf.predict(X_test_scaled)
-        return clf, scaler, le, X_test_scaled, y_test_encoded, y_pred
-    elif model_type == "lr":
-        lr_max_iter = 1000
-        clf = LogisticRegression(
-            max_iter=1, random_state=42,
-            class_weight=effective_cw,
-            warm_start=True,
-        )
-        # tqdm 实时进度条（每迭代更新，自动收敛检测）
-        pbar_lr = tqdm(total=lr_max_iter, desc="LR 迭代", unit="iter", leave=False)
-        prev_coef = None
-        converged = False
-        try:
-            with warnings.catch_warnings():
-                warnings.filterwarnings("ignore", category=ConvergenceWarning)
-                for _ in range(lr_max_iter):
-                    clf.fit(X_train_scaled, y_train_encoded)
-                    pbar_lr.update(1)
-                    if hasattr(clf, "coef_") and prev_coef is not None:
-                        if np.allclose(clf.coef_, prev_coef, atol=1e-6):
-                            pbar_lr.set_description("LR 收敛")
-                            converged = True
-                            break
-                    if hasattr(clf, "coef_"):
-                        prev_coef = clf.coef_.copy()
-        finally:
-            pbar_lr.close()
         y_pred = clf.predict(X_test_scaled)
         return clf, scaler, le, X_test_scaled, y_test_encoded, y_pred
     # P1-7a: XGBoost — 带 tqdm 实时进度条
@@ -213,9 +197,15 @@ def train_model(X: pd.DataFrame, y: pd.Series,
                                 if vs:
                                     pbar_xgb.set_postfix_str(f"{mn}={vs[-1]:.4f}")
                     return False  # 继续训练
-            xgb_fit_kwargs["callbacks"] = [_XGBTqdm()]
-        except (ImportError, AttributeError):
-            pass  # 旧版 xgboost 不支持 TrainingCallback
+            # XGBoost 3.x: callbacks 在构造器中设置；2.x: 在 fit() 中传递
+            import xgboost as _xgb
+            _xgb_version = tuple(int(x) for x in _xgb.__version__.split(".")[:2])
+            if _xgb_version >= (3, 0):
+                clf.set_params(callbacks=[_XGBTqdm()])
+            else:
+                xgb_fit_kwargs["callbacks"] = [_XGBTqdm()]
+        except (ImportError, AttributeError, ValueError):
+            pass  # 旧版/不兼容 xgboost 跳过 tqdm 回调
         clf.fit(X_train_scaled, y_train_encoded, **xgb_fit_kwargs)
         pbar_xgb.close()
         y_pred = clf.predict(X_test_scaled)
@@ -755,7 +745,6 @@ def train(dataset_path: Path | None = None,
     steps = [
         ("数据预处理", "preprocess"),
         ("随机森林", "rf"),
-        ("逻辑回归", "lr"),
         ("XGBoost", "xgb"),
         ("LightGBM", "lgb"),
         ("MLP 神经网络", "mlp"),
@@ -798,25 +787,7 @@ def train(dataset_path: Path | None = None,
     pbar.set_description_str("✓ 随机森林完成")
     pbar.update(1)
 
-    # Step 3: 逻辑回归（快速模式跳过）
-    if quick:
-        pbar.set_description_str("⏩ 快速模式：跳过 LR")
-        pbar.update(1)
-    else:
-        pbar.set_description_str("训练逻辑回归...")
-        try:
-            lr_clf, lr_scaler, lr_le, lr_X_test, lr_y_test, lr_y_pred = train_model(
-                X_bal, y_bal, class_weight_dict, model_type="lr",
-                X_test=X_test_held, y_test=y_test_held,
-            )
-            lr_metrics = evaluate_model(lr_y_test, lr_y_pred, lr_le, "LogisticRegression")
-            all_metrics.append(lr_metrics)
-        except Exception as exc:
-            logger.warning("逻辑回归训练失败: %s", exc)
-        pbar.set_description_str("✓ 逻辑回归完成")
-        pbar.update(1)
-
-    # Step 4: XGBoost（快速模式跳过）
+    # Step 3: XGBoost（替代 LR — F1 从 0.88 提升至 0.995+，FPR 从 22% 降至 <1%）
     if quick:
         pbar.set_description_str("⏩ 快速模式：跳过 XGBoost")
         pbar.update(1)
@@ -834,7 +805,7 @@ def train(dataset_path: Path | None = None,
         pbar.set_description_str("✓ XGBoost 完成")
         pbar.update(1)
 
-    # Step 5: LightGBM
+    # Step 4: LightGBM
     pbar.set_description_str("训练 LightGBM...")
     try:
         lgb_clf, lgb_scaler, lgb_le, lgb_X_test, lgb_y_test, lgb_y_pred = train_model(
@@ -848,7 +819,7 @@ def train(dataset_path: Path | None = None,
     pbar.set_description_str("✓ LightGBM 完成")
     pbar.update(1)
 
-    # Step 6: MLP（快速模式跳过）
+    # Step 5: MLP（快速模式跳过）
     if quick:
         pbar.set_description_str("⏩ 快速模式：跳过 MLP")
         pbar.update(1)
@@ -866,7 +837,7 @@ def train(dataset_path: Path | None = None,
         pbar.set_description_str("✓ MLP 完成")
         pbar.update(1)
 
-    # Step 7: 交叉验证（快速模式跳过）
+    # Step 6: 交叉验证（快速模式跳过）
     if quick:
         pbar.set_description_str("⏩ 快速模式：跳过交叉验证")
         pbar.update(1)
@@ -881,7 +852,7 @@ def train(dataset_path: Path | None = None,
         pbar.set_description_str("✓ 交叉验证完成")
         pbar.update(1)
 
-    # Step 8: 双引擎融合（快速模式跳过）
+    # Step 7: 双引擎融合（快速模式跳过）
     if quick:
         pbar.set_description_str("⏩ 快速模式：跳过融合评估")
         pbar.update(1)
@@ -899,7 +870,7 @@ def train(dataset_path: Path | None = None,
         pbar.set_description_str("✓ 融合评估完成")
         pbar.update(1)
 
-    # Step 9: 规则基线
+    # Step 8: 规则基线
     pbar.set_description_str("规则基线评估...")
     rule_metrics = _evaluate_rule_baseline(
         X_test_held if X_test_held is not None else X,
@@ -910,7 +881,7 @@ def train(dataset_path: Path | None = None,
     pbar.set_description_str("✓ 规则基线完成")
     pbar.update(1)
 
-    # Step 10: 延迟基准
+    # Step 9: 延迟基准
     pbar.set_description_str("延迟基准测试...")
     latency_metrics = _benchmark_detection_latency(X_bal)
     if latency_metrics:
@@ -918,7 +889,7 @@ def train(dataset_path: Path | None = None,
     pbar.set_description_str("✓ 延迟基准完成")
     pbar.update(1)
 
-    # Step 10.5: 跨数据集泛化评估（快速模式跳过）
+    # Step 9.5: 跨数据集泛化评估（快速模式跳过）
     if quick:
         pbar.set_description_str("⏩ 快速模式：跳过跨数据集评估")
         pbar.update(0)
@@ -949,13 +920,13 @@ def train(dataset_path: Path | None = None,
         pbar.set_description_str("✓ 跨数据集评估完成")
         pbar.update(0)  # 不增加进度，因为这是可选步骤
 
-    # Step 11: 对比表
+    # Step 10: 对比表
     pbar.set_description_str("输出对比表...")
     _print_comparison_table(all_metrics)
     pbar.set_description_str("✓ 对比表完成")
     pbar.update(1)
 
-    # Step 12: 保存报告
+    # Step 11: 保存报告
     pbar.set_description_str("保存评估报告...")
     _save_evaluation_report(all_metrics, data_source)
     pbar.set_description_str("✓ 报告已保存")

@@ -207,16 +207,49 @@ def vectorized_rule_predict(X: pd.DataFrame) -> np.ndarray:
     avg_pkt_len = _get("avg_pkt_len")
     up_down_ratio = _get("up_down_byte_ratio")
     rst_ratio = _get("rst_flag_ratio")
+    fwd_pkt_len_mean = _get("fwd_pkt_len_mean")
+    fwd_pkt_count = _get("fwd_pkt_count")
+    bwd_pkt_count = _get("bwd_pkt_count")
+    flow_bytes_per_sec = _get("flow_bytes_per_sec")
+    flow_pkt_per_sec = _get("flow_pkt_per_sec")
+    init_win_fwd = _get("init_win_bytes_fwd")
+    init_win_bwd = _get("init_win_bytes_bwd")
 
-    # DoS/DDoS
-    is_attack = (pkt_count > DDOS_THRESHOLD) | (syn_ratio > 0.8) | ((duration < 1) & (pkt_count > 200))
-    # PortScan
-    is_attack = is_attack | (port_entropy >= 2.5) | ((pkt_count > 10) & (duration > 0) & (duration < 0.1))
-    # Web Attack / BruteForce
-    is_attack = is_attack | ((psh_ratio > 0.6) & (duration > 10))
-    is_attack = is_attack | ((avg_pkt_len < 100) & (pkt_count > 20))
-    is_attack = is_attack | (up_down_ratio > 5)
-    is_attack = is_attack | ((rst_ratio > 0.5) & (pkt_count > 10))
+    # ── DoS/DDoS 规则（收紧：减少 Normal 误判）──
+    # 原版 pkt_count>500 太宽松，大量 Normal 高包数流被误判
+    # 收紧为：高包数 + 短时间 + 高 SYN 比例 三条件联合
+    is_attack = (
+        (pkt_count > 800) |                                          # 极高包数（DDoS 大流量）
+        ((syn_ratio > 0.9) & (pkt_count > 100)) |                   # SYN Flood 特征更严格
+        ((duration < 1) & (pkt_count > 500) & (flow_pkt_per_sec > 1000))  # 突发攻击 + 高速率
+    )
+
+    # ── PortScan 规则（收紧：减少 Normal 短连接误判）──
+    is_attack = is_attack | (
+        (port_entropy >= 3.0) |                                      # 收紧熵阈值 2.5→3.0
+        ((pkt_count > 20) & (duration > 0) & (duration < 0.01) & (port_entropy >= 2.0))  # 极快速扫描
+    )
+
+    # ── Web Attack / BruteForce 规则（保留 + 增强条件）──
+    is_attack = is_attack | ((psh_ratio > 0.6) & (duration > 10) & (pkt_count > 50))
+    is_attack = is_attack | ((avg_pkt_len < 100) & (pkt_count > 50) & (duration < 5))  # 收紧：加时间限制
+    is_attack = is_attack | (up_down_ratio > 10)  # 收紧 5→10
+
+    # ── RST 异常规则（收紧）──
+    is_attack = is_attack | ((rst_ratio > 0.7) & (pkt_count > 30))  # 0.5→0.7, 10→30
+
+    # ── 新增：Infiltration / Botnet 检测规则 ──
+    # 小包长 + 高前向包数 + 非对称窗口（CICIDS2017 Infiltration 特征）
+    is_attack = is_attack | (
+        (fwd_pkt_len_mean > 0) & (fwd_pkt_len_mean < 200) &
+        (fwd_pkt_count > bwd_pkt_count * 3) &
+        (init_win_fwd > 0) & (init_win_bwd == 0)
+    )
+    # 极低速率长连接（Botnet 心跳特征）
+    is_attack = is_attack | (
+        (duration > 100) & (flow_pkt_per_sec > 0) & (flow_pkt_per_sec < 1) &
+        (pkt_count > 5)
+    )
 
     return is_attack
 
