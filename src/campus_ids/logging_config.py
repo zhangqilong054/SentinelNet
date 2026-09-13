@@ -14,8 +14,9 @@ from datetime import datetime
 from logging.handlers import RotatingFileHandler
 from pathlib import Path
 
-# 默认日志目录
-DEFAULT_LOG_DIR = Path(os.environ.get("CAMPUS_IDS_LOG_DIR", "logs"))
+from campus_ids.config import LOG_DIR as _DEFAULT_LOG_DIR
+
+# 默认日志级别
 DEFAULT_LOG_LEVEL = os.environ.get("CAMPUS_IDS_LOG_LEVEL", "INFO").upper()
 
 # 日志格式
@@ -67,7 +68,7 @@ def setup_logging(log_dir: Path | str | None = None, level: str | None = None) -
         log_dir: 日志文件目录（默认: logs/ 或 CAMPUS_IDS_LOG_DIR 环境变量）
         level: 日志级别（默认: INFO 或 CAMPUS_IDS_LOG_LEVEL 环境变量）
     """
-    log_dir = Path(log_dir) if log_dir else DEFAULT_LOG_DIR
+    log_dir = Path(log_dir) if log_dir else _DEFAULT_LOG_DIR
     level = (level or DEFAULT_LOG_LEVEL).upper()
 
     # 创建日志目录

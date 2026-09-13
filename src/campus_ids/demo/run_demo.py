@@ -22,10 +22,12 @@ import threading
 import time
 import webbrowser
 
+from campus_ids.config import WEB_PORT
+
 logger = logging.getLogger(__name__)
 
 DEFAULT_HOST = "127.0.0.1"
-DEFAULT_PORT = 5000
+DEFAULT_PORT = WEB_PORT
 DEFAULT_DURATION = 60  # 演示持续秒数
 
 

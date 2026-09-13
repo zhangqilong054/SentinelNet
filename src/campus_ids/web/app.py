@@ -7,13 +7,14 @@ from pathlib import Path
 
 from flask import Flask, render_template, jsonify, request
 
-from campus_ids.config import API_TOKEN, AUTH_ENABLED, MAX_ALERT_API_RETURN
-from campus_ids.detector.detector import AnomalyDetector
+from campus_ids.config import API_TOKEN, AUTH_ENABLED, MAX_ALERT_API_RETURN, TRAFFIC_STATS_CSV
+from campus_ids.detector.detector import create_rule_detector
 from campus_ids.web.helpers import (
-    CONFIG, OUTPUT_CSV, _capture_running, _rule_detector, _state_lock,
+    CONFIG, _capture_running, _state_lock,
     alert_history, dual_detector, save_traffic_data, start_capture_thread,
     stop_capture_thread, traffic_data, traffic_history, update_traffic_data,
 )
+import campus_ids.web.helpers as _helpers_module
 logger = logging.getLogger(__name__)
 
 app = Flask(__name__)
@@ -78,7 +79,6 @@ def get_alerts():
 
 @app.route("/api/config", methods=['GET', 'POST'])
 def config():
-    global CONFIG, _rule_detector, dual_detector
     if request.method == 'POST':
         with _state_lock:
             data = request.get_json()
@@ -90,7 +90,7 @@ def config():
                 if key in data:
                     CONFIG[key] = int(data[key])
 
-            _rule_detector = AnomalyDetector(
+            new_detector = create_rule_detector(
                 ddos_threshold=CONFIG['ddos_threshold'],
                 port_scan_threshold=CONFIG['port_scan_threshold'],
                 syn_flood_threshold=CONFIG['syn_flood_threshold'],
@@ -99,7 +99,9 @@ def config():
                 brute_force_window=CONFIG['brute_force_window'],
                 lateral_movement_threshold=CONFIG['lateral_movement_threshold'],
             )
-            dual_detector.rule_detector = _rule_detector
+            # R-13 fix: 同时更新 helpers 模块级 _rule_detector 和 dual_detector 的引用
+            _helpers_module._rule_detector = new_detector
+            dual_detector.rule_detector = new_detector
             return jsonify({'status': 'success', 'config': CONFIG})
     with _state_lock:
         return jsonify(dict(CONFIG))
@@ -235,7 +237,7 @@ def run_app():
     logger.info("SentinelNet 监控系统启动成功")
     logger.info("访问地址: http://localhost:%s", CONFIG['port'])
     logger.info("刷新间隔: %sms", CONFIG['refresh_interval'])
-    logger.info("数据保存文件: %s", OUTPUT_CSV)
+    logger.info("数据保存文件: %s", TRAFFIC_STATS_CSV)
     app.run(debug=False, port=CONFIG['port'], host='0.0.0.0')
 
 

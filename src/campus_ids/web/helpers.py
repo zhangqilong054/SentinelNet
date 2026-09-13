@@ -10,8 +10,9 @@ from collections import deque
 from datetime import datetime
 from pathlib import Path
 
-from campus_ids.detector.detector import AnomalyDetector
+from campus_ids.detector.detector import create_rule_detector
 from campus_ids.capture.tls_analyzer import tls_analyzer
+from campus_ids.capture.enhanced_features import _parse_base_fields
 from campus_ids.detector.dual_detector import DualDetector
 from campus_ids.config import (
     DDOS_THRESHOLD, PORT_SCAN_THRESHOLD,
@@ -28,6 +29,13 @@ from campus_ids.config import (
 logger = logging.getLogger(__name__)
 
 # ── 全局配置字典 ────────────────────────────────────────────────────
+# R-11: CONFIG 字典从 config.py 常量生成，键名与常量名对应关系如下：
+#   port ← WEB_PORT, refresh_interval ← WEB_REFRESH_INTERVAL_MS,
+#   ddos_threshold ← DDOS_THRESHOLD, port_scan_threshold ← PORT_SCAN_THRESHOLD,
+#   syn_flood_threshold ← SYN_FLOOD_THRESHOLD, udp_flood_threshold ← UDP_FLOOD_THRESHOLD,
+#   brute_force_threshold ← BRUTE_FORCE_THRESHOLD,
+#   brute_force_window ← BRUTE_FORCE_WINDOW_SEC,
+#   lateral_movement_threshold ← LATERAL_MOVEMENT_THRESHOLD
 CONFIG = {
     'port': WEB_PORT,
     'refresh_interval': WEB_REFRESH_INTERVAL_MS,
@@ -65,17 +73,7 @@ traffic_data = {
 alert_history: list[dict] = []
 traffic_history: list[dict] = []
 
-OUTPUT_CSV = TRAFFIC_STATS_CSV
-
-_rule_detector = AnomalyDetector(
-    ddos_threshold=DDOS_THRESHOLD,
-    port_scan_threshold=PORT_SCAN_THRESHOLD,
-    syn_flood_threshold=SYN_FLOOD_THRESHOLD,
-    udp_flood_threshold=UDP_FLOOD_THRESHOLD,
-    brute_force_threshold=BRUTE_FORCE_THRESHOLD,
-    brute_force_window=BRUTE_FORCE_WINDOW_SEC,
-    lateral_movement_threshold=LATERAL_MOVEMENT_THRESHOLD,
-)
+_rule_detector = create_rule_detector()
 
 dual_detector = DualDetector(
     rule_detector=_rule_detector,
@@ -95,17 +93,18 @@ def _capture_worker():
     def _on_pkt(pkt):
         if not _capture_running:
             return
-        if pkt.haslayer(IP) and (pkt.haslayer(TCP) or pkt.haslayer(UDP)):
-            l4 = pkt[TCP] if pkt.haslayer(TCP) else pkt[UDP]
-            proto = "TCP" if pkt.haslayer(TCP) else "UDP"
+        base = _parse_base_fields(pkt)
+        if base is not None:
+            _, l4, proto, src_ip, _, _, dst_port, pkt_len, _ = base
+            from scapy.all import TCP, UDP
             is_syn = bool(pkt.haslayer(TCP) and pkt[TCP].flags & 0x02)
-            is_dns = bool(pkt.haslayer(UDP) and int(l4.dport) == DNS_PORT)
+            is_dns = bool(pkt.haslayer(UDP) and dst_port == DNS_PORT)
             try:
                 _packet_queue.put_nowait({
-                    'length': len(pkt),
+                    'length': pkt_len,
                     'sport': int(l4.sport),
-                    'dport': int(l4.dport),
-                    'src_ip': pkt[IP].src,
+                    'dport': dst_port,
+                    'src_ip': src_ip,
                     'proto': proto,
                     'is_syn': is_syn,
                     'is_dns': is_dns,
@@ -113,7 +112,7 @@ def _capture_worker():
             except queue.Full:
                 pass
 
-            if pkt.haslayer(TCP) and int(l4.dport) in TLS_PORTS:
+            if pkt.haslayer(TCP) and dst_port in TLS_PORTS:
                 tls_analyzer.parse_tls_from_packet(pkt)
 
     try:
@@ -253,7 +252,7 @@ def update_traffic_data():
 def save_traffic_data():
     """将流量历史保存到 CSV 文件。"""
     with _state_lock:
-        with OUTPUT_CSV.open("w", newline="", encoding="utf-8") as f:
+        with TRAFFIC_STATS_CSV.open("w", newline="", encoding="utf-8") as f:
             writer = csv.writer(f)
             writer.writerow(["Time", "QPS", "Connections", "PacketCount", "PortCount", "SrcIPCount", "Alert"])
             for entry in traffic_history:

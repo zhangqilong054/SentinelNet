@@ -22,6 +22,7 @@ from tqdm import tqdm
 
 from campus_ids.config import CONFUSION_MATRIX_PATH, EVALUATION_PATH
 from campus_ids.model.data_loader import ENHANCED_FEATURE_COLUMNS, align_features
+from campus_ids.model.utils import clean_features, encode_class_weight
 
 logger = logging.getLogger(__name__)
 
@@ -156,16 +157,8 @@ def cross_validate_models(X: pd.DataFrame, y: pd.Series,
     ]
 
     # P5: 解析 class_weight_dict → effective_cw（编码为整数键）
-    effective_cw: dict | str | None = "balanced"
-    if class_weight_dict is False:
-        effective_cw = None
-    elif class_weight_dict is not None and isinstance(class_weight_dict, dict):
-        # 将字符串键映射为编码后的整数键
-        encoded_cw = {}
-        for cls_name, weight in class_weight_dict.items():
-            if cls_name in le.classes_:
-                encoded_cw[le.transform([cls_name])[0]] = weight
-        effective_cw = encoded_cw if encoded_cw else "balanced"
+    # R-03: 委托给 encode_class_weight() 统一处理
+    effective_cw = encode_class_weight(class_weight_dict, le)
 
     results = []
     pbar_cv = tqdm(model_configs, desc="交叉验证", unit="模型", leave=False)
@@ -173,6 +166,8 @@ def cross_validate_models(X: pd.DataFrame, y: pd.Series,
         pbar_cv.set_description_str(f"CV {name}")
         try:
             # P2 修复：移除冗余 train_model 调用，直接创建分类器做交叉验证
+            # R-09 注意：此处模型超参数为简化版本（n_estimators=100 等），仅用于 CV 评估；
+            # 正式训练使用 train_model() 中的完整超参数（n_estimators=300 等）。
             if mtype == "rf":
                 clf = RandomForestClassifier(n_estimators=100, random_state=42,
                                              class_weight=effective_cw, n_jobs=-1)
@@ -257,30 +252,14 @@ def _evaluate_dual_fusion(X: pd.DataFrame, y: pd.Series,
         eval_X = X_test if X_test is not None else X
         eval_y = y_test if y_test is not None else y
 
-        # ── 向量化规则判定（替代逐行 iterrows，10x+ 加速）──
-        pkt_count = eval_X["pkt_count"].values if "pkt_count" in eval_X.columns else np.zeros(len(eval_X))
-        syn_ratio = eval_X["syn_flag_ratio"].values if "syn_flag_ratio" in eval_X.columns else np.zeros(len(eval_X))
-        port_entropy = eval_X["dst_port_entropy"].values if "dst_port_entropy" in eval_X.columns else np.zeros(len(eval_X))
-        duration = eval_X["duration"].values if "duration" in eval_X.columns else np.zeros(len(eval_X))
-        psh_ratio = eval_X["psh_flag_ratio"].values if "psh_flag_ratio" in eval_X.columns else np.zeros(len(eval_X))
-        avg_pkt_len = eval_X["avg_pkt_len"].values if "avg_pkt_len" in eval_X.columns else np.zeros(len(eval_X))
-        up_down_ratio = eval_X["up_down_byte_ratio"].values if "up_down_byte_ratio" in eval_X.columns else np.zeros(len(eval_X))
-        rst_ratio = eval_X["rst_flag_ratio"].values if "rst_flag_ratio" in eval_X.columns else np.zeros(len(eval_X))
-
-        # DoS/DDoS
-        is_attack = (pkt_count > 500) | (syn_ratio > 0.8) | ((duration < 1) & (pkt_count > 200))
-        # PortScan
-        is_attack = is_attack | (port_entropy >= 2.5) | ((pkt_count > 10) & (duration > 0) & (duration < 0.1))
-        # Web Attack / BruteForce
-        is_attack = is_attack | ((psh_ratio > 0.6) & (duration > 10))
-        is_attack = is_attack | ((avg_pkt_len < 100) & (pkt_count > 20))
-        is_attack = is_attack | (up_down_ratio > 5)
-        is_attack = is_attack | ((rst_ratio > 0.5) & (pkt_count > 10))
+        # ── 向量化规则判定（统一调用 detector.vectorized_rule_predict）──
+        from campus_ids.detector.detector import vectorized_rule_predict
+        is_attack = vectorized_rule_predict(eval_X)
 
         y_rule = is_attack.astype(int)
 
         # ML 预测（在测试集上）
-        X_scaled = rf_scaler.transform(eval_X.replace([np.inf, -np.inf], np.nan).fillna(0))
+        X_scaled = rf_scaler.transform(clean_features(eval_X))
         y_ml = rf_clf.predict(X_scaled)
 
         # ML 置信度（预测概率）
@@ -358,31 +337,11 @@ def _evaluate_rule_baseline(X: pd.DataFrame, y: pd.Series) -> dict | None:
     - up_down_byte_ratio > 5: 下行远大于上行（响应泛洪/数据泄露）
     """
     try:
-        from campus_ids.detector.detector import AnomalyDetector
-        detector = AnomalyDetector()
+        from campus_ids.detector.detector import vectorized_rule_predict
 
-        # ── 向量化规则判定（替代逐行 iterrows，10x+ 加速）──
+        # ── 向量化规则判定（统一调用 detector.vectorized_rule_predict）──
+        is_attack = vectorized_rule_predict(X)
         y_pred_rule = np.full(len(X), "Normal", dtype=object)
-
-        pkt_count = X["pkt_count"].values if "pkt_count" in X.columns else np.zeros(len(X))
-        syn_ratio = X["syn_flag_ratio"].values if "syn_flag_ratio" in X.columns else np.zeros(len(X))
-        port_entropy = X["dst_port_entropy"].values if "dst_port_entropy" in X.columns else np.zeros(len(X))
-        duration = X["duration"].values if "duration" in X.columns else np.zeros(len(X))
-        psh_ratio = X["psh_flag_ratio"].values if "psh_flag_ratio" in X.columns else np.zeros(len(X))
-        avg_pkt_len = X["avg_pkt_len"].values if "avg_pkt_len" in X.columns else np.zeros(len(X))
-        up_down_ratio = X["up_down_byte_ratio"].values if "up_down_byte_ratio" in X.columns else np.zeros(len(X))
-        rst_ratio = X["rst_flag_ratio"].values if "rst_flag_ratio" in X.columns else np.zeros(len(X))
-
-        # DoS/DDoS
-        is_attack = (pkt_count > 500) | (syn_ratio > 0.8) | ((duration < 1) & (pkt_count > 200))
-        # PortScan
-        is_attack = is_attack | (port_entropy >= 2.5) | ((pkt_count > 10) & (duration > 0) & (duration < 0.1))
-        # Web Attack / BruteForce
-        is_attack = is_attack | ((psh_ratio > 0.6) & (duration > 10))
-        is_attack = is_attack | ((avg_pkt_len < 100) & (pkt_count > 20))
-        is_attack = is_attack | (up_down_ratio > 5)
-        is_attack = is_attack | ((rst_ratio > 0.5) & (pkt_count > 10))
-
         y_pred_rule[is_attack] = "Attack"
 
         # 计算指标
@@ -506,9 +465,9 @@ def _benchmark_detection_latency(X: pd.DataFrame, n_samples: int = 100) -> dict 
     import time as _time
 
     try:
-        from campus_ids.detector.detector import AnomalyDetector
+        from campus_ids.detector.detector import create_rule_detector
         from campus_ids.model.train import load_model
-        detector = AnomalyDetector()
+        detector = create_rule_detector()
 
         # 规则检测延迟测试
         n = min(n_samples, len(X))
@@ -543,7 +502,7 @@ def _benchmark_detection_latency(X: pd.DataFrame, n_samples: int = 100) -> dict 
                 row = X.iloc[i:i+1]
                 # 对齐特征列：补缺失、删多余、排序一致
                 row = align_features(row, feature_cols)
-                row = row.replace([np.inf, -np.inf], np.nan).fillna(0)
+                row = clean_features(row)
                 t0 = _time.perf_counter()
                 if scaler:
                     X_scaled = scaler.transform(row)
@@ -618,7 +577,7 @@ def cross_dataset_evaluate(artifact: dict, other_csvs: list[tuple]) -> list[dict
 
             # 关键修复：特征对齐 — 补缺失特征填0、删多余特征、排序一致
             X_test = align_features(X_test, feature_cols)
-            X_test = X_test.replace([np.inf, -np.inf], np.nan).fillna(0)
+            X_test = clean_features(X_test)
 
             if scaler:
                 X_scaled = scaler.transform(X_test)

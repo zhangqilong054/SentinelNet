@@ -24,8 +24,6 @@ from campus_ids.config import TRAFFIC_CSV
 
 logger = logging.getLogger(__name__)
 
-OUTPUT_CSV = TRAFFIC_CSV
-
 # ── 特征名称列表（统一管理，训练 / 检测共用） ────────────────────────
 FEATURE_NAMES = [
     # 流级特征 (P0-9)
@@ -54,15 +52,23 @@ FEATURE_NAMES = [
     "duration",             # 持续时间
 ]
 
-# TLS 版本编码映射
-TLS_VERSION_ENCODE = {
+# TLS 版本编码映射 — R-02: 从 tls_analyzer.TLS_VERSION_MAP 派生，保证双向一致
+# 编码值已嵌入训练模型(feature_list.json)，必须与 TLS_VERSION_MAP 的值保持对应
+from campus_ids.capture.tls_analyzer import TLS_VERSION_MAP as _TLS_VERSION_MAP
+
+_TLS_VERSION_NAMES = set(_TLS_VERSION_MAP.values())
+TLS_VERSION_ENCODE: dict[str, int] = {
     "SSL 3.0": 0,
     "TLS 1.0": 1,
     "TLS 1.1": 2,
     "TLS 1.2": 3,
     "TLS 1.3": 4,
-    "": -1,
+    "": -1,  # 未知版本
 }
+# 运行时校验：确保 TLS_VERSION_MAP 中的所有版本名都在编码映射中
+_missing = _TLS_VERSION_NAMES - set(TLS_VERSION_ENCODE)
+if _missing:
+    logger.warning("TLS_VERSION_MAP 中有版本未在 TLS_VERSION_ENCODE 中定义: %s", _missing)
 
 
 @dataclass
@@ -149,44 +155,63 @@ def _ja3_to_numeric(ja3_hash: str) -> float:
         return 0.0
 
 
+def _parse_base_fields(pkt) -> Optional[tuple]:
+    """从 Scapy 包中解析基础字段。
+
+    R-04: 统一包解析逻辑，供 extract_packet_info 和 features.process_packet 复用。
+
+    Returns:
+        (ip_layer, l4, proto, src_ip, dst_ip, src_port, dst_port, pkt_len, timestamp) 或 None
+    """
+    from scapy.all import IP, TCP, UDP
+
+    if not pkt.haslayer(IP):
+        return None
+    if not (pkt.haslayer(TCP) or pkt.haslayer(UDP)):
+        return None
+
+    ip = pkt[IP]
+    l4 = pkt[TCP] if pkt.haslayer(TCP) else pkt[UDP]
+    proto = "TCP" if pkt.haslayer(TCP) else "UDP"
+
+    return (
+        ip, l4, proto,
+        ip.src, ip.dst,
+        int(l4.sport), int(l4.dport),
+        len(pkt), float(pkt.time),
+    )
+
+
 def extract_packet_info(pkt) -> Optional[PacketInfo]:
     """从 Scapy 包中提取 PacketInfo。"""
-    try:
-        from scapy.all import IP, TCP, UDP
+    from scapy.all import TCP
 
-        if not pkt.haslayer(IP):
-            return None
-        if not (pkt.haslayer(TCP) or pkt.haslayer(UDP)):
-            return None
-
-        ip = pkt[IP]
-        l4 = pkt[TCP] if pkt.haslayer(TCP) else pkt[UDP]
-        proto = "TCP" if pkt.haslayer(TCP) else "UDP"
-
-        info = PacketInfo(
-            src_ip=ip.src,
-            dst_ip=ip.dst,
-            src_port=int(l4.sport),
-            dst_port=int(l4.dport),
-            proto=proto,
-            length=len(pkt),
-            timestamp=float(pkt.time),
-        )
-
-        # TCP 标志
-        if pkt.haslayer(TCP):
-            flags = pkt[TCP].flags
-            info.is_syn = bool(flags & 0x02)
-            info.is_fin = bool(flags & 0x01)
-            info.is_rst = bool(flags & 0x04)
-            info.is_psh = bool(flags & 0x08)
-            info.window_size = int(pkt[TCP].window)
-
-        return info
-
-    except Exception as exc:
-        logger.debug("包信息提取失败: %s", exc)
+    base = _parse_base_fields(pkt)
+    if base is None:
         return None
+
+    ip, l4, proto, src_ip, dst_ip, src_port, dst_port, pkt_len, timestamp = base
+
+    info = PacketInfo(
+        src_ip=src_ip,
+        dst_ip=dst_ip,
+        src_port=src_port,
+        dst_port=dst_port,
+        proto=proto,
+        length=pkt_len,
+        timestamp=timestamp,
+    )
+
+    # TCP 标志
+    if pkt.haslayer(TCP):
+        flags = pkt[TCP].flags
+        info.is_syn = bool(flags & 0x02)
+        info.is_fin = bool(flags & 0x01)
+        info.is_rst = bool(flags & 0x04)
+        info.is_psh = bool(flags & 0x08)
+        info.window_size = int(pkt[TCP].window)
+
+    return info
 
 
 def aggregate_flow_features(packets: list[PacketInfo],
@@ -285,17 +310,30 @@ def aggregate_flow_features(packets: list[PacketInfo],
 
 def _heuristic_label(pkts: list[PacketInfo], port_entropy: float,
                      syn_count: int, pkt_count: int) -> str:
-    """基于启发式规则给流打标签。"""
-    # SYN 洪水：SYN 比例高
-    if pkt_count > 0 and syn_count / pkt_count > 0.8 and pkt_count > 10:
-        return "Attack"
-    # 端口扫描：端口熵高
-    if port_entropy > 2.0:
-        return "Attack"
-    # 高频发包
-    if pkt_count > 100:
-        return "Attack"
-    return "Normal"
+    """基于启发式规则给流打标签。
+
+    委托给 detector.vectorized_rule_predict 统一规则判定逻辑，
+    避免阈值分散在多处导致不一致。
+    """
+    import pandas as pd
+    from campus_ids.detector.detector import vectorized_rule_predict
+
+    if pkt_count == 0:
+        return "Normal"
+
+    # 构造单行 DataFrame 供向量化函数使用
+    row = pd.DataFrame([{
+        "pkt_count": float(pkt_count),
+        "syn_flag_ratio": syn_count / pkt_count,
+        "dst_port_entropy": port_entropy,
+        "duration": (pkts[-1].timestamp - pkts[0].timestamp) if len(pkts) > 1 else 0.0,
+        "psh_flag_ratio": sum(1 for p in pkts if p.is_psh) / pkt_count,
+        "avg_pkt_len": sum(p.length for p in pkts) / pkt_count,
+        "up_down_byte_ratio": 1.0,  # 流级无法精确计算，使用中性值
+        "rst_flag_ratio": sum(1 for p in pkts if p.is_rst) / pkt_count,
+    }])
+    is_attack = vectorized_rule_predict(row)
+    return "Attack" if bool(is_attack[0]) else "Normal"
 
 
 def flow_to_feature_vector(flow: FlowFeatures) -> list[float]:
@@ -337,7 +375,7 @@ CSV_HEADER = [
 
 def save_flows_to_csv(flows: list[FlowFeatures], path: Path | None = None) -> Path:
     """将流特征保存到 CSV 文件。"""
-    out = path or OUTPUT_CSV
+    out = path or TRAFFIC_CSV
     with out.open("w", newline="", encoding="utf-8") as f:
         writer = csv.writer(f)
         writer.writerow(CSV_HEADER)

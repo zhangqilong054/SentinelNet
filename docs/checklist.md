@@ -10,6 +10,37 @@
 
 ---
 
+## 冗余逻辑审查与优化 ✅
+
+> 审查日期: 2026-09-13 | 13项全部完成 | 67/67 测试通过
+
+### P0 — 立即清理 ✅
+- [x] R-08: 统一LOG_DIR默认值 — 删除DEFAULT_LOG_DIR，直接导入config.LOG_DIR
+- [x] R-13: 修复配置热更新BUG — app.py显式更新`_helpers_module._rule_detector`
+- [x] R-10/R-01: 新增`vectorized_rule_predict()`统一4处规则判定逻辑
+- [x] R-07: 新增`create_rule_detector()`工厂函数统一4处AnomalyDetector实例化
+
+### P1 — 短期改进 ✅
+- [x] R-03: 提取`encode_class_weight()`到model/utils.py，统一2处编码逻辑
+- [x] R-02: TLS_VERSION_ENCODE添加运行时校验确保与TLS_VERSION_MAP一致
+- [x] R-04: 提取`_parse_base_fields()`统一3处包解析逻辑
+- [x] R-06: 提取`clean_features()`到model/utils.py，统一6处inf/nan清理
+
+### P2 — 长期治理 ✅
+- [x] R-09: CV代码添加注释说明超参数简化是有意设计
+- [x] R-05: 删除OUTPUT_CSV/STATS_OUTPUT_CSV别名，直接使用config常量
+- [x] R-11: CONFIG字典添加键名与常量名对应关系注释
+- [x] R-12: run_demo.py硬编码端口改为config.WEB_PORT
+
+### 一致性检查 ✅
+- [x] 导入一致性：无孤儿导入、无循环导入、无断裂引用
+- [x] 配置常量一致性：无硬编码、无别名冗余
+- [x] API签名一致性：工厂函数/统一函数签名对齐
+- [x] 跨模块引用完整性：所有import路径有效
+- [x] 全量测试：67/67 通过
+
+---
+
 ## 训练管线数据泄漏修复 ✅
 
 - [x] P0 数据泄漏：`train()` 划分结果被丢弃 → 使用划分结果，仅训练集做类别均衡
@@ -86,7 +117,9 @@
 | 数据泄漏修复 | 7 | 7 | 100% |
 | 训练 UX + 注册表 | 22 | 22 | 100% |
 | 性能优化 | 6 | 6 | 100% |
-| **合计** | **82** | **83** | **99%** |
+| 冗余逻辑审查 | 13 | 13 | 100% |
+| 一致性检查 | 5 | 5 | 100% |
+| **合计** | **100** | **101** | **99%** |
 
 > 仅剩「答辩 PPT」1 项。
 
@@ -104,6 +137,7 @@
 | TLS | `capture/tls_analyzer.py` | JA3 指纹 + SNI + 异常检测 |
 | 训练 | `model/train.py` | 5 算法 + 防泄漏 + 注册表 + 进度条 + `--quick` |
 | 评估 | `model/evaluation.py` | 指标 + CV + 融合 + 延迟基准（向量化优化） |
+| 工具 | `model/utils.py` | `clean_features()` + `encode_class_weight()` 公共函数 |
 | 规则 | `detector/detector.py` | 8 类规则检测 |
 | 双引擎 | `detector/dual_detector.py` | 规则+ML 融合 + 告警分级 |
 | Web | `web/app.py` | Flask 实时仪表盘 + API 认证 |

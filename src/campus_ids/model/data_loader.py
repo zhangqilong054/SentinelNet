@@ -9,7 +9,7 @@ import pandas as pd
 from sklearn.utils.class_weight import compute_class_weight
 
 from campus_ids.capture.enhanced_features import FEATURE_NAMES
-from campus_ids.config import TRAFFIC_CSV, DATA_DIR
+from campus_ids.config import MIN_TRAIN_SAMPLES, TRAFFIC_CSV, DATA_DIR
 
 logger = logging.getLogger(__name__)
 
@@ -18,8 +18,6 @@ ENHANCED_FEATURE_COLUMNS = list(FEATURE_NAMES)
 
 # 兼容旧格式（仅 Length + Duration）
 LEGACY_FEATURE_COLUMNS = ["Length", "Duration"]
-
-MIN_TRAIN_SAMPLES = 100
 
 
 # ── CSV 格式检测 ────────────────────────────────────────────────────

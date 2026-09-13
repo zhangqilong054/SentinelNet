@@ -5,6 +5,15 @@ import re
 from collections import defaultdict
 from time import time
 
+import numpy as np
+import pandas as pd
+
+from campus_ids.config import (
+    DDOS_THRESHOLD, PORT_SCAN_THRESHOLD, SYN_FLOOD_THRESHOLD,
+    UDP_FLOOD_THRESHOLD, BRUTE_FORCE_THRESHOLD, BRUTE_FORCE_WINDOW_SEC,
+    LATERAL_MOVEMENT_THRESHOLD,
+)
+
 logger = logging.getLogger(__name__)
 
 # P1-#9: 应用层攻击载荷特征
@@ -152,8 +161,68 @@ class AnomalyDetector:
         return alerts
 
 
+def create_rule_detector(
+    ddos_threshold: int = DDOS_THRESHOLD,
+    port_scan_threshold: int = PORT_SCAN_THRESHOLD,
+    syn_flood_threshold: int = SYN_FLOOD_THRESHOLD,
+    udp_flood_threshold: int = UDP_FLOOD_THRESHOLD,
+    brute_force_threshold: int = BRUTE_FORCE_THRESHOLD,
+    brute_force_window: int = BRUTE_FORCE_WINDOW_SEC,
+    lateral_movement_threshold: int = LATERAL_MOVEMENT_THRESHOLD,
+) -> AnomalyDetector:
+    """工厂函数：使用 config 常量作为默认值创建 AnomalyDetector 实例。
+
+    R-07: 统一实例化入口，避免阈值分散在多处。
+    """
+    return AnomalyDetector(
+        ddos_threshold=ddos_threshold,
+        port_scan_threshold=port_scan_threshold,
+        syn_flood_threshold=syn_flood_threshold,
+        udp_flood_threshold=udp_flood_threshold,
+        brute_force_threshold=brute_force_threshold,
+        brute_force_window=brute_force_window,
+        lateral_movement_threshold=lateral_movement_threshold,
+    )
+
+
+def vectorized_rule_predict(X: pd.DataFrame) -> np.ndarray:
+    """向量化规则判定：对 DataFrame 批量应用规则阈值。
+
+    统一规则判定逻辑，避免 detector / evaluation / enhanced_features 中重复实现。
+    阈值与 AnomalyDetector 默认值保持一致。
+
+    Args:
+        X: 包含流量特征的 DataFrame，需包含 pkt_count, syn_flag_ratio 等列。
+
+    Returns:
+        布尔 ndarray，True 表示判定为攻击。
+    """
+    _get = lambda col: X[col].values if col in X.columns else np.zeros(len(X))
+
+    pkt_count = _get("pkt_count")
+    syn_ratio = _get("syn_flag_ratio")
+    port_entropy = _get("dst_port_entropy")
+    duration = _get("duration")
+    psh_ratio = _get("psh_flag_ratio")
+    avg_pkt_len = _get("avg_pkt_len")
+    up_down_ratio = _get("up_down_byte_ratio")
+    rst_ratio = _get("rst_flag_ratio")
+
+    # DoS/DDoS
+    is_attack = (pkt_count > DDOS_THRESHOLD) | (syn_ratio > 0.8) | ((duration < 1) & (pkt_count > 200))
+    # PortScan
+    is_attack = is_attack | (port_entropy >= 2.5) | ((pkt_count > 10) & (duration > 0) & (duration < 0.1))
+    # Web Attack / BruteForce
+    is_attack = is_attack | ((psh_ratio > 0.6) & (duration > 10))
+    is_attack = is_attack | ((avg_pkt_len < 100) & (pkt_count > 20))
+    is_attack = is_attack | (up_down_ratio > 5)
+    is_attack = is_attack | ((rst_ratio > 0.5) & (pkt_count > 10))
+
+    return is_attack
+
+
 def demo_detection():
-    detector = AnomalyDetector()
+    detector = create_rule_detector()
     is_attack, msg = detector.check_ddos(600)
     if is_attack:
         logger.warning("警报: %s", msg)

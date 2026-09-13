@@ -13,9 +13,6 @@ from campus_ids.config import (
 
 logger = logging.getLogger(__name__)
 
-# 保留模块级别名，供 label_packets() 和 start_capture() 使用
-OUTPUT_CSV = TRAFFIC_CSV
-
 
 def _protocol_name(proto_num: int) -> str:
     if proto_num == 6:
@@ -27,21 +24,17 @@ def _protocol_name(proto_num: int) -> str:
 
 def process_packet(pkt, feature_list: list):
     """Process one captured packet, append to the given feature_list."""
-    from scapy.all import IP, TCP, UDP
+    from campus_ids.capture.enhanced_features import _parse_base_fields
 
-    if pkt.haslayer(IP) and (pkt.haslayer(TCP) or pkt.haslayer(UDP)):
-        src_ip = pkt[IP].src
-        dst_ip = pkt[IP].dst
-        l4 = pkt[TCP] if pkt.haslayer(TCP) else pkt[UDP]
-        src_port = l4.sport
-        dst_port = l4.dport
-        proto = _protocol_name(pkt[IP].proto)
-        pkt_len = len(pkt)
-        timestamp = float(pkt.time)
+    base = _parse_base_fields(pkt)
+    if base is None:
+        return
 
-        row = [src_ip, dst_ip, src_port, dst_port, proto, pkt_len, timestamp]
-        feature_list.append(row)
-        logger.info("捕获流量: %s -> %s, 长度: %s", src_ip, dst_ip, pkt_len)
+    _, _, proto, src_ip, dst_ip, src_port, dst_port, pkt_len, timestamp = base
+
+    row = [src_ip, dst_ip, src_port, dst_port, proto, pkt_len, timestamp]
+    feature_list.append(row)
+    logger.info("捕获流量: %s -> %s, 长度: %s", src_ip, dst_ip, pkt_len)
 
 
 def label_packets(rows: list[list]) -> list[list]:
@@ -73,12 +66,12 @@ def start_capture(duration=60):
         return False
 
     labeled_rows = label_packets(local_feature_list)
-    with OUTPUT_CSV.open("w", newline="", encoding="utf-8") as f:
+    with TRAFFIC_CSV.open("w", newline="", encoding="utf-8") as f:
         writer = csv.writer(f)
         writer.writerow(["Src_IP", "Dst_IP", "Src_Port", "Dst_Port", "Protocol", "Length", "Timestamp", "Label"])
         writer.writerows(labeled_rows)
 
-    logger.info("特征数据已保存至 %s", OUTPUT_CSV)
+    logger.info("特征数据已保存至 %s", TRAFFIC_CSV)
     return True
 
 

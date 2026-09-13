@@ -64,6 +64,9 @@ from campus_ids.model.evaluation import (  # noqa: F401
 logger = logging.getLogger(__name__)
 
 
+from campus_ids.model.utils import clean_features, encode_class_weight
+
+
 # ── 模型训练 ──────────────────────────────────────────────────────
 
 def train_model(X: pd.DataFrame, y: pd.Series,
@@ -86,28 +89,16 @@ def train_model(X: pd.DataFrame, y: pd.Series,
     y_encoded = le.fit_transform(y)
 
     # 解析 class_weight_dict → effective_cw（传给模型的 class_weight 参数）
-    # None → "balanced"（默认自动均衡）
-    # False → None（数据已均衡，不加权）
-    # dict → 编码后的整数键字典
-    effective_cw: dict | str | None = "balanced"
-    if class_weight_dict is False:
-        effective_cw = None
-    elif class_weight_dict is not None:
-        encoded_cw = {}
-        for cls_name, weight in class_weight_dict.items():
-            if cls_name in le.classes_:
-                encoded_cw[le.transform([cls_name])[0]] = weight
-            else:
-                logger.warning("class_weight 中的类别 %r 不在标签中，已忽略", cls_name)
-        effective_cw = encoded_cw if encoded_cw else "balanced"
+    # R-03: 委托给 encode_class_weight() 统一处理
+    effective_cw = encode_class_weight(class_weight_dict, le)
 
     # 特征标准化 — 先划分再 fit，避免数据泄漏
-    X = X.replace([np.inf, -np.inf], np.nan).fillna(0)
+    X = clean_features(X)
     scaler = StandardScaler()
 
     # 获取测试集
     if X_test is not None and y_test is not None:
-        X_test_clean = X_test.replace([np.inf, -np.inf], np.nan).fillna(0)
+        X_test_clean = clean_features(X_test)
         X_train_scaled = scaler.fit_transform(X)
         X_test_scaled = scaler.transform(X_test_clean)
         y_test_encoded = le.transform(y_test)
@@ -676,7 +667,7 @@ def predict(csv_path: Path | None = None) -> tuple | None:
     # 特征对齐：补缺失特征填0、删多余特征、排序一致
     from campus_ids.model.data_loader import align_features
     X = align_features(df, feature_cols)
-    X = X.replace([np.inf, -np.inf], np.nan).fillna(0)
+    X = clean_features(X)
 
     if scaler:
         X_scaled = scaler.transform(X)
