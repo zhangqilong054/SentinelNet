@@ -86,15 +86,15 @@ class TestAggregateFlowFeatures:
         assert len(flows) == 2  # 两条流（不同五元组）
 
     def test_syn_flood_labeling(self):
-        """SYN 比例 > 0.8 且包数 > 10 应标记为 Attack。"""
-        pkts = [_make_pkt(is_syn=True, timestamp=float(i)) for i in range(15)]
+        """SYN 比例 > 0.9 且包数 > 100 应标记为 Attack（收紧后阈值）。"""
+        pkts = [_make_pkt(is_syn=True, timestamp=float(i)) for i in range(120)]
         flows = aggregate_flow_features(pkts)
         assert len(flows) == 1
         assert flows[0].label == "Attack"
 
     def test_high_freq_labeling(self):
-        """包数 > 100 应标记为 Attack。"""
-        pkts = [_make_pkt(timestamp=float(i)) for i in range(110)]
+        """包数 > 800 应标记为 Attack（收紧后阈值）。"""
+        pkts = [_make_pkt(timestamp=float(i)) for i in range(900)]
         flows = aggregate_flow_features(pkts)
         assert len(flows) == 1
         assert flows[0].label == "Attack"
