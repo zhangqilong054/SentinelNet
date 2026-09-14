@@ -74,17 +74,6 @@ CREATE TABLE IF NOT EXISTS config (
     value TEXT NOT NULL
 );
 
-CREATE TABLE IF NOT EXISTS models (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    run_id TEXT UNIQUE NOT NULL,
-    model_type TEXT,
-    dataset TEXT,
-    balance_method TEXT,
-    metrics TEXT,
-    created_at TEXT,
-    path TEXT
-);
-
 CREATE TABLE IF NOT EXISTS users (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     username TEXT UNIQUE NOT NULL,
@@ -219,39 +208,6 @@ def bulk_set_config(pairs: dict[str, str]) -> None:
         [(k, v, v) for k, v in pairs.items()],
     )
     conn.commit()
-
-
-# ── 模型注册 CRUD ───────────────────────────────────────────────
-
-def insert_model(run_id: str, model_type: str = "", dataset: str = "",
-                 balance_method: str = "", metrics: Optional[dict] = None,
-                 created_at: str = "", path: str = "") -> int:
-    """注册一个模型版本。"""
-    conn = _get_conn()
-    metrics_json = json.dumps(metrics) if metrics else "{}"
-    cursor = conn.execute(
-        "INSERT OR REPLACE INTO models (run_id, model_type, dataset, balance_method, metrics, created_at, path) "
-        "VALUES (?, ?, ?, ?, ?, ?, ?)",
-        (run_id, model_type, dataset, balance_method, metrics_json, created_at, path),
-    )
-    conn.commit()
-    return cursor.lastrowid
-
-
-def list_models() -> list[dict]:
-    """列出所有已注册模型。"""
-    conn = _get_conn()
-    rows = conn.execute("SELECT * FROM models ORDER BY id DESC").fetchall()
-    result = []
-    for row in rows:
-        d = dict(row)
-        if d.get("metrics"):
-            try:
-                d["metrics"] = json.loads(d["metrics"])
-            except (json.JSONDecodeError, TypeError):
-                d["metrics"] = {}
-        result.append(d)
-    return result
 
 
 # ── 数据清理 ────────────────────────────────────────────────────

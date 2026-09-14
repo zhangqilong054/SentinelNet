@@ -297,14 +297,10 @@ class DualDetector:
 
     def detect(self, qps: int, port_count: int,
                syn_count: int, udp_count: int,
-               packets: list[dict] | None = None,
-               tiered: bool = True) -> DualDetectionResult:
+               packets: list[dict] | None = None) -> DualDetectionResult:
         """P2-11: 双引擎融合检测（含检测延迟测量）。
 
-        Args:
-            tiered: 是否启用分层部署策略。
-                True（默认）: 规则快速预筛 → 仅规则触发或不确定时才调 ML
-                False: 规则和 ML 并行执行（原有逻辑）
+        规则快速预筛 → 仅规则触发或不确定时才调 ML。
         """
         import time as _time
         t_start = _time.perf_counter()
@@ -313,23 +309,12 @@ class DualDetector:
         rule_alerts = self.rule_detect(qps, port_count, syn_count, udp_count, packets=packets)
         rule_triggered = len(rule_alerts) > 0
 
-        if tiered and self._model_loaded:
-            # ── 分层策略 ──
-            # 1. 规则触发 → 直接告警（低危），同时调 ML 确认（可能升级为中/高危）
-            # 2. 规则未触发 → 调 ML 做深度检测（捕获规则漏检的未知攻击）
-            # 3. ML 未加载 → 仅规则检测
-            ml_result = self._last_ml_result
-            # 当后台 ML 循环运行时，使用其缓存结果，避免与 add_packet→_drain_flow_buffer→ml_detect 重复处理；
-            # 仅在后台循环未运行时，才直接对传入的 packets 调用 ml_detect（回退路径）。
-            if packets and not self._ml_running:
-                ml_result = self.ml_detect(packets)
-            ml_triggered = ml_result.is_anomaly
-        else:
-            # 原有并行逻辑
-            ml_result = self._last_ml_result
-            if packets and not self._ml_running:
-                ml_result = self.ml_detect(packets)
-            ml_triggered = ml_result.is_anomaly
+        ml_result = self._last_ml_result
+        # 当后台 ML 循环运行时，使用其缓存结果，避免与 add_packet→_drain_flow_buffer→ml_detect 重复处理；
+        # 仅在后台循环未运行时，才直接对传入的 packets 调用 ml_detect（回退路径）。
+        if packets and not self._ml_running:
+            ml_result = self.ml_detect(packets)
+        ml_triggered = ml_result.is_anomaly
 
         # ── 融合判定（v2：自适应 OR 互补）──
         # ML 高置信(>ML_CONF_HIGH)：直接采用 ML 判定
@@ -404,12 +389,8 @@ class DualDetector:
             }
         return stats
 
-    def start_ml_loop(self, packet_source: callable) -> None:
-        """启动后台 ML 预测循环。
-
-        Args:
-            packet_source: 可调用对象，返回包列表
-        """
+    def start_ml_loop(self) -> None:
+        """启动后台 ML 预测循环。"""
         if not self._model_loaded:
             logger.warning("ML 模型未加载，无法启动预测循环")
             return

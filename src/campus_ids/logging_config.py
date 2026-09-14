@@ -77,9 +77,10 @@ class DetectionLogHandler(logging.Handler):
             # 如果有额外字段（如 attack_type, level 等），追加
             if hasattr(record, "detection_data"):
                 log_entry["detection"] = record.detection_data  # type: ignore[attr-defined]
-            # 仅写入 JSON 行（不调用 self._rotating.handle 避免双写）
-            self._rotating.stream.write(json.dumps(log_entry, ensure_ascii=False) + "\n")
-            self._rotating.stream.flush()
+            # 替换 record 消息为 JSON，通过 RotatingFileHandler.handle 触发轮转
+            record.msg = json.dumps(log_entry, ensure_ascii=False)
+            record.args = ()
+            self._rotating.handle(record)
         except Exception:
             self.handleError(record)
 

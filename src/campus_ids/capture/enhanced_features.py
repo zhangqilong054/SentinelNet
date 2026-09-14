@@ -20,7 +20,7 @@ from typing import Optional
 
 import numpy as np
 
-from campus_ids.config import TRAFFIC_CSV
+from campus_ids.config import TRAFFIC_CSV, HIGH_FREQ_IP_THRESHOLD, PORT_SCAN_THRESHOLD
 
 logger = logging.getLogger(__name__)
 
@@ -408,8 +408,6 @@ def start_enhanced_capture(duration: int = 60) -> bool:
         return False
 
     # 获取 TLS 记录
-    tls_records = tls_analyzer.get_suspicious_records(limit=10000)
-    # 也包含非可疑记录（通过公开方法获取）
     all_tls = [
         {"src_ip": r.src_ip, "src_port": r.src_port, "ja3_hash": r.ja3_hash,
          "tls_version": r.tls_version, "cipher_count": r.cipher_count}
@@ -422,3 +420,21 @@ def start_enhanced_capture(duration: int = 60) -> bool:
 
     logger.info("增强抓包完成：捕获 %d 个包，聚合为 %d 条流", len(packets_info), len(flows))
     return True
+
+
+def label_packets(rows: list[list]) -> list[list]:
+    """基于本次 session 的统计给每行打 Normal/Attack Label。
+
+    启发式规则：源 IP 出现次数超过 HIGH_FREQ_IP_THRESHOLD 或
+    访问不同端口数超过 PORT_SCAN_THRESHOLD 则标记为 Attack。
+    """
+    src_count: dict[str, int] = defaultdict(int)
+    src_ports: dict[str, set] = defaultdict(set)
+    for r in rows:
+        src_count[r[0]] += 1
+        src_ports[r[0]].add(r[3])
+    attack_ips = set()
+    for ip, cnt in src_count.items():
+        if cnt > HIGH_FREQ_IP_THRESHOLD or len(src_ports[ip]) > PORT_SCAN_THRESHOLD:
+            attack_ips.add(ip)
+    return [r + (["Attack"] if r[0] in attack_ips else ["Normal"]) for r in rows]

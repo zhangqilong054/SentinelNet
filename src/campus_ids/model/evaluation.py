@@ -229,20 +229,27 @@ def cross_validate_models(X: pd.DataFrame, y: pd.Series,
 def _evaluate_dual_fusion(X: pd.DataFrame, y: pd.Series,
                            class_weight_dict: dict | None = None,
                            X_test: pd.DataFrame | None = None,
-                           y_test: pd.Series | None = None) -> dict | None:
+                           y_test: pd.Series | None = None,
+                           prefitted: tuple | None = None) -> dict | None:
     """P1-7d: 双引擎融合方案评估。
 
     模拟规则+ML融合：规则检测判定+ML预测，双引擎触发则标记为攻击。
     P1 修复：使用 held-out 测试集评估，避免数据泄漏。
+
+    Args:
+        prefitted: 可选的 (clf, scaler, le, y_test) 元组，传入则跳过内部训练。
     """
     try:
-        from campus_ids.model.train import train_model
+        if prefitted is not None:
+            rf_clf, rf_scaler, rf_le, rf_y_test = prefitted
+        else:
+            from campus_ids.model.train import train_model
 
-        # P1 修复：训练在训练集上，评估在测试集上
-        rf_clf, rf_scaler, rf_le, _, rf_y_test, rf_y_pred = train_model(
-            X, y, class_weight_dict, model_type="rf",
-            X_test=X_test, y_test=y_test,
-        )
+            # P1 修复：训练在训练集上，评估在测试集上
+            rf_clf, rf_scaler, rf_le, _, rf_y_test, rf_y_pred = train_model(
+                X, y, class_weight_dict, model_type="rf",
+                X_test=X_test, y_test=y_test,
+            )
 
         # 确定评估数据集
         eval_X = X_test if X_test is not None else X
@@ -304,10 +311,7 @@ def _evaluate_dual_fusion(X: pd.DataFrame, y: pd.Series,
             )
         )
 
-        # 记录融合参数
-        ML_WEIGHT = 0.85   # 主权重（文档记录用）
-        RULE_WEIGHT = 0.15  # 辅助权重（文档记录用）
-        FUSION_THRESHOLD = 0.5
+        # 记录融合实际参数
 
         y_true = rf_le.transform(eval_y)
 
@@ -331,7 +335,6 @@ def _evaluate_dual_fusion(X: pd.DataFrame, y: pd.Series,
             "data_source": "same_as_ml",
             "fusion_strategy": "adaptive_or",
             "fusion_params": {
-                "ml_weight": ML_WEIGHT, "rule_weight": RULE_WEIGHT, "threshold": FUSION_THRESHOLD,
                 "ml_conf_high": ML_CONF_HIGH, "ml_conf_low": ML_CONF_LOW,
                 "rule_assisted": rule_assisted, "rule_hurt": rule_hurt,
             },

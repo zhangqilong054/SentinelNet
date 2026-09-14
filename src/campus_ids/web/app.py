@@ -4,9 +4,9 @@ from __future__ import annotations
 import json
 import logging
 import os
+import queue
 import threading
 import time as _time
-from functools import wraps
 from pathlib import Path
 
 from flask import Flask, render_template, jsonify, request, Response
@@ -25,13 +25,25 @@ from campus_ids.web.helpers import (
 )
 from campus_ids.web.database import (
     query_alerts, count_alerts, query_traffic,
-    get_all_config as db_get_all_config, list_models as db_list_models,
-    cleanup_old_data, init_db, get_alert_type_distribution,
+    cleanup_old_data, get_alert_type_distribution,
 )
 import campus_ids.web.helpers as _helpers_module
 logger = logging.getLogger(__name__)
 
 app = Flask(__name__)
+
+
+def _int_param(name: str, default: int, *, min_val: int = 0, max_val: int | None = None) -> int:
+    """从 request.args 解析整数参数，带范围校验和容错。"""
+    raw = request.args.get(name, str(default))
+    try:
+        val = int(raw)
+    except (ValueError, TypeError):
+        return default
+    val = max(val, min_val)
+    if max_val is not None:
+        val = min(val, max_val)
+    return val
 
 # ── M6: Flasgger Swagger 文档 ────────────────────────────────────────
 try:
@@ -267,7 +279,7 @@ def get_alerts():
       - name: limit
         in: query
         type: integer
-        default: 50
+        default: 20
         description: 返回条数上限
       - name: offset
         in: query
@@ -290,15 +302,9 @@ def get_alerts():
             limit: {type: integer}
             offset: {type: integer}
     """
-    limit = request.args.get("limit", str(MAX_ALERT_API_RETURN))
+    limit = _int_param("limit", MAX_ALERT_API_RETURN, max_val=MAX_ALERT_API_RETURN)
     level = request.args.get("level", "all")
-    offset = request.args.get("offset", "0")
-    try:
-        limit = min(int(limit), MAX_ALERT_API_RETURN)
-        offset = max(int(offset), 0)
-    except (ValueError, TypeError):
-        limit = MAX_ALERT_API_RETURN
-        offset = 0
+    offset = _int_param("offset", 0)
     alerts = query_alerts(limit=limit, level=level, offset=offset)
     total = count_alerts(level=level)
     return jsonify({"alerts": alerts, "total": total, "limit": limit, "offset": offset})
@@ -392,14 +398,8 @@ def api_traffic_history():
       200:
         description: 流量历史记录
     """
-    limit = request.args.get("limit", "60")
-    offset = request.args.get("offset", "0")
-    try:
-        limit = min(int(limit), 200)
-        offset = max(int(offset), 0)
-    except (ValueError, TypeError):
-        limit = 60
-        offset = 0
+    limit = _int_param("limit", 60, max_val=200)
+    offset = _int_param("offset", 0)
     records = query_traffic(limit=limit, offset=offset)
     return jsonify({"history": records, "limit": limit, "offset": offset})
 
@@ -419,11 +419,7 @@ def api_cleanup():
       200:
         description: 清理结果
     """
-    days = request.args.get("days", "7")
-    try:
-        days = max(int(days), 1)
-    except (ValueError, TypeError):
-        days = 7
+    days = _int_param("days", 7, min_val=1)
     result = cleanup_old_data(days=days)
     return jsonify({'status': 'success', **result})
 
@@ -568,20 +564,14 @@ def api_tls_suspicious():
       - name: limit
         in: query
         type: integer
-        default: 50
+        default: 20
         description: 返回条数上限（最大1000）
     responses:
       200:
         description: 可疑 TLS 记录列表
     """
     from campus_ids.capture.tls_analyzer import tls_analyzer
-    limit = request.args.get("limit", "50")
-    try:
-        limit = int(limit)
-        if limit < 1 or limit > 1000:
-            limit = 50
-    except (ValueError, TypeError):
-        limit = 50
+    limit = _int_param("limit", 50, min_val=1, max_val=1000)
     return jsonify(tls_analyzer.get_suspicious_records(limit=limit))
 
 
@@ -644,7 +634,7 @@ def api_dual_load():
         success = dual_detector.load_model(which=which)
 
     if success:
-        dual_detector.start_ml_loop(packet_source=dual_detector._drain_flow_buffer)
+        dual_detector.start_ml_loop()
         artifact = dual_detector._artifact or {}
         return jsonify({
             'status': 'success',
@@ -972,11 +962,6 @@ def api_model_list():
             source: {type: string, description: 数据来源(database/registry_json)}
     """
     try:
-        # 优先从数据库查询
-        runs = db_list_models()
-        if runs:
-            return jsonify({'runs': runs, 'count': len(runs), 'source': 'database'})
-        # 回退到 JSON 文件（兼容旧数据）
         if REGISTRY_JSON.exists():
             runs = json.loads(REGISTRY_JSON.read_text(encoding='utf-8'))
         else:
@@ -1176,7 +1161,7 @@ def api_demo_start():
     if not dual_detector._ml_running:
         try:
             dual_detector.load_model(which='best')
-            dual_detector.start_ml_loop(packet_source=dual_detector._drain_flow_buffer)
+            dual_detector.start_ml_loop()
         except Exception as exc:
             logger.warning("演示模式: ML 模型加载失败（继续运行）: %s", exc)
 
@@ -1383,7 +1368,7 @@ def _graceful_shutdown(signum, frame):
     try:
         stop_capture_thread()
         if dual_detector._ml_running:
-            dual_detector.stop_ml()
+            dual_detector.stop_ml_loop()
         logger.info("优雅关闭完成")
     except Exception as e:
         logger.error("优雅关闭出错: %s", e)

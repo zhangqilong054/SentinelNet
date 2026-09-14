@@ -66,6 +66,37 @@ logger = logging.getLogger(__name__)
 from campus_ids.model.utils import clean_features, encode_class_weight
 
 
+# ── 类别权重辅助函数 ──────────────────────────────────────────────
+
+def _binary_scale_pos_weight(y_train_encoded: np.ndarray,
+                              class_weight_dict: dict | bool | None) -> float:
+    """二分类 scale_pos_weight 计算（XGBoost/LightGBM 通用）。"""
+    from collections import Counter
+    label_counts = Counter(y_train_encoded)
+    neg_count = label_counts.get(0, 1)
+    pos_count = label_counts.get(1, 1)
+    spw = neg_count / pos_count if pos_count > 0 else 1.0
+    if class_weight_dict is False:
+        spw = 1.0
+    return spw
+
+
+def _multiclass_fit_kwargs(y_train_encoded: np.ndarray,
+                            class_weight_dict: dict | bool | None,
+                            eval_set: list | None = None) -> dict:
+    """多分类 sample_weight fit_kwargs 构造（XGBoost/LightGBM 通用）。"""
+    from sklearn.utils import compute_sample_weight
+    kwargs = {}
+    if eval_set is not None:
+        kwargs["eval_set"] = eval_set
+    if class_weight_dict is not None:
+        kwargs["sample_weight"] = compute_sample_weight(
+            class_weight_dict if isinstance(class_weight_dict, dict) else "balanced",
+            y_train_encoded,
+        )
+    return kwargs
+
+
 # ── 模型训练 ──────────────────────────────────────────────────────
 
 def train_model(X: pd.DataFrame, y: pd.Series,
@@ -159,13 +190,7 @@ def train_model(X: pd.DataFrame, y: pd.Series,
         xgb_n_estimators = 100
         # P3: 多分类安全性 — scale_pos_weight 仅适用于二分类
         if n_classes == 2:
-            from collections import Counter
-            label_counts = Counter(y_train_encoded)
-            neg_count = label_counts.get(0, 1)
-            pos_count = label_counts.get(1, 1)
-            spw = neg_count / pos_count if pos_count > 0 else 1.0
-            if class_weight_dict is False:
-                spw = 1.0
+            spw = _binary_scale_pos_weight(y_train_encoded, class_weight_dict)
             clf = XGBClassifier(
                 n_estimators=xgb_n_estimators, max_depth=6, learning_rate=0.1,
                 random_state=42, n_jobs=-1, scale_pos_weight=spw,
@@ -179,10 +204,8 @@ def train_model(X: pd.DataFrame, y: pd.Series,
         # 构造 fit 参数
         xgb_fit_kwargs = {"eval_set": [(X_test_scaled, y_test_encoded)], "verbose": False}
         if n_classes > 2 and effective_cw is not None:
-            from sklearn.utils import compute_sample_weight
-            xgb_fit_kwargs["sample_weight"] = compute_sample_weight(
-                effective_cw if isinstance(effective_cw, dict) else "balanced",
-                y_train_encoded,
+            xgb_fit_kwargs.update(
+                _multiclass_fit_kwargs(y_train_encoded, effective_cw)
             )
         # tqdm 实时进度条（每轮提升）
         pbar_xgb = tqdm(total=xgb_n_estimators, desc="XGBoost 迭代", unit="轮", leave=False)
@@ -220,13 +243,7 @@ def train_model(X: pd.DataFrame, y: pd.Series,
         lgb_n_estimators = 100
         # P3: 多分类安全性 — scale_pos_weight 仅适用于二分类
         if n_classes == 2:
-            from collections import Counter
-            label_counts = Counter(y_train_encoded)
-            neg_count = label_counts.get(0, 1)
-            pos_count = label_counts.get(1, 1)
-            spw = neg_count / pos_count if pos_count > 0 else 1.0
-            if class_weight_dict is False:
-                spw = 1.0
+            spw = _binary_scale_pos_weight(y_train_encoded, class_weight_dict)
             clf = LGBMClassifier(
                 n_estimators=lgb_n_estimators, max_depth=6, learning_rate=0.1,
                 random_state=42, n_jobs=-1, verbose=-1, scale_pos_weight=spw,
@@ -240,10 +257,8 @@ def train_model(X: pd.DataFrame, y: pd.Series,
         # 构造 fit 参数
         lgb_fit_kwargs = {"eval_set": [(X_test_scaled, y_test_encoded)]}
         if n_classes > 2 and effective_cw is not None:
-            from sklearn.utils import compute_sample_weight
-            lgb_fit_kwargs["sample_weight"] = compute_sample_weight(
-                effective_cw if isinstance(effective_cw, dict) else "balanced",
-                y_train_encoded,
+            lgb_fit_kwargs.update(
+                _multiclass_fit_kwargs(y_train_encoded, effective_cw)
             )
         # tqdm 实时进度条（每轮提升）
         pbar_lgb = tqdm(total=lgb_n_estimators, desc="LightGBM 迭代", unit="轮", leave=False)
@@ -862,6 +877,7 @@ def train(dataset_path: Path | None = None,
             fusion_metrics = _evaluate_dual_fusion(
                 X_bal, y_bal, class_weight_dict,
                 X_test=X_test_held, y_test=y_test_held,
+                prefitted=(rf_clf, rf_scaler, rf_le, rf_y_test),
             )
             if fusion_metrics:
                 all_metrics.append(fusion_metrics)

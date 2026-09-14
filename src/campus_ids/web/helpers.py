@@ -21,7 +21,7 @@ from campus_ids.config import (
     BRUTE_FORCE_WINDOW_SEC, LATERAL_MOVEMENT_THRESHOLD, BRUTE_FORCE_PORTS,
     DNS_PORT, TLS_PORTS, WINDOW_SIZE,
     MAX_ALERT_API_RETURN, MAX_CHART_LABELS, WEB_PORT, WEB_REFRESH_INTERVAL_MS,
-    MODEL_PATH, TRAFFIC_STATS_CSV, ML_INTERVAL_SEC, DEMO_MODE, DEMO_QPS_MIN, DEMO_QPS_MAX,
+    MODEL_PATH, TRAFFIC_STATS_CSV, ML_INTERVAL_SEC, DEMO_QPS_MIN, DEMO_QPS_MAX,
     DEMO_CONN_MIN, DEMO_CONN_MAX, DEMO_SYN_MIN, DEMO_SYN_MAX,
     DEMO_UDP_MIN, DEMO_UDP_MAX, DEMO_DNS_MIN, DEMO_DNS_MAX,
     DEMO_PKT_MIN, DEMO_PKT_MAX,
@@ -346,7 +346,7 @@ def _auto_worker(duration: int):
             _auto_status['message'] = '正在加载 ML 模型...'
         try:
             dual_detector.load_model(which='best')
-            dual_detector.start_ml_loop(packet_source=dual_detector._drain_flow_buffer)
+            dual_detector.start_ml_loop()
             ml_loaded = True
         except Exception as exc:
             logger.warning("一键全流程: ML 加载失败: %s", exc)

@@ -254,13 +254,4 @@ def vectorized_rule_predict(X: pd.DataFrame) -> np.ndarray:
     return is_attack
 
 
-def demo_detection():
-    detector = create_rule_detector()
-    is_attack, msg = detector.check_ddos(600)
-    if is_attack:
-        logger.warning("警报: %s", msg)
 
-
-if __name__ == "__main__":
-    logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
-    demo_detection()

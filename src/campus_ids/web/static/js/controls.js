@@ -122,7 +122,7 @@
     function startPollingFallback() {
         if (_pollingActive) return;
         _pollingActive = true;
-        pollTimer = setInterval(refreshAll, SN.REFRESH_MS);
+        // 不再新建 interval，init 的唯一 pollTimer 已在运行
         refreshAll();
     }
 
@@ -259,11 +259,11 @@
         if (SN.sseConnected) {
             var tasks = [refreshTls(), refreshDual()];
             var results = await Promise.allSettled(tasks);
-            SN.markConnection(results.some(function (r) { return r.status === 'fulfilled'; }) && results.every(function (r) { return r.status === 'fulfilled'; }));
+            SN.markConnection(results.every(function (r) { return r.status === 'fulfilled'; }));
         } else {
             var tasks2 = [refreshTraffic(), SN.refreshAlerts(), refreshTls(), refreshDual()];
             var results2 = await Promise.allSettled(tasks2);
-            SN.markConnection(results2.some(function (r) { return r.status === 'fulfilled'; }) && results2.every(function (r) { return r.status === 'fulfilled'; }));
+            SN.markConnection(results2.every(function (r) { return r.status === 'fulfilled'; }));
         }
     }
 
@@ -846,8 +846,8 @@
 
         // 优先 SSE，失败降级轮询
         connectSSE();
-        // TLS 和双引擎始终轮询
-        setInterval(refreshAll, SN.REFRESH_MS);
+        // 统一轮询 interval（TLS/双引擎等始终需要），SSE 生效时 refreshAll 内部跳过已有数据
+        pollTimer = setInterval(refreshAll, SN.REFRESH_MS);
         // 定期尝试恢复 SSE
         scheduleSseReconnect();
 

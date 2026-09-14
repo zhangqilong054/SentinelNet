@@ -50,3 +50,14 @@ docker-data/
 htmlcov/
 .coverage
 coverage.xml
+
+# Runtime database (SQLite + WAL/SHM)
+*.db
+*.db-shm
+*.db-wal
+
+# Local git bundle backups
+*.bundle
+
+# Generated API spec dumps
+apispec_check.json
