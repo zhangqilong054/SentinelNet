@@ -45,15 +45,11 @@ WEB_REFRESH_INTERVAL_MS = int(os.environ.get("CAMPUS_IDS_REFRESH_MS", "2000"))
 # 滑动窗口
 WINDOW_SIZE = int(os.environ.get("CAMPUS_IDS_WINDOW_SIZE", "60"))
 
-# 告警历史上限
-MAX_ALERT_HISTORY = int(os.environ.get("CAMPUS_IDS_MAX_ALERTS", "50"))
+# 告警 API 返回上限
 MAX_ALERT_API_RETURN = int(os.environ.get("CAMPUS_IDS_MAX_ALERT_API", "20"))
 
 # QPS 趋势图最大数据点
 MAX_CHART_LABELS = int(os.environ.get("CAMPUS_IDS_MAX_CHART_LABELS", "30"))
-
-# 流量历史上限
-MAX_TRAFFIC_HISTORY = int(os.environ.get("CAMPUS_IDS_MAX_TRAFFIC_HISTORY", "60"))
 
 
 # ── 规则检测阈值 ──────────────────────────────────────────────
@@ -75,6 +71,10 @@ LATERAL_MOVEMENT_THRESHOLD = int(os.environ.get("CAMPUS_IDS_LATERAL_THRESHOLD", 
 ML_INTERVAL_SEC = float(os.environ.get("CAMPUS_IDS_ML_INTERVAL", "5.0"))
 ML_FLOW_BUFFER_SIZE = int(os.environ.get("CAMPUS_IDS_ML_FLOW_BUFFER", "10000"))
 ML_HISTORY_SIZE = int(os.environ.get("CAMPUS_IDS_ML_HISTORY", "60"))
+
+# ML 置信阈值（双引擎融合策略使用）
+ML_CONF_HIGH = float(os.environ.get("CAMPUS_IDS_ML_CONF_HIGH", "0.7"))
+ML_CONF_LOW = float(os.environ.get("CAMPUS_IDS_ML_CONF_LOW", "0.3"))
 
 # TLS 分析器记录上限
 TLS_RECORD_MAX = int(os.environ.get("CAMPUS_IDS_TLS_RECORD_MAX", "10000"))

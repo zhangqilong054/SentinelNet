@@ -54,6 +54,7 @@
 - [x] `app.py` 添加 Flask-Limiter 速率限制（60 次/分钟默认）
 - [x] `app.py` 添加 CSRF 保护（Flask-WTF）
 - [x] `app.py` 添加安全响应头（CSP、HSTS、X-Frame-Options）
+- [x] `app.py` 添加 Flask-Login 会话认证（`CAMPUS_IDS_LOGIN_ENABLED=1` 启用）
 
 ---
 
@@ -88,6 +89,10 @@
   - [x] ML 模型加载状态
   - [x] 内存使用量
   - [x] 运行时长
+  - [x] SSE 订阅者数量
+- [x] `app.py` 添加 `/api/check` 环境自检端点（Python 版本/依赖/Npcap/模型/数据）
+- [x] `app.py` 添加增强抓包端点（`/api/capture/start-enhanced`、`/api/capture/stop-enhanced`、`/api/capture/enhanced-status`）
+- [x] `app.py` 添加一键全流程端点（`/api/auto/start`、`/api/auto/status`）
 - [x] 各 API 端点添加 Flasgger 注解（自动生成 Swagger 文档）
   - [x] Flasgger 初始化 + Swagger UI 入口 `/apidocs/`
   - [x] 25 个 API 端点全部添加 YAML docstring 注解
@@ -127,7 +132,7 @@
 | M1 — WSGI 服务器替换 | 5 | 5 | 100% |
 | M2 — 数据持久化 | 11 | 11 | 100% |
 | M3 — SSE 实时推送 | 5 | 5 | 100% |
-| M4 — 安全加固 | 8 | 8 | 100% |
+| M4 — 安全加固 | 9 | 9 | 100% |
 | M5 — 前端优化 | 7 | 7 | 100% |
-| M6 — 运维增强 | 7 | 7 | 100% |
-| **合计** | **43** | **43** | **100%** |
+| M6 — 运维增强 | 10 | 10 | 100% |
+| **合计** | **47** | **47** | **100%** |

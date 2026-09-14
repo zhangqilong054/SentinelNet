@@ -150,6 +150,15 @@ def count_alerts(level: Optional[str] = None) -> int:
     return row[0] if row else 0
 
 
+def get_alert_type_distribution() -> dict[str, int]:
+    """获取告警的攻击类型分布（替代内存列表遍历）。"""
+    conn = _get_conn()
+    rows = conn.execute(
+        "SELECT attack_type, COUNT(*) as cnt FROM alerts GROUP BY attack_type"
+    ).fetchall()
+    return {row["attack_type"]: row["cnt"] for row in rows}
+
+
 # ── 流量历史 CRUD ───────────────────────────────────────────────
 
 def insert_traffic(time: str, qps: int, connections: int,

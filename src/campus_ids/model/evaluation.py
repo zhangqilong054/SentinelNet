@@ -19,7 +19,7 @@ from sklearn.model_selection import cross_val_score
 from sklearn.preprocessing import LabelEncoder, StandardScaler
 from tqdm import tqdm
 
-from campus_ids.config import CONFUSION_MATRIX_PATH, EVALUATION_PATH
+from campus_ids.config import CONFUSION_MATRIX_PATH, EVALUATION_PATH, ML_CONF_HIGH, ML_CONF_LOW
 from campus_ids.model.data_loader import ENHANCED_FEATURE_COLUMNS, align_features
 from campus_ids.model.utils import clean_features, encode_class_weight
 
@@ -266,11 +266,12 @@ def _evaluate_dual_fusion(X: pd.DataFrame, y: pd.Series,
         # ── 融合策略：自适应加权 + OR 互补（v2）──
         # 原版固定权重 ML×0.8+Rule×0.2 在规则 F1=0.71 时无增益
         # 新策略：
-        #   1. ML 高置信区（>0.7）：直接采用 ML 判定（ML 已足够准确）
-        #   2. ML 低置信区（0.3~0.7）：规则作为补充信号，OR 逻辑提升召回
+        #   1. ML 高置信区（>ML_CONF_HIGH）：直接采用 ML 判定（ML 已足够准确）
+        #   2. ML 低置信区（ML_CONF_LOW~ML_CONF_HIGH）：规则作为补充信号，OR 逻辑提升召回
         #   3. 规则独有触发：保留为低危告警（不改变最终标签，但记录）
-        ML_CONF_HIGH = 0.7    # ML 高置信阈值
-        ML_CONF_LOW = 0.3     # ML 低置信阈值
+        #
+        # 注：标量版融合逻辑见 dual_detector.DualDetector._detect_dual()，
+        #     此处为向量化批处理版本，策略语义保持一致。
 
         # 获取 LabelEncoder 的攻击标签编码（Attack=0, Normal=1 字母序）
         attack_encoded = rf_le.transform(["Attack"])[0]
@@ -349,20 +350,8 @@ def _evaluate_dual_fusion(X: pd.DataFrame, y: pd.Series,
 def _evaluate_rule_baseline(X: pd.DataFrame, y: pd.Series) -> dict | None:
     """P0-20: 规则检测基线评估。
 
-    规则阈值说明（基于 CICIDS2017 统计特征调整）：
-    DoS/DDoS 规则：
-    - pkt_count > 500: 大流量攻击（DDoS/DoS）通常有极高包数
-    - syn_ratio > 0.8: SYN Flood 攻击特征
-    - duration < 1 且 pkt_count > 200: 极短时间大量包（突发攻击）
-
-    PortScan 规则：
-    - dst_port_entropy >= 2.5: 动态端口（端口扫描常用）
-    - pkt_count > 10 且 duration < 0.1: 短时间多包（快速扫描特征）
-
-    Web Attack / BruteForce 规则：
-    - psh_flag_ratio > 0.6 且 duration > 10: 长连接高 PSH（HTTP暴力行为）
-    - avg_pkt_len < 100 且 pkt_count > 20: 小包高频（请求泛洪）
-    - up_down_byte_ratio > 5: 下行远大于上行（响应泛洪/数据泄露）
+    委托 detector.vectorized_rule_predict 进行向量化规则判定，
+    具体阈值逻辑参见 campus_ids.detector.detector 模块。
     """
     try:
         from campus_ids.detector.detector import vectorized_rule_predict

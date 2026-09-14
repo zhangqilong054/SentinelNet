@@ -23,6 +23,7 @@ from typing import Optional
 from campus_ids.config import (
     BRUTE_FORCE_PORTS, ML_INTERVAL_SEC, ML_FLOW_BUFFER_SIZE,
     ML_HISTORY_SIZE, MODEL_PATH as DEFAULT_MODEL_PATH,
+    ML_CONF_HIGH, ML_CONF_LOW,
 )
 
 logger = logging.getLogger(__name__)
@@ -331,11 +332,11 @@ class DualDetector:
             ml_triggered = ml_result.is_anomaly
 
         # ── 融合判定（v2：自适应 OR 互补）──
-        # ML 高置信(>0.7)：直接采用 ML 判定
-        # ML 低置信(0.3~0.7) + 规则触发：提升为攻击（互补提升召回）
+        # ML 高置信(>ML_CONF_HIGH)：直接采用 ML 判定
+        # ML 低置信(ML_CONF_LOW~ML_CONF_HIGH) + 规则触发：提升为攻击（互补提升召回）
         # 规则独有触发：低危告警
-        ML_CONF_HIGH = 0.7
-        ML_CONF_LOW = 0.3
+        #
+        # 注：向量化批处理版见 evaluation._evaluate_dual_fusion()，策略语义保持一致。
 
         if rule_triggered and ml_triggered:
             level = LEVEL_HIGH

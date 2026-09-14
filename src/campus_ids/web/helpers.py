@@ -19,7 +19,7 @@ from campus_ids.config import (
     DDOS_THRESHOLD, PORT_SCAN_THRESHOLD,
     SYN_FLOOD_THRESHOLD, UDP_FLOOD_THRESHOLD, BRUTE_FORCE_THRESHOLD,
     BRUTE_FORCE_WINDOW_SEC, LATERAL_MOVEMENT_THRESHOLD, BRUTE_FORCE_PORTS,
-    DNS_PORT, TLS_PORTS, WINDOW_SIZE, MAX_ALERT_HISTORY, MAX_TRAFFIC_HISTORY,
+    DNS_PORT, TLS_PORTS, WINDOW_SIZE,
     MAX_ALERT_API_RETURN, MAX_CHART_LABELS, WEB_PORT, WEB_REFRESH_INTERVAL_MS,
     MODEL_PATH, TRAFFIC_STATS_CSV, ML_INTERVAL_SEC, DEMO_MODE, DEMO_QPS_MIN, DEMO_QPS_MAX,
     DEMO_CONN_MIN, DEMO_CONN_MAX, DEMO_SYN_MIN, DEMO_SYN_MAX,
@@ -27,8 +27,8 @@ from campus_ids.config import (
     DEMO_PKT_MIN, DEMO_PKT_MAX,
 )
 from campus_ids.web.database import (
-    init_db, insert_alert, insert_traffic, set_config, get_all_config,
-    bulk_set_config, cleanup_old_data, close_conn,
+    init_db, insert_alert, insert_traffic, get_all_config,
+    bulk_set_config, cleanup_old_data,
 )
 
 logger = logging.getLogger(__name__)
@@ -56,14 +56,35 @@ CONFIG = {
 # ── 数据库初始化 ──────────────────────────────────────────────────
 init_db()
 
+# 需要持久化到 DB 的配置键集合
+_THRESHOLD_KEYS = frozenset({
+    'ddos_threshold', 'port_scan_threshold', 'syn_flood_threshold',
+    'udp_flood_threshold', 'brute_force_threshold',
+    'brute_force_window', 'lateral_movement_threshold',
+})
+
+
+def update_config(key: str, value, *, persist: bool = False) -> None:
+    """更新配置项，自动尝试 int 转换。
+
+    Args:
+        key: CONFIG 字典中的键名。
+        value: 新值（自动尝试 int 转换，失败则保留原类型）。
+        persist: 是否同步持久化到 SQLite。
+    """
+    try:
+        CONFIG[key] = int(value)
+    except (ValueError, TypeError):
+        CONFIG[key] = value
+    if persist and key in _THRESHOLD_KEYS:
+        bulk_set_config({key: str(CONFIG[key])})
+
+
 # 从数据库恢复已保存的配置（覆盖默认值）
 _saved_config = get_all_config()
 for _key, _val in _saved_config.items():
     if _key in CONFIG:
-        try:
-            CONFIG[_key] = int(_val)
-        except (ValueError, TypeError):
-            CONFIG[_key] = _val
+        update_config(_key, _val)
 
 # ── 全局状态 ────────────────────────────────────────────────────────
 WINDOW_SIZE_CFG = WINDOW_SIZE
@@ -86,9 +107,6 @@ traffic_data = {
     'udp_packets': 0,
     'dns_packets': 0,
 }
-
-alert_history: list[dict] = []
-traffic_history: list[dict] = []
 
 # M3: SSE 广播回调列表 — 当告警/流量更新时通知订阅者
 _on_alert_callbacks: list = []
@@ -120,7 +138,6 @@ def _capture_worker():
         base = _parse_base_fields(pkt)
         if base is not None:
             _, l4, proto, src_ip, _, _, dst_port, pkt_len, _ = base
-            from scapy.all import TCP, UDP
             is_syn = bool(pkt.haslayer(TCP) and pkt[TCP].flags & 0x02)
             is_dns = bool(pkt.haslayer(UDP) and dst_port == DNS_PORT)
             try:
@@ -208,14 +225,6 @@ def _enhanced_capture_worker(duration: int):
             stop_filter=lambda _: not _enhanced_capture_running or _time.time() >= stop_time,
             timeout=duration + 5,
         )
-    except RuntimeError as exc:
-        logger.error("增强抓包失败: %s", exc)
-        _enhanced_capture_result = {
-            'status': 'error', 'duration': duration,
-            'packets': 0, 'flows': 0, 'error': str(exc),
-        }
-        _enhanced_capture_running = False
-        return
     except Exception as exc:
         logger.error("增强抓包异常: %s", exc)
         _enhanced_capture_result = {
@@ -468,9 +477,6 @@ def update_traffic_data():
                 'attack_type': result.attack_type,
                 'ml_confidence': result.ml_confidence,
             }
-            alert_history.insert(0, alert_entry)
-            if len(alert_history) > MAX_ALERT_HISTORY:
-                alert_history.pop()
             # M2: 持久化告警到 SQLite
             try:
                 insert_alert(
@@ -500,9 +506,6 @@ def update_traffic_data():
             'src_ip_count': len(set(traffic_data['src_ips'])),
             'alert': traffic_data['alert']
         }
-        traffic_history.append(history_entry)
-        if len(traffic_history) > MAX_TRAFFIC_HISTORY:
-            traffic_history.pop(0)
         # M2: 持久化流量历史到 SQLite
         try:
             insert_traffic(
@@ -525,18 +528,19 @@ def update_traffic_data():
 
 
 def save_traffic_data():
-    """将流量历史保存到 CSV 文件。"""
-    with _state_lock:
-        with TRAFFIC_STATS_CSV.open("w", newline="", encoding="utf-8") as f:
-            writer = csv.writer(f)
-            writer.writerow(["Time", "QPS", "Connections", "PacketCount", "PortCount", "SrcIPCount", "Alert"])
-            for entry in traffic_history:
-                writer.writerow([
-                    entry['time'],
-                    entry['qps'],
-                    entry['connections'],
-                    entry['packet_count'],
-                    entry['port_count'],
-                    entry['src_ip_count'],
-                    entry['alert'] if entry['alert'] else "Normal"
-                ])
+    """将流量历史保存到 CSV 文件（从 SQLite 查询，不再依赖内存列表）。"""
+    from campus_ids.web.database import query_traffic
+    rows = query_traffic(limit=10000)
+    with TRAFFIC_STATS_CSV.open("w", newline="", encoding="utf-8") as f:
+        writer = csv.writer(f)
+        writer.writerow(["Time", "QPS", "Connections", "PacketCount", "PortCount", "SrcIPCount", "Alert"])
+        for entry in rows:
+            writer.writerow([
+                entry.get('time', ''),
+                entry.get('qps', ''),
+                entry.get('connections', ''),
+                entry.get('packet_count', ''),
+                entry.get('port_count', ''),
+                entry.get('src_ip_count', ''),
+                entry.get('alert') or "Normal",
+            ])
