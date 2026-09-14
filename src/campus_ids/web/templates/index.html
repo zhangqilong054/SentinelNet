@@ -36,42 +36,42 @@
             <div class="metric-grid">
                 <div class="card">
                     <div class="card-title">QPS（每秒请求数）</div>
-                    <div class="card-value" id="qps">--</div>
+                    <div class="card-value skeleton" data-section="overview" id="qps">--</div>
                 </div>
                 <div class="card">
                     <div class="card-title">活跃连接数</div>
-                    <div class="card-value" id="connections">--</div>
+                    <div class="card-value skeleton" data-section="overview" id="connections">--</div>
                 </div>
                 <div class="card">
                     <div class="card-title">数据包计数</div>
-                    <div class="card-value" id="packetCount">--</div>
+                    <div class="card-value skeleton" data-section="overview" id="packetCount">--</div>
                 </div>
                 <div class="card">
                     <div class="card-title">访问端口数</div>
-                    <div class="card-value" id="portCount">--</div>
+                    <div class="card-value skeleton" data-section="overview" id="portCount">--</div>
                 </div>
                 <div class="card">
                     <div class="card-title">来源 IP 数</div>
-                    <div class="card-value" id="srcIpCount">--</div>
+                    <div class="card-value skeleton" data-section="overview" id="srcIpCount">--</div>
                 </div>
                 <div class="card">
                     <div class="card-title">安全状态</div>
-                    <div class="card-value" id="status">--</div>
+                    <div class="card-value skeleton" data-section="overview" id="status">--</div>
                 </div>
             </div>
 
             <div class="metric-grid">
                 <div class="card">
                     <div class="card-title">TCP SYN 包</div>
-                    <div class="card-value" id="synPackets">--</div>
+                    <div class="card-value skeleton" data-section="overview" id="synPackets">--</div>
                 </div>
                 <div class="card">
                     <div class="card-title">UDP 包</div>
-                    <div class="card-value" id="udpPackets">--</div>
+                    <div class="card-value skeleton" data-section="overview" id="udpPackets">--</div>
                 </div>
                 <div class="card">
                     <div class="card-title">DNS 查询</div>
-                    <div class="card-value" id="dnsPackets">--</div>
+                    <div class="card-value skeleton" data-section="overview" id="dnsPackets">--</div>
                 </div>
             </div>
 
@@ -94,15 +94,15 @@
             <div class="metric-grid">
                 <div class="card">
                     <div class="card-title">🔒 TLS 加密流量</div>
-                    <div class="card-value" id="tlsFlows">--</div>
+                    <div class="card-value skeleton" data-section="tls" id="tlsFlows">--</div>
                 </div>
                 <div class="card">
                     <div class="card-title">🔑 JA3 指纹数</div>
-                    <div class="card-value" id="ja3Count">--</div>
+                    <div class="card-value skeleton" data-section="tls" id="ja3Count">--</div>
                 </div>
                 <div class="card">
                     <div class="card-title">⚠️ 可疑 TLS</div>
-                    <div class="card-value" id="suspiciousTls">--</div>
+                    <div class="card-value skeleton" data-section="tls" id="suspiciousTls">--</div>
                 </div>
             </div>
             <div class="metric-grid">
@@ -126,29 +126,29 @@
             <div class="metric-grid">
                 <div class="card">
                     <div class="card-title">🤖 ML 模型状态</div>
-                    <div class="card-value" id="mlStatus" style="font-size:24px;">未加载</div>
+                    <div class="card-value skeleton" data-section="dual" id="mlStatus" style="font-size:24px;">未加载</div>
                 </div>
                 <div class="card">
                     <div class="card-title">🎯 ML 预测结果</div>
-                    <div class="card-value" id="mlPrediction" style="font-size:24px;">--</div>
+                    <div class="card-value skeleton" data-section="dual" id="mlPrediction" style="font-size:24px;">--</div>
                 </div>
                 <div class="card">
                     <div class="card-title">📊 ML 置信度</div>
-                    <div class="card-value" id="mlConfidence" style="font-size:24px;">--</div>
+                    <div class="card-value skeleton" data-section="dual" id="mlConfidence" style="font-size:24px;">--</div>
                 </div>
             </div>
             <div class="metric-grid">
                 <div class="card">
                     <div class="card-title">🔍 规则告警次数</div>
-                    <div class="card-value" id="ruleAlertCount">0</div>
+                    <div class="card-value skeleton" data-section="dual" id="ruleAlertCount">0</div>
                 </div>
                 <div class="card">
                     <div class="card-title">🧠 ML 检测次数</div>
-                    <div class="card-value" id="mlPredictCount">0</div>
+                    <div class="card-value skeleton" data-section="dual" id="mlPredictCount">0</div>
                 </div>
                 <div class="card">
                     <div class="card-title">⚠️ ML 攻击检出</div>
-                    <div class="card-value" id="mlAttackCount">0</div>
+                    <div class="card-value skeleton" data-section="dual" id="mlAttackCount">0</div>
                 </div>
             </div>
             <div class="panel">
@@ -211,6 +211,18 @@
                         <label for="cfg_udp">UDP 洪水阈值</label>
                         <input type="number" id="cfg_udp" min="1" step="1" value="200">
                     </div>
+                    <div class="config-item">
+                        <label for="cfg_bf">暴力破解阈值</label>
+                        <input type="number" id="cfg_bf" min="1" step="1" value="10">
+                    </div>
+                    <div class="config-item">
+                        <label for="cfg_bf_win">暴力破解窗口(秒)</label>
+                        <input type="number" id="cfg_bf_win" min="1" step="1" value="60">
+                    </div>
+                    <div class="config-item">
+                        <label for="cfg_lateral">横向移动阈值</label>
+                        <input type="number" id="cfg_lateral" min="1" step="1" value="5">
+                    </div>
                 </div>
                 <div class="btn-row">
                     <button class="btn btn-primary" id="btnSaveConfig">💾 保存阈值</button>
@@ -231,11 +243,153 @@
                     <span class="form-msg" id="saveMsg"></span>
                 </div>
             </div>
+
+            <!-- 增强抓包控制 -->
+            <div class="panel">
+                <div class="panel-title">🔬 增强抓包（18维流特征 + TLS 分析）</div>
+                <p class="demo-desc">提取完整流特征并保存 CSV，用于模型训练</p>
+                <div class="config-grid">
+                    <div class="config-item">
+                        <label for="enhanced_duration">抓包时长(秒)</label>
+                        <input type="number" id="enhanced_duration" min="10" max="600" step="10" value="60">
+                    </div>
+                </div>
+                <div class="btn-row">
+                    <button class="btn btn-primary" id="btnEnhancedStart">▶ 启动增强抓包</button>
+                    <button class="btn btn-danger" id="btnEnhancedStop">⏹ 停止</button>
+                    <span class="status-text" id="enhancedStatus">就绪</span>
+                </div>
+                <div class="model-list" id="enhancedResult" style="display:none;">
+                    <div id="enhancedResultContent"></div>
+                </div>
+            </div>
+
+            <!-- 一键全流程 -->
+            <div class="panel panel-demo">
+                <div class="panel-title">⚡ 一键全流程（抓包 → 训练 → 检测）</div>
+                <p class="demo-desc">自动执行：增强抓包 → 模型训练 → ML 模型加载，完成后即可开始入侵检测</p>
+                <div class="config-grid">
+                    <div class="config-item">
+                        <label for="auto_duration">抓包时长(秒)</label>
+                        <input type="number" id="auto_duration" min="10" max="300" step="10" value="30">
+                    </div>
+                </div>
+                <div class="btn-row">
+                    <button class="btn btn-demo" id="btnAutoStart">⚡ 启动全流程</button>
+                    <span class="status-text" id="autoStatus">就绪</span>
+                </div>
+                <div class="train-progress" id="autoProgress" style="display:none;">
+                    <div class="progress-bar-wrap"><div class="progress-bar" id="autoProgressBar"></div></div>
+                    <span class="progress-text" id="autoProgressText">0%</span>
+                </div>
+            </div>
+
+            <!-- 环境自检 -->
+            <div class="panel">
+                <div class="panel-title">🔍 环境自检</div>
+                <p class="demo-desc">检查 Python 版本、依赖包、Npcap、模型文件、数据文件</p>
+                <div class="btn-row">
+                    <button class="btn btn-primary" id="btnCheck">🔍 运行检查</button>
+                    <span class="status-text" id="checkStatus">--</span>
+                </div>
+                <div class="model-list" id="checkResult" style="display:none;">
+                    <div id="checkResultContent"></div>
+                </div>
+            </div>
+
+            <!-- 攻击模拟控制 -->
+            <div class="panel">
+                <div class="panel-title">🎯 攻击模拟控制</div>
+                <div class="config-grid">
+                    <div class="config-item">
+                        <label for="atk_type">攻击类型</label>
+                        <select id="atk_type">
+                            <option value="all">全部攻击</option>
+                            <option value="syn_flood">SYN Flood</option>
+                            <option value="port_scan">端口扫描</option>
+                            <option value="udp_flood">UDP Flood</option>
+                            <option value="brute_force">暴力破解</option>
+                            <option value="lateral">横向移动</option>
+                        </select>
+                    </div>
+                    <div class="config-item">
+                        <label for="atk_duration">持续时间(秒)</label>
+                        <input type="number" id="atk_duration" min="5" max="300" step="5" value="30">
+                    </div>
+                </div>
+                <div class="btn-row">
+                    <button class="btn btn-danger" id="btnAtkStart">▶ 启动攻击模拟</button>
+                    <button class="btn" id="btnAtkStop">⏹ 停止攻击</button>
+                    <span class="status-text" id="atkStatus">未启动</span>
+                </div>
+            </div>
+
+            <!-- 模型管理 -->
+            <div class="panel">
+                <div class="panel-title">🧠 模型管理</div>
+                <div class="config-grid">
+                    <div class="config-item">
+                        <label for="train_dataset">数据集类型</label>
+                        <select id="train_dataset">
+                            <option value="cicids2017">CICIDS2017</option>
+                            <option value="nsl_kdd">NSL-KDD</option>
+                            <option value="local">本地数据</option>
+                        </select>
+                    </div>
+                    <div class="config-item">
+                        <label for="train_balance">均衡方法</label>
+                        <select id="train_balance">
+                            <option value="smote">SMOTE</option>
+                            <option value="oversample">过采样</option>
+                            <option value="undersample">欠采样</option>
+                            <option value="none">不均衡</option>
+                        </select>
+                    </div>
+                    <div class="config-item">
+                        <label>
+                            <input type="checkbox" id="train_quick"> 快速模式（少量数据）
+                        </label>
+                    </div>
+                </div>
+                <div class="btn-row">
+                    <button class="btn btn-primary" id="btnTrainStart">🚀 开始训练</button>
+                    <span class="status-text" id="trainStatus">就绪</span>
+                </div>
+                <div class="train-progress" id="trainProgress" style="display:none;">
+                    <div class="progress-bar-wrap"><div class="progress-bar" id="trainProgressBar"></div></div>
+                    <span class="progress-text" id="trainProgressText">0%</span>
+                </div>
+                <div class="model-list" id="modelList">
+                    <div class="panel-subtitle">📦 已训练模型</div>
+                    <div id="modelListContent">加载中...</div>
+                </div>
+            </div>
+
+            <!-- 一键演示 -->
+            <div class="panel panel-demo">
+                <div class="panel-title">🎬 一键演示模式</div>
+                <p class="demo-desc">一键启动：抓包 + 攻击模拟 + ML模型加载，快速体验完整检测流程</p>
+                <div class="config-grid">
+                    <div class="config-item">
+                        <label for="demo_duration">演示时长(秒)</label>
+                        <input type="number" id="demo_duration" min="5" max="300" step="5" value="30">
+                    </div>
+                </div>
+                <div class="btn-row">
+                    <button class="btn btn-demo" id="btnDemoStart">🎬 启动演示</button>
+                    <button class="btn btn-danger" id="btnDemoStop">⏹ 停止演示</button>
+                    <span class="status-text" id="demoStatus">就绪</span>
+                </div>
+            </div>
         </section>
 
     </main>
 
     <script src="{{ url_for('static', filename='js/chart.umd.min.js') }}"></script>
-    <script src="{{ url_for('static', filename='js/dashboard.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/api.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/charts.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/alerts.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/controls.js') }}"></script>
+    <script>SN.initControls();</script>
 </body>
 </html>

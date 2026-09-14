@@ -6,6 +6,7 @@ import logging
 import queue
 import random
 import threading
+import time as _time
 from collections import deque
 from datetime import datetime
 from pathlib import Path
@@ -24,6 +25,10 @@ from campus_ids.config import (
     DEMO_CONN_MIN, DEMO_CONN_MAX, DEMO_SYN_MIN, DEMO_SYN_MAX,
     DEMO_UDP_MIN, DEMO_UDP_MAX, DEMO_DNS_MIN, DEMO_DNS_MAX,
     DEMO_PKT_MIN, DEMO_PKT_MAX,
+)
+from campus_ids.web.database import (
+    init_db, insert_alert, insert_traffic, set_config, get_all_config,
+    bulk_set_config, cleanup_old_data, close_conn,
 )
 
 logger = logging.getLogger(__name__)
@@ -47,6 +52,18 @@ CONFIG = {
     'brute_force_window': BRUTE_FORCE_WINDOW_SEC,
     'lateral_movement_threshold': LATERAL_MOVEMENT_THRESHOLD,
 }
+
+# ── 数据库初始化 ──────────────────────────────────────────────────
+init_db()
+
+# 从数据库恢复已保存的配置（覆盖默认值）
+_saved_config = get_all_config()
+for _key, _val in _saved_config.items():
+    if _key in CONFIG:
+        try:
+            CONFIG[_key] = int(_val)
+        except (ValueError, TypeError):
+            CONFIG[_key] = _val
 
 # ── 全局状态 ────────────────────────────────────────────────────────
 WINDOW_SIZE_CFG = WINDOW_SIZE
@@ -73,6 +90,10 @@ traffic_data = {
 alert_history: list[dict] = []
 traffic_history: list[dict] = []
 
+# M3: SSE 广播回调列表 — 当告警/流量更新时通知订阅者
+_on_alert_callbacks: list = []
+_on_traffic_callbacks: list = []
+
 _rule_detector = create_rule_detector()
 
 dual_detector = DualDetector(
@@ -82,6 +103,9 @@ dual_detector = DualDetector(
 )
 
 _recent_packets: list[dict] = []
+
+# 上次流量更新时间（用于计算真实 QPS）
+_last_update_time: float = 0.0
 
 
 # ── 抓包线程 ────────────────────────────────────────────────────────
@@ -143,6 +167,208 @@ def stop_capture_thread():
     return True
 
 
+# ── 增强抓包线程 ──────────────────────────────────────────────────
+
+_enhanced_capture_running = False
+_enhanced_capture_thread: threading.Thread | None = None
+_enhanced_capture_result: dict = {}
+
+
+def _enhanced_capture_worker(duration: int):
+    """后台增强抓包线程：提取 18 维流特征 + TLS 分析，保存 CSV。"""
+    global _enhanced_capture_running, _enhanced_capture_result
+    from scapy.all import sniff as scapy_sniff
+    from campus_ids.capture.enhanced_features import (
+        extract_packet_info, aggregate_flow_features, save_flows_to_csv,
+    )
+    from campus_ids.capture.tls_analyzer import tls_analyzer
+    from scapy.all import IP, TCP
+
+    logger.info("增强抓包线程启动，持续 %d 秒", duration)
+    _enhanced_capture_result = {
+        'status': 'running', 'duration': duration,
+        'packets': 0, 'flows': 0, 'error': None,
+    }
+
+    packets_info: list = []
+    stop_time = _time.time() + duration
+
+    def _on_pkt(pkt):
+        if not _enhanced_capture_running:
+            return
+        info = extract_packet_info(pkt)
+        if info:
+            packets_info.append(info)
+        if pkt.haslayer(IP) and pkt.haslayer(TCP):
+            tls_analyzer.parse_tls_from_packet(pkt)
+
+    try:
+        scapy_sniff(
+            prn=_on_pkt, store=False,
+            stop_filter=lambda _: not _enhanced_capture_running or _time.time() >= stop_time,
+            timeout=duration + 5,
+        )
+    except RuntimeError as exc:
+        logger.error("增强抓包失败: %s", exc)
+        _enhanced_capture_result = {
+            'status': 'error', 'duration': duration,
+            'packets': 0, 'flows': 0, 'error': str(exc),
+        }
+        _enhanced_capture_running = False
+        return
+    except Exception as exc:
+        logger.error("增强抓包异常: %s", exc)
+        _enhanced_capture_result = {
+            'status': 'error', 'duration': duration,
+            'packets': 0, 'flows': 0, 'error': str(exc),
+        }
+        _enhanced_capture_running = False
+        return
+
+    # 聚合流特征
+    all_tls = [
+        {"src_ip": r.src_ip, "src_port": r.src_port, "ja3_hash": r.ja3_hash,
+         "tls_version": r.tls_version, "cipher_count": r.cipher_count}
+        for r in tls_analyzer.get_all_records()
+    ]
+    flows = aggregate_flow_features(packets_info, all_tls)
+    save_flows_to_csv(flows)
+
+    logger.info("增强抓包完成：捕获 %d 个包，聚合为 %d 条流", len(packets_info), len(flows))
+    _enhanced_capture_result = {
+        'status': 'completed', 'duration': duration,
+        'packets': len(packets_info), 'flows': len(flows), 'error': None,
+    }
+    _enhanced_capture_running = False
+
+
+def start_enhanced_capture_thread(duration: int = 60) -> bool:
+    """启动后台增强抓包线程（幂等）。"""
+    global _enhanced_capture_running, _enhanced_capture_thread
+    with _state_lock:
+        if _enhanced_capture_running:
+            return False
+        _enhanced_capture_running = True
+    _enhanced_capture_thread = threading.Thread(
+        target=_enhanced_capture_worker, args=(duration,), daemon=True,
+    )
+    _enhanced_capture_thread.start()
+    logger.info("增强抓包线程已启动 (duration=%ds)", duration)
+    return True
+
+
+def stop_enhanced_capture_thread() -> bool:
+    """停止增强抓包线程。"""
+    global _enhanced_capture_running
+    with _state_lock:
+        _enhanced_capture_running = False
+    logger.info("增强抓包线程已停止")
+    return True
+
+
+def get_enhanced_capture_status() -> dict:
+    """获取增强抓包状态。"""
+    with _state_lock:
+        running = _enhanced_capture_running
+    result = dict(_enhanced_capture_result) if _enhanced_capture_result else {}
+    result['running'] = running
+    return result
+
+
+# ── 一键全流程状态 ────────────────────────────────────────────────
+
+_auto_status: dict = {
+    'running': False, 'step': 0, 'total_steps': 3,
+    'step_name': '', 'message': '', 'error': None, 'result': None,
+}
+_auto_lock = threading.Lock()
+
+
+def get_auto_status() -> dict:
+    """获取一键全流程状态。"""
+    with _auto_lock:
+        return dict(_auto_status)
+
+
+def _auto_worker(duration: int):
+    """一键全流程后台线程：增强抓包 → 训练 → ML 加载。"""
+    global _auto_status
+    from campus_ids.capture.enhanced_features import start_enhanced_capture
+    from campus_ids.model.train import train
+    from campus_ids.config import MODEL_PATH, TRAFFIC_CSV
+
+    with _auto_lock:
+        _auto_status['running'] = True
+        _auto_status['error'] = None
+        _auto_status['result'] = None
+
+    try:
+        # Step 1: 增强抓包
+        with _auto_lock:
+            _auto_status['step'] = 1
+            _auto_status['step_name'] = '增强抓包'
+            _auto_status['message'] = f'正在抓包 ({duration}s)...'
+        success = start_enhanced_capture(duration)
+        if not success:
+            if not TRAFFIC_CSV.exists():
+                with _auto_lock:
+                    _auto_status['running'] = False
+                    _auto_status['error'] = '抓包失败且无已有数据'
+                return
+            with _auto_lock:
+                _auto_status['message'] = '抓包失败，使用已有数据继续'
+
+        # Step 2: 模型训练
+        with _auto_lock:
+            _auto_status['step'] = 2
+            _auto_status['step_name'] = '模型训练'
+            _auto_status['message'] = '正在训练模型...'
+        train_result = train()
+        if not MODEL_PATH.exists():
+            with _auto_lock:
+                _auto_status['running'] = False
+                _auto_status['error'] = '训练完成但模型文件未生成'
+            return
+
+        # Step 3: 加载 ML 模型
+        with _auto_lock:
+            _auto_status['step'] = 3
+            _auto_status['step_name'] = '加载 ML 模型'
+            _auto_status['message'] = '正在加载 ML 模型...'
+        try:
+            dual_detector.load_model(which='best')
+            dual_detector.start_ml_loop(packet_source=dual_detector._drain_flow_buffer)
+            ml_loaded = True
+        except Exception as exc:
+            logger.warning("一键全流程: ML 加载失败: %s", exc)
+            ml_loaded = False
+
+        with _auto_lock:
+            _auto_status['running'] = False
+            _auto_status['message'] = '全流程完成'
+            _auto_status['result'] = {
+                'capture': True,
+                'trained': True,
+                'ml_loaded': ml_loaded,
+            }
+
+    except Exception as exc:
+        logger.error("一键全流程异常: %s", exc)
+        with _auto_lock:
+            _auto_status['running'] = False
+            _auto_status['error'] = str(exc)
+
+
+def start_auto_thread(duration: int = 30) -> bool:
+    """启动一键全流程后台线程。"""
+    with _auto_lock:
+        if _auto_status['running']:
+            return False
+    t = threading.Thread(target=_auto_worker, args=(duration,), daemon=True)
+    t.start()
+    return True
+
+
 # ── 数据处理 ────────────────────────────────────────────────────────
 
 def _drain_packets():
@@ -171,18 +397,30 @@ def _drain_packets():
 
 
 def update_traffic_data():
-    """更新流量数据（优先使用真实抓包数据，无包时回退到随机模拟）。"""
-    global traffic_data
+    """更新流量数据（优先使用真实抓包数据，无包时回退到随机模拟）。
+
+    R-14: QPS/SYN/UDP 计数归一化为每秒值，与阈值语义对齐。
+    """
+    global traffic_data, _last_update_time
 
     stats = _drain_packets()
+    now = _time.time()
+    interval = now - _last_update_time if _last_update_time > 0 else 1.0
+    _last_update_time = now
+    # 防止除零或极短间隔导致数值爆炸
+    if interval < 0.1:
+        interval = 0.1
 
     with _state_lock:
+        current_port_count = 0  # 当前周期唯一端口数（用于检测，避免累积窗口误报）
         if stats is not None:
-            qps = stats['count']
+            # 归一化为每秒计数，与检测阈值（QPS/SYN/UDP per second）对齐
+            qps = int(stats['count'] / interval)
             connections = len(stats['src_ips'])
-            syn_count = stats['syn_count']
-            udp_count = stats['udp_count']
-            dns_count = stats.get('dns_count', 0)
+            syn_count = int(stats['syn_count'] / interval)
+            udp_count = int(stats['udp_count'] / interval)
+            dns_count = int(stats.get('dns_count', 0) / interval)
+            current_port_count = len(stats['dports'])
             traffic_data['packet_count'] += stats['count']
             for p in stats['dports']:
                 traffic_data['unique_ports'].append(p)
@@ -194,6 +432,7 @@ def update_traffic_data():
             syn_count = random.randint(DEMO_SYN_MIN, DEMO_SYN_MAX)
             udp_count = random.randint(DEMO_UDP_MIN, DEMO_UDP_MAX)
             dns_count = random.randint(DEMO_DNS_MIN, DEMO_DNS_MAX)
+            current_port_count = 2  # 演示模式每周期添加 2 个随机端口
             traffic_data['packet_count'] += random.randint(DEMO_PKT_MIN, DEMO_PKT_MAX)
             traffic_data['unique_ports'].append(random.randint(1, 65535))
             traffic_data['unique_ports'].append(random.randint(1, 65535))
@@ -212,7 +451,7 @@ def update_traffic_data():
 
         result = dual_detector.detect(
             qps=qps,
-            port_count=len(set(traffic_data['unique_ports'])),
+            port_count=current_port_count,
             syn_count=syn_count,
             udp_count=udp_count,
             packets=packets_for_ml,
@@ -232,6 +471,23 @@ def update_traffic_data():
             alert_history.insert(0, alert_entry)
             if len(alert_history) > MAX_ALERT_HISTORY:
                 alert_history.pop()
+            # M2: 持久化告警到 SQLite
+            try:
+                insert_alert(
+                    time=traffic_data['timestamp'],
+                    level=result.level,
+                    attack_type=result.attack_type,
+                    message=alert_msg,
+                    ml_confidence=result.ml_confidence,
+                )
+            except Exception as exc:
+                logger.warning("告警写入数据库失败: %s", exc)
+            # M3: 通知 SSE 订阅者
+            for cb in _on_alert_callbacks:
+                try:
+                    cb(alert_entry)
+                except Exception as exc:
+                    logger.warning("SSE 告警回调失败: %s", exc)
         else:
             traffic_data['alert'] = None
 
@@ -240,13 +496,32 @@ def update_traffic_data():
             'qps': qps,
             'connections': connections,
             'packet_count': traffic_data['packet_count'],
-            'port_count': len(set(traffic_data['unique_ports'])),
+            'port_count': current_port_count,
             'src_ip_count': len(set(traffic_data['src_ips'])),
             'alert': traffic_data['alert']
         }
         traffic_history.append(history_entry)
         if len(traffic_history) > MAX_TRAFFIC_HISTORY:
             traffic_history.pop(0)
+        # M2: 持久化流量历史到 SQLite
+        try:
+            insert_traffic(
+                time=traffic_data['timestamp'],
+                qps=qps,
+                connections=connections,
+                packet_count=traffic_data['packet_count'],
+                port_count=current_port_count,
+                src_ip_count=len(set(traffic_data['src_ips'])),
+                alert=traffic_data['alert'],
+            )
+        except Exception as exc:
+            logger.warning("流量历史写入数据库失败: %s", exc)
+        # M3: 通知 SSE 订阅者
+        for cb in _on_traffic_callbacks:
+            try:
+                cb(history_entry)
+            except Exception as exc:
+                logger.warning("SSE 流量回调失败: %s", exc)
 
 
 def save_traffic_data():

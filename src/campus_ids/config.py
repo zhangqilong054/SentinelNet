@@ -1,12 +1,21 @@
 """P2-10.6: 集中配置常量 — 消除硬编码魔法数字。
 
 所有模块从此处导入配置常量，便于统一管理和调优。
-支持环境变量覆盖。
+支持环境变量覆盖，支持 .env 文件加载（python-dotenv）。
 """
 from __future__ import annotations
 
 import os
 from pathlib import Path
+
+# M6: 加载 .env 文件（python-dotenv）
+try:
+    from dotenv import load_dotenv
+    _env_path = Path(__file__).resolve().parent.parent.parent / ".env"
+    if _env_path.exists():
+        load_dotenv(_env_path)
+except ImportError:
+    pass  # python-dotenv 未安装，仅使用环境变量
 
 
 # ── 项目路径 ──────────────────────────────────────────────────

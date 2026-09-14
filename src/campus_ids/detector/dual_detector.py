@@ -198,12 +198,13 @@ class DualDetector:
             return DualDetectionResult()
 
         try:
-            import numpy as np
+            import pandas as pd
             from campus_ids.capture.enhanced_features import (
                 PacketInfo, aggregate_flow_features, flow_to_feature_vector,
                 FEATURE_NAMES
             )
-            from campus_ids.model.train import ENHANCED_FEATURE_COLUMNS
+            from campus_ids.model.data_loader import align_features
+            from campus_ids.model.utils import clean_features
 
             # 将包信息转为 PacketInfo
             pkt_infos = []
@@ -231,35 +232,34 @@ class DualDetector:
             if not flows:
                 return DualDetectionResult()
 
-            # 取所有流的特征向量
+            # 取模型 artifact 与训练时特征列表
             clf = self._artifact["model"]
             scaler = self._artifact.get("scaler")
             le = self._artifact.get("label_encoder")
+            # 实时聚合产出 18 维向量（含 3 个 TLS 特征），而注册表中的模型可能按
+            # 15 维训练（无 TLS 特征）。必须按模型自身 feature_columns 对齐（裁剪
+            # 多余列/补齐缺失列），否则 scaler.transform 会因维度不符抛错。
+            # 与离线 predict() 路径保持一致。
+            model_cols = self._artifact.get("feature_columns") or list(FEATURE_NAMES)
 
-            predictions = []
-            confidences = []
-            for flow in flows:
-                vec = flow_to_feature_vector(flow)
-                if len(vec) != len(ENHANCED_FEATURE_COLUMNS):
-                    continue
-                X = np.array([vec])
-                if scaler:
-                    X = scaler.transform(X)
-                pred = clf.predict(X)[0]
-                # 获取置信度（概率）
-                if hasattr(clf, 'predict_proba'):
-                    proba = clf.predict_proba(X)[0]
-                    confidence = float(max(proba))
-                else:
-                    confidence = 1.0
+            # 所有流批量组装为带列名 DataFrame（向量顺序与 FEATURE_NAMES 一致）
+            rows = [flow_to_feature_vector(flow) for flow in flows]
+            X_df = pd.DataFrame(rows, columns=FEATURE_NAMES)
+            X = clean_features(align_features(X_df, model_cols))
+            X_scaled = scaler.transform(X) if scaler else X.values
 
-                if le:
-                    label = le.inverse_transform([pred])[0]
-                else:
-                    label = str(pred)
+            preds_encoded = clf.predict(X_scaled)
+            if le:
+                labels = le.inverse_transform(preds_encoded)
+            else:
+                labels = preds_encoded
+            predictions = [str(x) for x in labels]
 
-                predictions.append(label)
-                confidences.append(confidence)
+            # 获取置信度（概率）
+            if hasattr(clf, 'predict_proba'):
+                confidences = [float(max(p)) for p in clf.predict_proba(X_scaled)]
+            else:
+                confidences = [1.0] * len(predictions)
 
             if not predictions:
                 return DualDetectionResult()
@@ -318,13 +318,15 @@ class DualDetector:
             # 2. 规则未触发 → 调 ML 做深度检测（捕获规则漏检的未知攻击）
             # 3. ML 未加载 → 仅规则检测
             ml_result = self._last_ml_result
-            if packets:
+            # 当后台 ML 循环运行时，使用其缓存结果，避免与 add_packet→_drain_flow_buffer→ml_detect 重复处理；
+            # 仅在后台循环未运行时，才直接对传入的 packets 调用 ml_detect（回退路径）。
+            if packets and not self._ml_running:
                 ml_result = self.ml_detect(packets)
             ml_triggered = ml_result.is_anomaly
         else:
             # 原有并行逻辑
             ml_result = self._last_ml_result
-            if packets:
+            if packets and not self._ml_running:
                 ml_result = self.ml_detect(packets)
             ml_triggered = ml_result.is_anomaly
 

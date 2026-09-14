@@ -21,3 +21,18 @@ imbalanced-learn>=0.11
 
 # 进度条
 tqdm>=4.60
+
+# 生产 WSGI 服务器
+waitress>=2.1
+
+# 安全加固
+flask-talisman>=1.0
+flask-login>=0.6
+flask-cors>=4.0
+flask-limiter>=3.0
+flask-wtf>=1.2
+
+# 运维增强
+python-dotenv>=1.0
+flasgger>=0.9
+psutil>=5.9

@@ -168,7 +168,7 @@ class AttackSimulator:
 
     def inject_syn_flood(self, duration: int = 10, rate: int = 50) -> None:
         """注入 SYN Flood 模拟数据。"""
-        from campus_ids.web.helpers import _packet_queue, _capture_running
+        from campus_ids.web.helpers import _packet_queue
         logger.info("注入 SYN Flood 模拟数据（%d 秒，%d 包/秒）", duration, rate)
         start = time.time()
         while time.time() - start < duration and self._running:
@@ -179,9 +179,11 @@ class AttackSimulator:
                         'sport': random.randint(1024, 65535),
                         'dport': 80,
                         'src_ip': random.choice(ATTACK_IPS),
+                        'dst_ip': TARGET_IP,
                         'proto': 'TCP',
                         'is_syn': True,
                         'is_dns': False,
+                        'timestamp': time.time(),
                     })
                 except Exception:
                     pass
@@ -201,9 +203,11 @@ class AttackSimulator:
                         'sport': random.randint(1024, 65535),
                         'dport': port % 1024 + 1,
                         'src_ip': '10.0.0.100',
+                        'dst_ip': TARGET_IP,
                         'proto': 'TCP',
                         'is_syn': True,
                         'is_dns': False,
+                        'timestamp': time.time(),
                     })
                     port += 1
                 except Exception:
@@ -223,10 +227,78 @@ class AttackSimulator:
                         'sport': random.randint(1024, 65535),
                         'dport': 53,
                         'src_ip': random.choice(ATTACK_IPS),
+                        'dst_ip': TARGET_IP,
                         'proto': 'UDP',
                         'is_syn': False,
                         'is_dns': False,
+                        'timestamp': time.time(),
                     })
+                except Exception:
+                    pass
+            time.sleep(1)
+
+    def inject_brute_force(self, duration: int = 10, rate: int = 15,
+                           target_port: int = 22) -> None:
+        """注入暴力破解模拟数据（针对 SSH/RDP 等服务端口）。
+
+        同一源 IP 高频连接同一目标端口，触发暴力破解检测。
+        阈值: BRUTE_FORCE_THRESHOLD(10) 次 / BRUTE_FORCE_WINDOW_SEC(60s)。
+        """
+        from campus_ids.web.helpers import _packet_queue
+        from campus_ids.config import BRUTE_FORCE_PORTS
+        if target_port not in BRUTE_FORCE_PORTS:
+            logger.warning("端口 %d 不在 BRUTE_FORCE_PORTS %s 中，可能无法触发检测",
+                           target_port, BRUTE_FORCE_PORTS)
+        src_ip = "10.0.0.200"  # 固定源 IP，确保同一 tracker key 累积
+        logger.info("注入暴力破解模拟数据（%d 秒，%d 包/秒，端口 %d）", duration, rate, target_port)
+        start = time.time()
+        while time.time() - start < duration and self._running:
+            for _ in range(rate):
+                try:
+                    _packet_queue.put_nowait({
+                        'length': random.randint(60, 200),
+                        'sport': random.randint(1024, 65535),
+                        'dport': target_port,
+                        'src_ip': src_ip,
+                        'dst_ip': TARGET_IP,
+                        'proto': 'TCP',
+                        'is_syn': True,
+                        'is_dns': False,
+                        'timestamp': time.time(),
+                    })
+                except Exception:
+                    pass
+            time.sleep(1)
+
+    def inject_lateral_movement(self, duration: int = 10, rate: int = 10) -> None:
+        """注入横向移动模拟数据。
+
+        同一源 IP 访问多个不同内网目标 IP，触发横向移动检测。
+        阈值: LATERAL_MOVEMENT_THRESHOLD(5) 个不同内网 IP。
+        """
+        from campus_ids.web.helpers import _packet_queue
+        src_ip = "10.0.0.200"  # 固定源 IP
+        # 生成多个不同的内网目标 IP
+        lateral_targets = [f"192.168.1.{i}" for i in range(1, 20)]
+        logger.info("注入横向移动模拟数据（%d 秒，%d 包/秒，%d 个目标 IP）",
+                     duration, rate, len(lateral_targets))
+        start = time.time()
+        idx = 0
+        while time.time() - start < duration and self._running:
+            for _ in range(rate):
+                try:
+                    _packet_queue.put_nowait({
+                        'length': random.randint(60, 200),
+                        'sport': random.randint(1024, 65535),
+                        'dport': 445,  # SMB 端口，典型横向移动目标
+                        'src_ip': src_ip,
+                        'dst_ip': lateral_targets[idx % len(lateral_targets)],
+                        'proto': 'TCP',
+                        'is_syn': True,
+                        'is_dns': False,
+                        'timestamp': time.time(),
+                    })
+                    idx += 1
                 except Exception:
                     pass
             time.sleep(1)
@@ -235,9 +307,11 @@ class AttackSimulator:
         """同时启动所有攻击模拟。"""
         self._running = True
         attacks = [
-            threading.Thread(target=self.inject_syn_flood, args=(duration, 30), daemon=True),
-            threading.Thread(target=self.inject_port_scan, args=(duration, 20), daemon=True),
-            threading.Thread(target=self.inject_udp_flood, args=(duration, 50), daemon=True),
+            threading.Thread(target=self.inject_syn_flood, args=(duration, 80), daemon=True),
+            threading.Thread(target=self.inject_port_scan, args=(duration, 40), daemon=True),
+            threading.Thread(target=self.inject_udp_flood, args=(duration, 150), daemon=True),
+            threading.Thread(target=self.inject_brute_force, args=(duration, 15), daemon=True),
+            threading.Thread(target=self.inject_lateral_movement, args=(duration, 10), daemon=True),
         ]
         for t in attacks:
             t.start()

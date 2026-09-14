@@ -181,6 +181,12 @@ python -m campus_ids.demo.attack_sim port_scan --count 200
 # UDP Flood 模拟
 python -m campus_ids.demo.attack_sim udp_flood --count 1000
 
+# 暴力破解模拟
+python -m campus_ids.demo.attack_sim brute_force --count 50
+
+# 横向移动模拟
+python -m campus_ids.demo.attack_sim lateral --count 30
+
 # 全类型攻击模拟（30 秒）
 python -m campus_ids.demo.attack_sim all --duration 30
 
@@ -262,7 +268,8 @@ Task-main/
 ├── model.pkl                      # 训练模型（CICIDS2017, RF, Attack F1=0.9998）
 ├── confusion_matrix.png           # 混淆矩阵图（训练时生成）
 ├── evaluation_report.txt          # 评估报告（训练时生成）
-├── tests/                         # 单元测试（67 个）
+├── tests/                         # 单元测试（79 个）
+│   ├── test_attack_sim.py         #   攻击模拟测试（12 个）
 │   ├── test_detector.py           #   规则检测测试（29 个）
 │   ├── test_enhanced_features.py  #   增强特征测试（20 个）
 │   ├── test_features.py           #   基础特征提取测试（7 个）
@@ -279,7 +286,8 @@ Task-main/
     ├── model/
     │   ├── train.py               # 模型训练 + 多算法对比主流程（防泄漏 + --quick 快速模式）
     │   ├── data_loader.py         # 数据集加载（本地/CICIDS2017/NSL-KDD/合成）+ 类别均衡
-    │   └── evaluation.py          # 指标评估 + 交叉验证 + 混淆矩阵 + 延迟基准（向量化优化）
+    │   ├── evaluation.py          # 指标评估 + 交叉验证 + 混淆矩阵 + 延迟基准（向量化优化）
+    │   └── utils.py               # 模型工具函数（class_weight 编码 + inf/nan 清理）
     ├── detector/
     │   ├── detector.py            # 规则异常检测（8 类规则）
     │   └── dual_detector.py       # 双引擎检测器（规则 + ML 融合）
@@ -438,10 +446,11 @@ docker compose up --build
 ## 十二、测试
 
 ```bash
-# 运行全部测试（67 个）
+# 运行全部测试（79 个）
 python -m pytest tests/ -v
 
 # 运行指定模块测试
+python -m pytest tests/test_attack_sim.py -v          # 攻击模拟（12 个）
 python -m pytest tests/test_detector.py -v            # 规则检测（29 个）
 python -m pytest tests/test_enhanced_features.py -v   # 增强特征（20 个）
 python -m pytest tests/test_features.py -v            # 基础特征提取（7 个）

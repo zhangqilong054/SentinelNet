@@ -1,13 +1,14 @@
 /* ============================================================
  * SentinelNet 哨兵网络 — 监控面板前端逻辑
- * 轮询调度 / 双引擎指标 / 告警筛选 / 阈值与抓包控制 / 载荷检测
+ * M3: SSE 实时推送 + 轮询降级 / 双引擎指标 / 告警筛选 / 阈值与抓包控制 / 载荷检测
  * 所有动态内容均通过 textContent 渲染，避免 HTML 注入。
  * ============================================================ */
 (function () {
     'use strict';
 
     const $ = (id) => document.getElementById(id);
-    const REFRESH_MS = 2000;
+    const REFRESH_MS = 2000;       // 轮询降级时的刷新间隔
+    const SSE_RECONNECT_MS = 5000; // SSE 断线重连间隔
 
     // ---------- 状态 ----------
     let paused = false;
@@ -17,6 +18,13 @@
     let lastAlerts = [];
     const seenAlertKeys = new Set();
     let alertsFirstLoad = true;
+
+    // SSE 连接状态
+    let sseTraffic = null;          // EventSource for /api/stream/traffic
+    let sseAlerts = null;           // EventSource for /api/stream/alerts
+    let sseConnected = false;       // 是否有至少一个 SSE 连接活跃
+    let pollTimer = null;           // 轮询降级定时器
+    let sseReconnectTimer = null;   // SSE 重连定时器
 
     const thresholds = {ddos_threshold: 500, port_scan_threshold: 50,
                         syn_flood_threshold: 100, udp_flood_threshold: 200};
@@ -36,9 +44,59 @@
     }
     function clearNode(node) { while (node.firstChild) node.removeChild(node.firstChild); }
 
-    // ---------- API 封装 + 真实连接状态 ----------
+    // ---------- M5: Toast 通知组件 ----------
+    let _toastContainer = null;
+
+    function _ensureToastContainer() {
+        if (!_toastContainer) {
+            _toastContainer = el('div', 'toast-container');
+            _toastContainer.id = 'toastContainer';
+            document.body.appendChild(_toastContainer);
+        }
+        return _toastContainer;
+    }
+
+    /**
+     * 显示 Toast 通知。
+     * @param {string} message 通知文本
+     * @param {'success'|'warning'|'error'|'info'} type 通知类型
+     * @param {number} duration 显示时长（毫秒），默认 3000
+     */
+    function showToast(message, type = 'info', duration = 3000) {
+        const container = _ensureToastContainer();
+        const toast = el('div', 'toast toast-' + type, message);
+        const closeBtn = el('span', 'toast-close', '×');
+        closeBtn.addEventListener('click', () => {
+            toast.classList.add('toast-exit');
+            setTimeout(() => toast.remove(), 300);
+        });
+        toast.appendChild(closeBtn);
+        container.appendChild(toast);
+        // 自动消失
+        setTimeout(() => {
+            if (toast.parentNode) {
+                toast.classList.add('toast-exit');
+                setTimeout(() => toast.remove(), 300);
+            }
+        }, duration);
+    }
+
+    // ---------- M5: API 封装 + 拦截器 + 连接状态 ----------
     async function apiGet(path) {
         const r = await fetch(path);
+        if (r.status === 401) {
+            showToast('登录已过期，请重新登录', 'warning');
+            setTimeout(() => { window.location.href = '/login'; }, 1500);
+            throw new Error('Unauthorized');
+        }
+        if (r.status === 403) {
+            showToast('权限不足，操作被拒绝', 'error');
+            throw new Error('Forbidden');
+        }
+        if (r.status >= 500) {
+            showToast('服务器错误，请稍后重试', 'error');
+            throw new Error('GET ' + path + ' -> ' + r.status);
+        }
         if (!r.ok) throw new Error('GET ' + path + ' -> ' + r.status);
         return r.json();
     }
@@ -48,6 +106,19 @@
             headers: {'Content-Type': 'application/json'},
             body: body === undefined ? undefined : JSON.stringify(body),
         });
+        if (r.status === 401) {
+            showToast('登录已过期，请重新登录', 'warning');
+            setTimeout(() => { window.location.href = '/login'; }, 1500);
+            throw new Error('Unauthorized');
+        }
+        if (r.status === 403) {
+            showToast('权限不足，操作被拒绝', 'error');
+            throw new Error('Forbidden');
+        }
+        if (r.status >= 500) {
+            showToast('服务器错误，请稍后重试', 'error');
+            throw new Error('POST ' + path + ' -> ' + r.status);
+        }
         if (!r.ok) throw new Error('POST ' + path + ' -> ' + r.status);
         return r.json();
     }
@@ -64,9 +135,12 @@
         if (paused) {
             box.classList.add('paused');
             text.textContent = '已暂停';
+        } else if (sseConnected) {
+            box.classList.add('online');
+            text.textContent = 'SSE 实时推送';
         } else if (connOnline === true) {
             box.classList.add('online');
-            text.textContent = '实时连接';
+            text.textContent = '轮询模式';
         } else if (connOnline === false) {
             box.classList.add('offline');
             text.textContent = '连接中断，自动重连中…';
@@ -87,6 +161,163 @@
             banner.textContent = '✓ 系统运行正常，未检测到异常流量';
             banner.classList.add('show', 'safe');
         }
+    }
+
+    // ---------- M3: SSE 实时推送管理 ----------
+    function updateSseStatus() {
+        const wasConnected = sseConnected;
+        sseConnected = !!(sseTraffic || sseAlerts);
+        if (sseConnected !== wasConnected) {
+            markConnection(sseConnected);
+        }
+    }
+
+    function handleTrafficEvent(data) {
+        // 与 refreshTraffic() 相同的 DOM 更新逻辑，但数据来自 SSE
+        if (paused) return;
+        setText('qps', data.qps);
+        setText('connections', data.connections);
+        setText('packetCount', data.packet_count);
+        setText('portCount', data.port_count);
+        setText('srcIpCount', data.src_ip_count);
+        setText('synPackets', data.syn_packets);
+        setText('udpPackets', data.udp_packets);
+        setText('dnsPackets', data.dns_packets);
+        setText('updateTime', data.timestamp);
+
+        bannerDanger = !!data.alert;
+        const statusEl = $('status');
+        if (data.alert) {
+            statusEl.textContent = '⚠️ 异常';
+            statusEl.className = 'card-value alert';
+        } else {
+            statusEl.textContent = '✓ 正常';
+            statusEl.className = 'card-value normal';
+        }
+
+        const label = (data.timestamp || '').split(' ')[1] || data.timestamp;
+        const ds = qpsChart.data.datasets;
+        qpsChart.data.labels.push(label);
+        ds[0].data.push(data.qps);
+        ds[1].data.push(thresholds.ddos_threshold);
+        if (qpsChart.data.labels.length > 30) {
+            qpsChart.data.labels.shift();
+            ds[0].data.shift();
+            ds[1].data.shift();
+        }
+        qpsChart.update();
+    }
+
+    function handleAlertEvent(alertEntry) {
+        // SSE 推送的单条告警
+        if (paused) return;
+        // 添加到 lastAlerts 头部
+        lastAlerts.unshift(alertEntry);
+        // 限制内存中保留数量
+        if (lastAlerts.length > 200) lastAlerts.length = 200;
+
+        // M5: Toast 通知新告警
+        const level = alertEntry.level || 'low';
+        const toastType = level === 'high' ? 'error' : level === 'medium' ? 'warning' : 'info';
+        const shortMsg = (alertEntry.message || '新告警').substring(0, 60);
+        showToast(shortMsg, toastType, 4000);
+
+        // 更新计数
+        const counts = {all: lastAlerts.length, high: 0, medium: 0, low: 0};
+        lastAlerts.forEach((a) => {
+            const lv = a.level || 'low';
+            if (counts[lv] !== undefined) counts[lv] += 1;
+        });
+        setText('cnt-all', counts.all);
+        setText('cnt-high', counts.high);
+        setText('cnt-medium', counts.medium);
+        setText('cnt-low', counts.low);
+
+        renderAlerts();
+    }
+
+    function connectSSE() {
+        // 关闭旧连接
+        disconnectSSE();
+
+        try {
+            // 流量 SSE
+            sseTraffic = new EventSource('/api/stream/traffic');
+            sseTraffic.addEventListener('traffic', (e) => {
+                try {
+                    const data = JSON.parse(e.data);
+                    handleTrafficEvent(data);
+                    markConnection(true);
+                } catch (err) {
+                    console.error('SSE traffic parse error:', err);
+                }
+            });
+            sseTraffic.onerror = () => {
+                console.warn('SSE traffic 连接断开，将回退轮询');
+                sseTraffic = null;
+                updateSseStatus();
+                startPollingFallback();
+            };
+
+            // 告警 SSE
+            sseAlerts = new EventSource('/api/stream/alerts');
+            sseAlerts.addEventListener('alert', (e) => {
+                try {
+                    const data = JSON.parse(e.data);
+                    handleAlertEvent(data);
+                    markConnection(true);
+                } catch (err) {
+                    console.error('SSE alert parse error:', err);
+                }
+            });
+            sseAlerts.onerror = () => {
+                console.warn('SSE alerts 连接断开，将回退轮询');
+                sseAlerts = null;
+                updateSseStatus();
+                startPollingFallback();
+            };
+
+            updateSseStatus();
+            stopPollingFallback();  // SSE 连接成功，停止轮询
+        } catch (err) {
+            console.error('SSE 初始化失败，回退轮询:', err);
+            sseTraffic = null;
+            sseAlerts = null;
+            startPollingFallback();
+        }
+    }
+
+    function disconnectSSE() {
+        if (sseTraffic) { sseTraffic.close(); sseTraffic = null; }
+        if (sseAlerts) { sseAlerts.close(); sseAlerts = null; }
+        sseConnected = false;
+    }
+
+    // ---------- 轮询降级 ----------
+    let _pollingActive = false;
+
+    function startPollingFallback() {
+        if (_pollingActive) return;
+        _pollingActive = true;
+        pollTimer = setInterval(refreshAll, REFRESH_MS);
+        // 立即执行一次
+        refreshAll();
+    }
+
+    function stopPollingFallback() {
+        if (pollTimer) { clearInterval(pollTimer); pollTimer = null; }
+        _pollingActive = false;
+    }
+
+    // 定期尝试恢复 SSE（当处于轮询降级模式时）
+    function scheduleSseReconnect() {
+        if (sseReconnectTimer) clearInterval(sseReconnectTimer);
+        sseReconnectTimer = setInterval(() => {
+            if (!sseTraffic && !sseAlerts && !paused) {
+                console.info('尝试恢复 SSE 连接…');
+                connectSSE();
+            }
+        }, SSE_RECONNECT_MS);
     }
 
     // ---------- Tab 切换 ----------
@@ -197,7 +428,8 @@
     // ---------- 告警刷新（筛选 + 新条目高亮） ----------
     async function refreshAlerts() {
         const data = await apiGet('/api/alerts');
-        lastAlerts = Array.isArray(data) ? data : [];
+        // 兼容新旧格式：新格式 {alerts, total}，旧格式直接是数组
+        lastAlerts = Array.isArray(data) ? data : (data.alerts || []);
 
         const counts = {all: lastAlerts.length, high: 0, medium: 0, low: 0};
         lastAlerts.forEach((a) => {
@@ -373,12 +605,20 @@
         }
     }
 
-    // ---------- 统一轮询 ----------
+    // ---------- 统一轮询（降级模式使用，或 SSE 模式下仅刷新 TLS/双引擎） ----------
     async function refreshAll() {
         if (paused) return;
-        const tasks = [refreshTraffic(), refreshAlerts(), refreshTls(), refreshDual()];
-        const results = await Promise.allSettled(tasks);
-        markConnection(results.some((r) => r.status === 'fulfilled') && results.every((r) => r.status === 'fulfilled'));
+        if (sseConnected) {
+            // SSE 模式：流量和告警由 SSE 推送，仅轮询 TLS 和双引擎
+            const tasks = [refreshTls(), refreshDual()];
+            const results = await Promise.allSettled(tasks);
+            markConnection(results.some((r) => r.status === 'fulfilled') && results.every((r) => r.status === 'fulfilled'));
+        } else {
+            // 轮询降级模式：全部刷新
+            const tasks = [refreshTraffic(), refreshAlerts(), refreshTls(), refreshDual()];
+            const results = await Promise.allSettled(tasks);
+            markConnection(results.some((r) => r.status === 'fulfilled') && results.every((r) => r.status === 'fulfilled'));
+        }
     }
 
     // ---------- 阈值配置 ----------
@@ -387,6 +627,9 @@
         ['cfg_scan', 'port_scan_threshold'],
         ['cfg_syn', 'syn_flood_threshold'],
         ['cfg_udp', 'udp_flood_threshold'],
+        ['cfg_bf', 'brute_force_threshold'],
+        ['cfg_bf_win', 'brute_force_window'],
+        ['cfg_lateral', 'lateral_movement_threshold'],
     ];
     CFG_FIELDS.forEach(([inputId]) => {
         $(inputId).addEventListener('input', () => $(inputId).classList.remove('input-error'));
@@ -548,9 +791,196 @@
         }
     }));
 
+    // ---------- 攻击模拟控制 ----------
+    let atkPollTimer = null;
+
+    function updateAtkStatus() {
+        apiGet('/api/attack/status').then((data) => {
+            const s = $('atkStatus');
+            if (data.running) {
+                s.textContent = '🔴 ' + (data.type || 'all') + ' 运行中 (' + data.elapsed_seconds + 's)';
+                s.style.color = 'var(--danger)';
+            } else {
+                s.textContent = '未启动';
+                s.style.color = 'var(--text-dim)';
+                if (atkPollTimer) { clearInterval(atkPollTimer); atkPollTimer = null; }
+            }
+        }).catch(() => {});
+    }
+
+    $('btnAtkStart').addEventListener('click', () => actionOnce($('btnAtkStart'), async () => {
+        const type = $('atk_type').value;
+        const duration = Number($('atk_duration').value) || 30;
+        try {
+            const data = await apiPost('/api/attack/start', {type, duration});
+            if (data.status === 'success') {
+                $('atkStatus').textContent = '🔴 ' + type + ' 启动中...';
+                $('atkStatus').style.color = 'var(--danger)';
+                atkPollTimer = setInterval(updateAtkStatus, 2000);
+            } else {
+                $('atkStatus').textContent = '✗ ' + (data.message || '启动失败');
+                $('atkStatus').style.color = 'var(--danger)';
+            }
+        } catch (e) {
+            $('atkStatus').textContent = '✗ 错误: ' + e.message;
+            $('atkStatus').style.color = 'var(--danger)';
+        }
+    }));
+
+    $('btnAtkStop').addEventListener('click', () => actionOnce($('btnAtkStop'), async () => {
+        await apiPost('/api/attack/stop');
+        $('atkStatus').textContent = '已停止';
+        $('atkStatus').style.color = 'var(--text-dim)';
+        if (atkPollTimer) { clearInterval(atkPollTimer); atkPollTimer = null; }
+    }));
+
+    // ---------- 模型管理 ----------
+    let trainPollTimer = null;
+
+    function loadModelList() {
+        apiGet('/api/model/list').then((data) => {
+            const container = $('modelListContent');
+            clearNode(container);
+            const runs = data.runs || [];
+            if (runs.length === 0) {
+                container.textContent = '暂无已训练模型';
+                return;
+            }
+            const table = el('table', 'model-table');
+            const thead = el('thead');
+            const headerRow = el('tr');
+            ['版本ID', '类型', '特征数', 'F1', '最佳'].forEach((h) => headerRow.appendChild(el('th', '', h)));
+            thead.appendChild(headerRow);
+            table.appendChild(thead);
+
+            const tbody = el('tbody');
+            runs.forEach((run) => {
+                const row = el('tr');
+                const shortId = (run.run_id || '').slice(0, 16) + '…';
+                row.appendChild(el('td', '', shortId));
+                row.appendChild(el('td', '', run.model_type || '--'));
+                row.appendChild(el('td', '', String(run.n_features || '--')));
+                const f1 = run.metrics && run.metrics.f1_score ? (run.metrics.f1_score * 100).toFixed(2) + '%' : '--';
+                row.appendChild(el('td', '', f1));
+                const bestTag = run.is_best ? el('span', 'tag-best', '★ 最佳') : el('span', '', '');
+                row.appendChild(el('td', '', ''));
+                row.lastChild.appendChild(bestTag);
+                tbody.appendChild(row);
+            });
+            table.appendChild(tbody);
+            container.appendChild(table);
+        }).catch((e) => {
+            $('modelListContent').textContent = '加载失败: ' + e.message;
+        });
+    }
+
+    function updateTrainStatus() {
+        apiGet('/api/model/train-status').then((data) => {
+            const s = $('trainStatus');
+            const progress = $('trainProgress');
+            const bar = $('trainProgressBar');
+            const text = $('trainProgressText');
+            if (data.running) {
+                s.textContent = '⏳ ' + (data.progress || '训练中...');
+                s.style.color = 'var(--yellow)';
+                progress.style.display = 'flex';
+                // 模拟进度（后端无精确进度，仅显示动画）
+                bar.style.width = '100%';
+                bar.style.animation = 'progressPulse 1.5s ease-in-out infinite';
+                text.textContent = data.progress || '训练中...';
+            } else {
+                progress.style.display = 'none';
+                bar.style.animation = 'none';
+                if (data.error) {
+                    s.textContent = '✗ ' + data.error;
+                    s.style.color = 'var(--danger)';
+                } else if (data.result) {
+                    s.textContent = '✓ 训练完成';
+                    s.style.color = 'var(--safe)';
+                    loadModelList(); // 刷新模型列表
+                } else {
+                    s.textContent = '就绪';
+                    s.style.color = 'var(--text-dim)';
+                }
+                if (trainPollTimer) { clearInterval(trainPollTimer); trainPollTimer = null; }
+            }
+        }).catch(() => {});
+    }
+
+    $('btnTrainStart').addEventListener('click', () => actionOnce($('btnTrainStart'), async () => {
+        const dataset_type = $('train_dataset').value;
+        const balance_method = $('train_balance').value;
+        const quick = $('train_quick').checked;
+        try {
+            const data = await apiPost('/api/model/train', {dataset_type, balance_method, quick});
+            if (data.status === 'success') {
+                $('trainStatus').textContent = '⏳ 训练已启动...';
+                $('trainStatus').style.color = 'var(--yellow)';
+                trainPollTimer = setInterval(updateTrainStatus, 3000);
+            } else {
+                $('trainStatus').textContent = '✗ ' + (data.message || '启动失败');
+                $('trainStatus').style.color = 'var(--danger)';
+            }
+        } catch (e) {
+            $('trainStatus').textContent = '✗ 错误: ' + e.message;
+            $('trainStatus').style.color = 'var(--danger)';
+        }
+    }));
+
+    // ---------- 演示模式 ----------
+    let demoPollTimer = null;
+
+    $('btnDemoStart').addEventListener('click', () => actionOnce($('btnDemoStart'), async () => {
+        const duration = Number($('demo_duration').value) || 30;
+        try {
+            const data = await apiPost('/api/demo/start', {duration});
+            if (data.status === 'success') {
+                $('demoStatus').textContent = '🎬 演示运行中 (' + duration + 's)';
+                $('demoStatus').style.color = 'var(--safe)';
+                $('captureStatus').textContent = '🟢 抓包中（真实流量 + 攻击模拟）';
+                $('captureStatus').style.color = 'var(--safe)';
+                // 同时轮询攻击状态
+                atkPollTimer = setInterval(updateAtkStatus, 2000);
+                // 设置自动停止提示
+                setTimeout(() => {
+                    $('demoStatus').textContent = '演示攻击阶段已结束';
+                    $('demoStatus').style.color = 'var(--text-dim)';
+                }, duration * 1000);
+            } else {
+                $('demoStatus').textContent = '✗ ' + (data.message || '启动失败');
+                $('demoStatus').style.color = 'var(--danger)';
+            }
+        } catch (e) {
+            $('demoStatus').textContent = '✗ 错误: ' + e.message;
+            $('demoStatus').style.color = 'var(--danger)';
+        }
+    }));
+
+    $('btnDemoStop').addEventListener('click', () => actionOnce($('btnDemoStop'), async () => {
+        await apiPost('/api/attack/stop');
+        $('demoStatus').textContent = '已停止';
+        $('demoStatus').style.color = 'var(--text-dim)';
+        if (atkPollTimer) { clearInterval(atkPollTimer); atkPollTimer = null; }
+        if (demoPollTimer) { clearInterval(demoPollTimer); demoPollTimer = null; }
+    }));
+
     // ---------- 启动 ----------
     initCharts();
     loadConfig().catch((e) => console.error('加载配置失败:', e));
-    refreshAll();
+    loadModelList();
+
+    // M3: 优先使用 SSE 实时推送，失败时自动降级轮询
+    connectSSE();
+    // TLS 和双引擎指标始终通过轮询获取（无 SSE 端点）
     setInterval(refreshAll, REFRESH_MS);
+    // 定期尝试恢复 SSE 连接
+    scheduleSseReconnect();
+
+    // 页面可见性变化时重连 SSE
+    document.addEventListener('visibilitychange', () => {
+        if (!document.hidden && !sseConnected && !paused) {
+            console.info('页面恢复可见，重连 SSE…');
+            connectSSE();
+        }
+    });
 })();

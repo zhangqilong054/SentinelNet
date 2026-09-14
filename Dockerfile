@@ -48,9 +48,12 @@ ENV CAMPUS_IDS_DEMO_MODE=1
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s \
     CMD python -c "import urllib.request; urllib.request.urlopen('http://localhost:5000/api/traffic')" || exit 1
 
+# Gunicorn 生产服务器（Linux 容器）
+RUN pip install --no-cache-dir gunicorn
+
 # 非 root 用户运行（安全加固）
 RUN useradd --create-home appuser && chown -R appuser:appuser /app
 USER appuser
 
-# 默认启动 Web 面板（演示模式，无需 Npcap）
-CMD ["python", "-m", "campus_ids.web.app"]
+# 默认使用 Gunicorn 生产服务器（4 worker，超时 120 秒）
+CMD ["gunicorn", "--bind", "0.0.0.0:5000", "--workers", "4", "--timeout", "120", "campus_ids.web.app:app"]
