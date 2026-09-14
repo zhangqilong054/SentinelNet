@@ -239,6 +239,7 @@ def aggregate_flow_features(packets: list[PacketInfo],
             tls_map[tls_key] = rec
 
     results: list[FlowFeatures] = []
+    label_rows: list[dict] = []  # T-23: 收集标签输入，批量化
 
     for key, pkts in flows.items():
         src_ip, dst_ip, src_port, dst_port, proto = key
@@ -282,8 +283,17 @@ def aggregate_flow_features(packets: list[PacketInfo],
         # 持续时间
         duration = (timestamps[-1] - timestamps[0]) if len(timestamps) > 1 else 0.0
 
-        # 标签（基于启发式规则）
-        label = _heuristic_label(pkts, port_entropy, syn_count, n)
+        # T-23: 收集标签输入数据，循环结束后批量计算
+        label_rows.append({
+            "pkt_count": float(n),
+            "syn_flag_ratio": syn_count / n if n > 0 else 0.0,
+            "dst_port_entropy": port_entropy,
+            "duration": duration,
+            "psh_flag_ratio": psh_count / n if n > 0 else 0.0,
+            "avg_pkt_len": avg_len,
+            "up_down_byte_ratio": 1.0,  # 流级无法精确计算，使用中性值
+            "rst_flag_ratio": rst_count / n if n > 0 else 0.0,
+        })
 
         flow = FlowFeatures(
             src_ip=src_ip, dst_ip=dst_ip, src_port=src_port, dst_port=dst_port,
@@ -301,39 +311,69 @@ def aggregate_flow_features(packets: list[PacketInfo],
             tls_version_enc=TLS_VERSION_ENCODE.get(tls_version, -1),
             cipher_suite_count=cipher_count,
             max_pkt_len=max_len, duration=duration,
-            label=label,
         )
         results.append(flow)
+
+    # T-23: 批量启发式标签——一次 vectorized_rule_predict 代替逐流调用
+    labels = _batch_heuristic_labels(label_rows)
+    for flow, label in zip(results, labels):
+        flow.label = label
 
     return results
 
 
-def _heuristic_label(pkts: list[PacketInfo], port_entropy: float,
-                     syn_count: int, pkt_count: int) -> str:
-    """基于启发式规则给流打标签。
+def _batch_heuristic_labels(flow_rows: list[dict]) -> list[str]:
+    """批量启发式标签：一次 vectorized_rule_predict 调用处理所有流。
 
-    委托给 detector.vectorized_rule_predict 统一规则判定逻辑，
-    避免阈值分散在多处导致不一致。
+    T-23: 替代逐流单行 DataFrame 的 _heuristic_label，减少重复 DataFrame 构造开销。
+
+    Args:
+        flow_rows: 每个元素为含 pkt_count/syn_flag_ratio/dst_port_entropy/
+                   duration/psh_flag_ratio/avg_pkt_len/up_down_byte_ratio/rst_flag_ratio 的字典
+
+    Returns:
+        与 flow_rows 等长的标签列表（"Attack" / "Normal"）
     """
     import pandas as pd
     from campus_ids.detector.detector import vectorized_rule_predict
 
+    if not flow_rows:
+        return []
+
+    # 空包流直接标 Normal
+    labels = ["Normal"] * len(flow_rows)
+    nonzero_indices = [i for i, r in enumerate(flow_rows) if r["pkt_count"] > 0]
+    if not nonzero_indices:
+        return labels
+
+    df = pd.DataFrame([flow_rows[i] for i in nonzero_indices])
+    is_attack = vectorized_rule_predict(df)
+    for idx, attack in zip(nonzero_indices, is_attack):
+        labels[idx] = "Attack" if bool(attack) else "Normal"
+    return labels
+
+
+def _heuristic_label(pkts: list[PacketInfo], port_entropy: float,
+                     syn_count: int, pkt_count: int) -> str:
+    """基于启发式规则给流打标签（单流版，保留向后兼容）。
+
+    委托给 detector.vectorized_rule_predict 统一规则判定逻辑，
+    避免阈值分散在多处导致不一致。
+    """
     if pkt_count == 0:
         return "Normal"
 
-    # 构造单行 DataFrame 供向量化函数使用
-    row = pd.DataFrame([{
+    row = {
         "pkt_count": float(pkt_count),
         "syn_flag_ratio": syn_count / pkt_count,
         "dst_port_entropy": port_entropy,
         "duration": (pkts[-1].timestamp - pkts[0].timestamp) if len(pkts) > 1 else 0.0,
         "psh_flag_ratio": sum(1 for p in pkts if p.is_psh) / pkt_count,
         "avg_pkt_len": sum(p.length for p in pkts) / pkt_count,
-        "up_down_byte_ratio": 1.0,  # 流级无法精确计算，使用中性值
+        "up_down_byte_ratio": 1.0,
         "rst_flag_ratio": sum(1 for p in pkts if p.is_rst) / pkt_count,
-    }])
-    is_attack = vectorized_rule_predict(row)
-    return "Attack" if bool(is_attack[0]) else "Normal"
+    }
+    return _batch_heuristic_labels([row])[0]
 
 
 def flow_to_feature_vector(flow: FlowFeatures) -> list[float]:
@@ -385,8 +425,18 @@ def save_flows_to_csv(flows: list[FlowFeatures], path: Path | None = None) -> Pa
     return out
 
 
-def start_enhanced_capture(duration: int = 60) -> bool:
-    """增强版抓包：提取多维度流特征并保存。"""
+def run_enhanced_capture(duration: int, stop_filter=None) -> tuple[int, int] | None:
+    """公共增强抓包逻辑：提取多维度流特征 + TLS 分析，保存 CSV。
+
+    T-22: 合并阻塞版与线程版的公共逻辑，消除重复。
+
+    Args:
+        duration: 抓包时长（秒）
+        stop_filter: 可选 scapy stop_filter 回调，返回 True 时提前终止
+
+    Returns:
+        (packet_count, flow_count) 成功时，None 失败时
+    """
     from scapy.all import sniff
     from campus_ids.capture.tls_analyzer import tls_analyzer
 
@@ -402,10 +452,10 @@ def start_enhanced_capture(duration: int = 60) -> bool:
             tls_analyzer.parse_tls_from_packet(pkt)
 
     try:
-        sniff(prn=_on_pkt, store=False, timeout=duration)
+        sniff(prn=_on_pkt, store=False, timeout=duration, stop_filter=stop_filter)
     except RuntimeError as exc:
         logger.error("抓包失败: %s", exc)
-        return False
+        return None
 
     # 获取 TLS 记录
     all_tls = [
@@ -419,7 +469,16 @@ def start_enhanced_capture(duration: int = 60) -> bool:
     save_flows_to_csv(flows)
 
     logger.info("增强抓包完成：捕获 %d 个包，聚合为 %d 条流", len(packets_info), len(flows))
-    return True
+    return len(packets_info), len(flows)
+
+
+def start_enhanced_capture(duration: int = 60) -> bool:
+    """增强版抓包（阻塞）：提取多维度流特征并保存。
+
+    T-22: 委托给 run_enhanced_capture，仅做 bool 转换。
+    """
+    result = run_enhanced_capture(duration)
+    return result is not None
 
 
 def label_packets(rows: list[list]) -> list[list]:

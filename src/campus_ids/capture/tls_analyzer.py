@@ -82,8 +82,6 @@ class TLSAnalyzer:
         self.known_malicious = known_malicious or KNOWN_MALICIOUS_JA3
         # 统计 JA3 指纹出现频次
         self._ja3_counter: Counter[str] = Counter()
-        # 记录每个 JA3 对应的 SNI 列表
-        self._ja3_sni_map: defaultdict[str, set[str]] = defaultdict(set)
         # 所有观测到的 TLS 信息（有界，防止内存泄漏）
         self._tls_records: deque[TLSInfo] = deque(maxlen=TLS_RECORD_MAX)
         # TLS 版本分布
@@ -236,8 +234,6 @@ class TLSAnalyzer:
 
             # 更新统计
             self._ja3_counter[ja3_hash] += 1
-            if sni:
-                self._ja3_sni_map[ja3_hash].add(sni)
             self._tls_version_counter[tls_info.tls_version] += 1
             self._tls_records.append(tls_info)
 
@@ -330,7 +326,6 @@ class TLSAnalyzer:
     def reset(self) -> None:
         """重置所有统计数据。"""
         self._ja3_counter.clear()
-        self._ja3_sni_map.clear()
         self._tls_records.clear()
         self._tls_version_counter.clear()
 

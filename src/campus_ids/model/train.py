@@ -35,21 +35,18 @@ from campus_ids.config import (
     TRAFFIC_CSV,
 )
 
-# 从子模块重导出，保持向后兼容
-from campus_ids.model.data_loader import (  # noqa: F401
+# T-27: 直接从子模块导入（移除纯重导出 load_cicids2017 / load_nsl_kdd / _detect_csv_format）
+from campus_ids.model.data_loader import (
     ENHANCED_FEATURE_COLUMNS,
     LEGACY_FEATURE_COLUMNS,
     MIN_TRAIN_SAMPLES,
-    _detect_csv_format,
     _load_local_data,
     _synthetic_data,
     balance_classes,
-    load_cicids2017,
     load_dataset,
-    load_nsl_kdd,
     split_and_save_dataset,
 )
-from campus_ids.model.evaluation import (  # noqa: F401
+from campus_ids.model.evaluation import (
     _benchmark_detection_latency,
     _evaluate_dual_fusion,
     _evaluate_rule_baseline,
@@ -348,8 +345,11 @@ def save_run(
     feature_columns: list | None = None,
     params: dict | None = None,
     confusion_matrix_path: Path | None = None,
+    is_best: bool = False,
 ) -> tuple[str, Path]:
     """将训练产物保存到版本化 run 目录。
+
+    T-24: 新增 is_best 参数，一次性写入 registry.json 的 is_best 标记。
 
     Returns:
         (run_id, run_dir) 元组
@@ -411,8 +411,8 @@ def save_run(
     }
     _atomic_write_json(LATEST_JSON, latest_data)
 
-    # 8. 更新 registry.json
-    _update_registry(run_id, run_dir, metadata, metrics)
+    # 8. 更新 registry.json（T-24: is_best 标记一次性写入）
+    _update_registry(run_id, run_dir, metadata, metrics, is_best=is_best)
 
     # 9. 同时保存到传统 model.pkl（向后兼容）
     save_model(clf, scaler, label_encoder, feature_columns=feat_cols)
@@ -421,8 +421,42 @@ def save_run(
     return run_id, run_dir
 
 
-def _update_registry(run_id: str, run_dir: Path, metadata: dict, metrics: dict | None) -> None:
-    """更新 registry.json，追加新 run 记录。"""
+def _check_is_best(metrics: dict, key: str = "f1_score") -> bool:
+    """检查新指标是否优于当前 best.json 中的记录。
+
+    T-24: 抽取判断逻辑，供 save_run 在写 registry.json 时一次性设置 is_best。
+    """
+    import json
+    new_score = metrics.get(key, 0.0)
+    if isinstance(new_score, dict):
+        new_score = 0.0
+
+    if not BEST_JSON.exists():
+        return True  # 首次训练即为最佳
+
+    try:
+        current_best = json.loads(BEST_JSON.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError):
+        return True
+
+    current_score = 0.0
+    if current_best and "metrics" in current_best:
+        current_score = current_best["metrics"].get(key, 0.0)
+        if isinstance(current_score, dict):
+            current_score = 0.0
+
+    return new_score > current_score
+
+
+def _update_registry(run_id: str, run_dir: Path, metadata: dict,
+                     metrics: dict | None, is_best: bool = False) -> None:
+    """更新 registry.json，追加新 run 记录。
+
+    T-24: 合并 is_best 标记更新，避免对 registry.json 二次读改写。
+
+    Args:
+        is_best: 若为 True，清除所有既有 is_best 标记并将本 run 标为最佳
+    """
     import json
     registry: list[dict] = []
     if REGISTRY_JSON.exists():
@@ -431,13 +465,18 @@ def _update_registry(run_id: str, run_dir: Path, metadata: dict, metrics: dict |
         except (json.JSONDecodeError, OSError):
             registry = []
 
+    # T-24: 若本 run 为最佳，清除既有 is_best 标记
+    if is_best:
+        for entry in registry:
+            entry["is_best"] = False
+
     entry = {
         "run_id": run_id,
         "run_dir": str(run_dir),
         "created_at": metadata.get("created_at", ""),
         "model_type": metadata.get("model_type", ""),
         "n_features": metadata.get("n_features", 0),
-        "is_best": False,
+        "is_best": is_best,
     }
     if metrics:
         entry["metrics"] = {
@@ -451,11 +490,14 @@ def _update_registry(run_id: str, run_dir: Path, metadata: dict, metrics: dict |
 def update_best(run_id: str, run_dir: Path, metrics: dict, key: str = "f1_score") -> bool:
     """检查新 run 是否为最佳模型，若是则更新 best.json。
 
+    T-24: 不再操作 registry.json（is_best 标记已由 _update_registry 统一处理），
+          仅更新 best.json 并返回 is_best 标志供调用方传入 _update_registry。
+
     Args:
         key: 用于比较的指标键，默认 f1_score
 
     Returns:
-        True 表示更新了 best（新模型更优）
+        True 表示新模型更优（is_best）
     """
     import json
     new_score = metrics.get(key, 0.0)
@@ -487,18 +529,6 @@ def update_best(run_id: str, run_dir: Path, metrics: dict, key: str = "f1_score"
             },
         }
         _atomic_write_json(BEST_JSON, best_data)
-
-        # 更新 registry 中 is_best 标记
-        if REGISTRY_JSON.exists():
-            try:
-                registry = json.loads(REGISTRY_JSON.read_text(encoding="utf-8"))
-                for entry in registry:
-                    entry["is_best"] = (entry.get("run_id") == run_id)
-                _atomic_write_json(REGISTRY_JSON, registry)
-            except (json.JSONDecodeError, OSError):
-                pass
-
-        logger.info("新最佳模型: %s (%s=%.4f)", run_id, key, new_score)
 
     return is_best
 
@@ -793,12 +823,16 @@ def train(dataset_path: Path | None = None,
     _save_confusion_matrix(rf_y_test, rf_y_pred, rf_le.classes_, CONFUSION_MATRIX_PATH)
     actual_feature_cols = list(X_bal.columns)
     # 模型注册表：版本化保存 + best 指针更新
+    # T-24: 先判断 is_best，一次性写入 registry.json，避免二次读改写
+    is_best = _check_is_best(rf_metrics)
     run_id, run_dir = save_run(
         rf_clf, rf_scaler, rf_le,
         metrics=rf_metrics, feature_columns=actual_feature_cols,
         confusion_matrix_path=CONFUSION_MATRIX_PATH,
+        is_best=is_best,
     )
-    update_best(run_id, run_dir, rf_metrics)
+    if is_best:
+        update_best(run_id, run_dir, rf_metrics)
     pbar.set_description_str("✓ 随机森林完成")
     pbar.update(1)
 

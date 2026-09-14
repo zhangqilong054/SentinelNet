@@ -45,6 +45,15 @@ def _int_param(name: str, default: int, *, min_val: int = 0, max_val: int | None
         val = min(val, max_val)
     return val
 
+
+def _clamp_duration(data: dict, default: int = 30, lo: int = 5, hi: int = 300) -> int:
+    """从请求体解析 duration 并钳制到 [lo, hi] 范围。"""
+    try:
+        val = int(data.get('duration', default))
+    except (ValueError, TypeError):
+        val = default
+    return max(lo, min(hi, val))
+
 # ── M6: Flasgger Swagger 文档 ────────────────────────────────────────
 try:
     from flasgger import Swagger
@@ -496,11 +505,7 @@ def api_capture_start_enhanced():
         description: 增强抓包已在运行
     """
     data = request.get_json() or {}
-    duration = int(data.get('duration', 60))
-    if duration < 10:
-        duration = 10
-    if duration > 600:
-        duration = 600
+    duration = _clamp_duration(data, default=60, lo=10, hi=600)
     ok = start_enhanced_capture_thread(duration)
     if not ok:
         return jsonify({'status': 'failed', 'message': '增强抓包已在运行中'}), 409
@@ -827,7 +832,6 @@ def _start_attack_sim(attack_type: str, duration: int) -> tuple | None:
         tuple: (error_response, status_code) 如果启动失败
         None: 如果启动成功
     """
-    duration = max(5, min(300, duration))
     valid_types = ('syn_flood', 'port_scan', 'udp_flood', 'brute_force', 'lateral', 'all')
     if attack_type not in valid_types:
         return ({'status': 'failed', 'message': f'无效攻击类型，可选: {valid_types}'}), 400
@@ -889,12 +893,12 @@ def api_attack_start():
     """
     data = request.get_json() or {}
     attack_type = data.get('type', 'all')
-    duration = int(data.get('duration', 30))
+    duration = _clamp_duration(data, default=30, lo=5, hi=300)
 
     err = _start_attack_sim(attack_type, duration)
     if err:
         return jsonify(err[0]), err[1]
-    return jsonify({'status': 'success', 'type': attack_type, 'duration': max(5, min(300, duration))})
+    return jsonify({'status': 'success', 'type': attack_type, 'duration': duration})
 
 
 @app.route("/api/attack/stop", methods=['POST'])
@@ -959,7 +963,7 @@ def api_model_list():
           properties:
             runs: {type: array, description: 模型版本列表}
             count: {type: integer}
-            source: {type: string, description: 数据来源(database/registry_json)}
+            source: {type: string, description: 数据来源(registry_json)}
     """
     try:
         if REGISTRY_JSON.exists():
@@ -1087,11 +1091,7 @@ def api_auto_start():
         description: 全流程已在运行
     """
     data = request.get_json() or {}
-    duration = int(data.get('duration', 30))
-    if duration < 10:
-        duration = 10
-    if duration > 300:
-        duration = 300
+    duration = _clamp_duration(data, default=30, lo=10, hi=300)
     ok = start_auto_thread(duration)
     if not ok:
         return jsonify({'status': 'failed', 'message': '全流程已在运行中'}), 409
@@ -1151,7 +1151,7 @@ def api_demo_start():
         description: 攻击模拟已在运行
     """
     data = request.get_json() or {}
-    duration = int(data.get('duration', 30))
+    duration = _clamp_duration(data, default=30, lo=5, hi=300)
 
     # 1. 启动抓包（如果未运行）
     if not _capture_running:
@@ -1170,11 +1170,10 @@ def api_demo_start():
     if err:
         return jsonify(err[0]), err[1]
 
-    clamped = max(5, min(300, duration))
-    logger.info("演示模式已启动: duration=%ds", clamped)
+    logger.info("演示模式已启动: duration=%ds", duration)
     return jsonify({
         'status': 'success',
-        'duration': clamped,
+        'duration': duration,
         'capture': True,
         'ml_loaded': dual_detector._ml_running,
         'attack': True,

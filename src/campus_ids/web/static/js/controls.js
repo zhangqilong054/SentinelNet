@@ -6,6 +6,7 @@
     'use strict';
 
     // ---------- 阈值配置 ----------
+    // T-21: 初始值为 config.py 默认值的镜像，首屏 loadConfig() 后由 /api/config 下发值覆盖
     var thresholds = {
         ddos_threshold: 500, port_scan_threshold: 50,
         syn_flood_threshold: 100, udp_flood_threshold: 200,

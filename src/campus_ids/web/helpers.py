@@ -192,14 +192,13 @@ _enhanced_capture_result: dict = {}
 
 
 def _enhanced_capture_worker(duration: int):
-    """后台增强抓包线程：提取 18 维流特征 + TLS 分析，保存 CSV。"""
+    """后台增强抓包线程：提取 18 维流特征 + TLS 分析，保存 CSV。
+
+    T-22: 委托给 run_enhanced_capture，仅包装状态跟踪与 stop_filter。
+    """
     global _enhanced_capture_running, _enhanced_capture_result
-    from scapy.all import sniff as scapy_sniff
-    from campus_ids.capture.enhanced_features import (
-        extract_packet_info, aggregate_flow_features, save_flows_to_csv,
-    )
-    from campus_ids.capture.tls_analyzer import tls_analyzer
-    from scapy.all import IP, TCP
+
+    from campus_ids.capture.enhanced_features import run_enhanced_capture
 
     logger.info("增强抓包线程启动，持续 %d 秒", duration)
     _enhanced_capture_result = {
@@ -207,47 +206,22 @@ def _enhanced_capture_worker(duration: int):
         'packets': 0, 'flows': 0, 'error': None,
     }
 
-    packets_info: list = []
     stop_time = _time.time() + duration
+    stop_filter = lambda _: not _enhanced_capture_running or _time.time() >= stop_time
 
-    def _on_pkt(pkt):
-        if not _enhanced_capture_running:
-            return
-        info = extract_packet_info(pkt)
-        if info:
-            packets_info.append(info)
-        if pkt.haslayer(IP) and pkt.haslayer(TCP):
-            tls_analyzer.parse_tls_from_packet(pkt)
+    result = run_enhanced_capture(duration, stop_filter=stop_filter)
 
-    try:
-        scapy_sniff(
-            prn=_on_pkt, store=False,
-            stop_filter=lambda _: not _enhanced_capture_running or _time.time() >= stop_time,
-            timeout=duration + 5,
-        )
-    except Exception as exc:
-        logger.error("增强抓包异常: %s", exc)
+    if result is None:
         _enhanced_capture_result = {
             'status': 'error', 'duration': duration,
-            'packets': 0, 'flows': 0, 'error': str(exc),
+            'packets': 0, 'flows': 0, 'error': '抓包失败',
         }
-        _enhanced_capture_running = False
-        return
-
-    # 聚合流特征
-    all_tls = [
-        {"src_ip": r.src_ip, "src_port": r.src_port, "ja3_hash": r.ja3_hash,
-         "tls_version": r.tls_version, "cipher_count": r.cipher_count}
-        for r in tls_analyzer.get_all_records()
-    ]
-    flows = aggregate_flow_features(packets_info, all_tls)
-    save_flows_to_csv(flows)
-
-    logger.info("增强抓包完成：捕获 %d 个包，聚合为 %d 条流", len(packets_info), len(flows))
-    _enhanced_capture_result = {
-        'status': 'completed', 'duration': duration,
-        'packets': len(packets_info), 'flows': len(flows), 'error': None,
-    }
+    else:
+        packets, flows = result
+        _enhanced_capture_result = {
+            'status': 'completed', 'duration': duration,
+            'packets': packets, 'flows': flows, 'error': None,
+        }
     _enhanced_capture_running = False
 
 

@@ -1,4 +1,4 @@
-"""features.py 单元测试 — 覆盖 label_packets 函数。"""
+"""enhanced_features.py 单元测试 — 覆盖 label_packets 函数。"""
 import pytest
 from campus_ids.capture.enhanced_features import label_packets, HIGH_FREQ_IP_THRESHOLD, PORT_SCAN_THRESHOLD
 

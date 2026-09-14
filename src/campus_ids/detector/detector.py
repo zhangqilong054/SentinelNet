@@ -40,21 +40,22 @@ _XSS_PATTERNS = [
 
 
 class AnomalyDetector:
-    def __init__(self, ddos_threshold=500, port_scan_threshold=50,
-                 syn_flood_threshold=100, udp_flood_threshold=200,
-                 brute_force_threshold=10, brute_force_window=60,
-                 lateral_movement_threshold=5):
-        self.ddos_threshold = ddos_threshold
-        self.port_scan_threshold = port_scan_threshold
-        self.syn_flood_threshold = syn_flood_threshold
-        self.udp_flood_threshold = udp_flood_threshold
+    def __init__(self, ddos_threshold=None, port_scan_threshold=None,
+                 syn_flood_threshold=None, udp_flood_threshold=None,
+                 brute_force_threshold=None, brute_force_window=None,
+                 lateral_movement_threshold=None):
+        # T-21: None 哨兵 → 取 config 常量，确保单一真值源
+        self.ddos_threshold = ddos_threshold if ddos_threshold is not None else DDOS_THRESHOLD
+        self.port_scan_threshold = port_scan_threshold if port_scan_threshold is not None else PORT_SCAN_THRESHOLD
+        self.syn_flood_threshold = syn_flood_threshold if syn_flood_threshold is not None else SYN_FLOOD_THRESHOLD
+        self.udp_flood_threshold = udp_flood_threshold if udp_flood_threshold is not None else UDP_FLOOD_THRESHOLD
 
         # P1-#9: 暴力破解检测参数
-        self.brute_force_threshold = brute_force_threshold  # 同一IP同一端口最大连接数
-        self.brute_force_window = brute_force_window  # 时间窗口（秒）
+        self.brute_force_threshold = brute_force_threshold if brute_force_threshold is not None else BRUTE_FORCE_THRESHOLD  # 同一IP同一端口最大连接数
+        self.brute_force_window = brute_force_window if brute_force_window is not None else BRUTE_FORCE_WINDOW_SEC  # 时间窗口（秒）
 
         # P1-#9: 横向移动检测参数
-        self.lateral_movement_threshold = lateral_movement_threshold  # 同一IP访问不同内网IP数阈值
+        self.lateral_movement_threshold = lateral_movement_threshold if lateral_movement_threshold is not None else LATERAL_MOVEMENT_THRESHOLD  # 同一IP访问不同内网IP数阈值
 
         # 暴力破解追踪: {(src_ip, dport): [timestamp, ...]}
         self._bf_tracker: dict[tuple[str, int], list[float]] = defaultdict(list)

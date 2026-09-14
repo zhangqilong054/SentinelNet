@@ -9,13 +9,13 @@ import pytest
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.preprocessing import StandardScaler
 
-from campus_ids.model.train import (
+from campus_ids.model.data_loader import (
     ENHANCED_FEATURE_COLUMNS,
     LEGACY_FEATURE_COLUMNS,
     _detect_csv_format,
     _load_local_data,
-    train_model,
 )
+from campus_ids.model.train import train_model
 
 
 # ── 辅助函数 ──────────────────────────────────────────────────
