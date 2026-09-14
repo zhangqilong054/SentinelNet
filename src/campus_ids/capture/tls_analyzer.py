@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import hashlib
 import logging
-from collections import Counter, defaultdict, deque
+from collections import Counter, deque
 from dataclasses import dataclass, field
 from typing import Optional
 
@@ -184,7 +184,6 @@ class TLSAnalyzer:
 
                     # SNI (extension type 0x0000)
                     if ext_type == 0x0000 and ext_data_start + 5 <= len(raw):
-                        sni_list_len = int.from_bytes(raw[ext_data_start:ext_data_start + 2], "big")
                         sni_type = raw[ext_data_start + 2]
                         if sni_type == 0 and ext_data_start + 5 <= len(raw):
                             sni_len = int.from_bytes(raw[ext_data_start + 3:ext_data_start + 5], "big")

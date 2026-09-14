@@ -211,7 +211,6 @@ def vectorized_rule_predict(X: pd.DataFrame) -> np.ndarray:
     fwd_pkt_len_mean = _get("fwd_pkt_len_mean")
     fwd_pkt_count = _get("fwd_pkt_count")
     bwd_pkt_count = _get("bwd_pkt_count")
-    flow_bytes_per_sec = _get("flow_bytes_per_sec")
     flow_pkt_per_sec = _get("flow_pkt_per_sec")
     init_win_fwd = _get("init_win_bytes_fwd")
     init_win_bwd = _get("init_win_bytes_bwd")

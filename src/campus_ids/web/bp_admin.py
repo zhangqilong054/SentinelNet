@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import importlib
-import json
 import logging
 import threading
 import time as _time
@@ -10,7 +9,6 @@ import time as _time
 from flask import Blueprint, jsonify, request
 
 from campus_ids.config import (
-    API_TOKEN, AUTH_ENABLED, MAX_ALERT_API_RETURN, REGISTRY_JSON,
     MODEL_PATH, EVALUATION_PATH, TRAFFIC_CSV, TRAFFIC_STATS_CSV,
 )
 from campus_ids.detector.detector import create_rule_detector
@@ -20,7 +18,7 @@ from campus_ids.web.helpers import (
 )
 from campus_ids.web.database import cleanup_old_data
 from campus_ids.web.sse import _sse_lock, _sse_subscribers
-from campus_ids.web.utils import _check_auth, _clamp_duration, _csrf_exempt, _int_param
+from campus_ids.web.utils import _clamp_duration, _csrf_exempt, _int_param
 
 import campus_ids.web.helpers as _helpers_module
 

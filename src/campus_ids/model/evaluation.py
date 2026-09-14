@@ -13,13 +13,12 @@ from sklearn.metrics import (
     f1_score,
     precision_score,
     recall_score,
-    roc_auc_score,
 )
 from sklearn.model_selection import cross_val_score
 from sklearn.preprocessing import LabelEncoder, StandardScaler
 from tqdm import tqdm
 
-from campus_ids.config import CONFUSION_MATRIX_PATH, EVALUATION_PATH, ML_CONF_HIGH, ML_CONF_LOW
+from campus_ids.config import EVALUATION_PATH, ML_CONF_HIGH, ML_CONF_LOW
 from campus_ids.model.data_loader import ENHANCED_FEATURE_COLUMNS, align_features
 from campus_ids.model.utils import clean_features, encode_class_weight
 
@@ -291,8 +290,6 @@ def _evaluate_dual_fusion(X: pd.DataFrame, y: pd.Series,
         else:
             ml_conf = np.where(y_ml == attack_encoded, 1.0, 0.0)
 
-        rule_conf = y_rule.astype(float)
-
         # 自适应融合：
         # - ML 高置信：信任 ML
         # - ML 不确定 + 规则触发：提升为攻击（OR 互补，提升召回）
@@ -321,8 +318,6 @@ def _evaluate_dual_fusion(X: pd.DataFrame, y: pd.Series,
         f1 = f1_score(y_true, y_fusion, average="weighted", zero_division=0)
 
         # 统计融合增益
-        ml_only_correct = np.sum(y_ml == y_true)
-        fusion_correct = np.sum(y_fusion == y_true)
         rule_assisted = int(np.sum((y_ml != y_true) & (y_fusion == y_true)))  # 规则帮助修正的数量
         rule_hurt = int(np.sum((y_ml == y_true) & (y_fusion != y_true)))       # 规则导致误判的数量
 

@@ -7,7 +7,7 @@ from pathlib import Path
 from flask import Blueprint, jsonify, request
 
 from campus_ids.web.helpers import (
-    CONFIG, _capture_running, _state_lock,
+    _capture_running, _state_lock,
     dual_detector, start_capture_thread, stop_capture_thread,
     start_enhanced_capture_thread, stop_enhanced_capture_thread,
     get_enhanced_capture_status,

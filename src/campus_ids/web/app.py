@@ -7,9 +7,9 @@ import signal as _signal
 
 from flask import Flask, render_template, jsonify, request
 
-from campus_ids.config import API_TOKEN, AUTH_ENABLED
+from campus_ids.config import AUTH_ENABLED
 from campus_ids.web.helpers import (
-    CONFIG, _capture_running, dual_detector,
+    CONFIG, dual_detector,
     stop_capture_thread,
 )
 from campus_ids.web.sse import _broadcast_sse

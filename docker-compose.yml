@@ -15,7 +15,6 @@ services:
     environment:
       - CAMPUS_IDS_DATA_DIR=/app/data
       - CAMPUS_IDS_LOG_DIR=/app/logs
-      - CAMPUS_IDS_DEMO_MODE=1
       # Gunicorn 配置
       - GUNICORN_WORKERS=4
       - GUNICORN_TIMEOUT=120

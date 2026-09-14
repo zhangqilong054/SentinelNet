@@ -9,7 +9,6 @@ import threading
 import time as _time
 from collections import deque
 from datetime import datetime
-from pathlib import Path
 
 from campus_ids.detector.detector import create_rule_detector
 from campus_ids.capture.tls_analyzer import tls_analyzer
@@ -18,9 +17,9 @@ from campus_ids.detector.dual_detector import DualDetector
 from campus_ids.config import (
     DDOS_THRESHOLD, PORT_SCAN_THRESHOLD,
     SYN_FLOOD_THRESHOLD, UDP_FLOOD_THRESHOLD, BRUTE_FORCE_THRESHOLD,
-    BRUTE_FORCE_WINDOW_SEC, LATERAL_MOVEMENT_THRESHOLD, BRUTE_FORCE_PORTS,
+    BRUTE_FORCE_WINDOW_SEC, LATERAL_MOVEMENT_THRESHOLD,
     DNS_PORT, TLS_PORTS, WINDOW_SIZE,
-    MAX_ALERT_API_RETURN, MAX_CHART_LABELS, WEB_PORT, WEB_REFRESH_INTERVAL_MS,
+    WEB_PORT, WEB_REFRESH_INTERVAL_MS,
     MODEL_PATH, TRAFFIC_STATS_CSV, ML_INTERVAL_SEC, DEMO_QPS_MIN, DEMO_QPS_MAX,
     DEMO_CONN_MIN, DEMO_CONN_MAX, DEMO_SYN_MIN, DEMO_SYN_MAX,
     DEMO_UDP_MIN, DEMO_UDP_MAX, DEMO_DNS_MIN, DEMO_DNS_MAX,
@@ -28,7 +27,7 @@ from campus_ids.config import (
 )
 from campus_ids.web.database import (
     init_db, insert_alert, insert_traffic, get_all_config,
-    bulk_set_config, cleanup_old_data,
+    bulk_set_config,
 )
 
 logger = logging.getLogger(__name__)
@@ -306,7 +305,7 @@ def _auto_worker(duration: int):
             _auto_status['step'] = 2
             _auto_status['step_name'] = '模型训练'
             _auto_status['message'] = '正在训练模型...'
-        train_result = train()
+        train()
         if not MODEL_PATH.exists():
             with _auto_lock:
                 _auto_status['running'] = False

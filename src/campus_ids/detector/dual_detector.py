@@ -18,12 +18,11 @@ import time
 from collections import deque
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Optional
 
 from campus_ids.config import (
     BRUTE_FORCE_PORTS, ML_INTERVAL_SEC, ML_FLOW_BUFFER_SIZE,
     ML_HISTORY_SIZE, MODEL_PATH as DEFAULT_MODEL_PATH,
-    ML_CONF_HIGH, ML_CONF_LOW,
+    ML_CONF_HIGH,
 )
 
 logger = logging.getLogger(__name__)

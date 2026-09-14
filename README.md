@@ -74,62 +74,50 @@ python My_task.py auto
 python My_task.py menu
 ```
 
-> 首次使用建议先运行 `check` 确认环境就绪，再运行 `auto` 完成全流程。
+> 首次使用建议先通过 Web 面板的「环境自检」确认环境就绪，再使用「一键全流程」完成全流程。
 
 ## 四、使用方法
 
-所有命令通过 `My_task.py` 入口执行：
+启动 Web 面板：
 
 ```
-python My_task.py <command> [args]
+python My_task.py app
 ```
 
-### 命令速查表
+启动后访问 http://localhost:5000，所有功能通过 Web 面板操作：
 
-| 命令 | 说明 | 示例 |
-|------|------|------|
-| `check` | 环境自检 | `python My_task.py check` |
-| `auto [秒]` | 一键全流程 | `python My_task.py auto 60` |
-| `menu` | 交互式菜单 | `python My_task.py menu` |
-| `capture [秒]` | 基础抓包（8 字段） | `python My_task.py capture 60` |
-| `ecapture [秒]` | 增强抓包（18 维特征） | `python My_task.py ecapture 60` |
-| `train` | 模型训练 | `python My_task.py train` |
-| `train --quick` | 快速训练（仅 RF+LGB） | `python My_task.py train --quick` |
-| `detect` | 入侵检测 | `python My_task.py detect` |
-| `app` | 启动 Web 面板 | `python My_task.py app` |
-| `demo` | 一键演示 | `python My_task.py demo` |
-| `attack_sim` | 攻击模拟 | `python My_task.py attack_sim all` |
+| 功能 | 面板入口 |
+|------|----------|
+| 环境自检 | 控制面板 → 环境自检 |
+| 基础抓包（8 字段） | 控制面板 → 实时抓包控制 |
+| 增强抓包（18 维特征） | 控制面板 → 增强抓包 |
+| 模型训练 | 控制面板 → 模型管理 |
+| 入侵检测 | 控制面板 → 双引擎检测 |
+| 一键全流程 | 控制面板 → 一键全流程 |
+| 一键演示 | 控制面板 → 一键演示模式 |
+| 攻击模拟 | 控制面板 → 攻击模拟控制 |
+
+> 旧版 CLI 子命令（check/auto/menu/capture/ecapture/train/detect/demo/attack_sim）已整合到 Web 面板，不再通过命令行使用。
 
 ### 1. 抓包采集流量数据
 
-基础抓包：
+通过 Web 面板操作：
 
-```
-python My_task.py capture [秒数]
-```
+- **基础抓包**：控制面板 → 实时抓包控制 → 开始抓包
+  - 默认抓包 60 秒，可指定时长
+  - 输出文件：`traffic_data.csv`，包含 8 个基础字段：`Src_IP, Dst_IP, Src_Port, Dst_Port, Protocol, Length, Timestamp, Label`
+  - `Label` 字段基于启发式规则自动打标：同一源 IP 出现次数 > 50 或访问不同目的端口数 > 20 标记为 `Attack`，否则为 `Normal`
 
-- 默认抓包 60 秒，可指定时长（如 `capture 30`）
-- 输出文件：`traffic_data.csv`，包含 8 个基础字段：`Src_IP, Dst_IP, Src_Port, Dst_Port, Protocol, Length, Timestamp, Label`
-- `Label` 字段基于启发式规则自动打标：同一源 IP 出现次数 > 50 或访问不同目的端口数 > 20 标记为 `Attack`，否则为 `Normal`
-
-增强抓包（推荐用于模型训练）：
-
-```
-python My_task.py ecapture [秒数]
-```
-
-- 在抓包同时按流聚合，输出 **18 维特征**（流级 / TCP 行为 / 端口 / 时间 / 加密流量 / 基础）并同步进行 TLS/JA3 分析
-- 输出格式与训练管线的 `ENHANCED_FEATURE_COLUMNS` 对齐
+- **增强抓包**（推荐用于模型训练）：控制面板 → 增强抓包 → 开始增强抓包
+  - 在抓包同时按流聚合，输出 **18 维特征**（流级 / TCP 行为 / 端口 / 时间 / 加密流量 / 基础）并同步进行 TLS/JA3 分析
+  - 输出格式与训练管线的 `ENHANCED_FEATURE_COLUMNS` 对齐
 
 ### 2. 训练检测模型
 
-```
-python My_task.py train [--dataset NAME] [--quick]
-```
+通过 Web 面板操作：控制面板 → 模型管理 → 训练模型
 
 - 默认读取本地 `traffic_data.csv`；样本不足 100 条时自动回退到合成数据并给出明显警告（合成模型无实际检测能力）
-- 可指定数据源：`python My_task.py train --dataset cicids2017|nsl_kdd|synthetic`，也可直接传数据集文件路径
-- `--quick` 快速模式：仅训练 RF+LGB，跳过 CV/融合/跨数据集评估，CICIDS2017 DDoS 约 3 秒完成
+- 可选数据源：`auto`（自动选择）、`local`（本地 CSV）、`cicids2017`、`nsl_kdd`
 - 支持算法对比：随机森林 / XGBoost / LightGBM / MLP 神经网络 / 逻辑回归 / 规则基线，含 3 折交叉验证与 ROC-AUC
 - 类别均衡处理（SMOTE 过采样 / class_weight / undersample 三种策略）
 - **严格防泄漏**：先 80/20 分层划分训练/测试集，类别均衡仅在训练集上执行，所有模型统一使用 held-out 测试集评估
@@ -137,18 +125,9 @@ python My_task.py train [--dataset NAME] [--quick]
 - 训练完成后模型保存为 `model.pkl`，评估报告保存为 `evaluation_report.txt`
 - 自动生成 `train_data.csv` / `test_data.csv`（真实数据集时）
 
-**训练模式对比**：
-
-| 模式 | 训练模型 | 典型耗时（CICIDS2017 DDoS） |
-|------|----------|---------------------------|
-| 完整模式（默认） | RF + LR + XGB + LGB + MLP | ~4 分钟 |
-| 快速模式（`--quick`） | RF + LGB | ~3 秒 |
-
 ### 3. 入侵检测
 
-```
-python My_task.py detect
-```
+通过 Web 面板操作：控制面板 → 双引擎检测
 
 - 优先加载 `model.pkl` 对 `traffic_data.csv` 做预测并输出统计
 - 若无可用模型，回退到规则检测演示（AnomalyDetector）
@@ -171,21 +150,32 @@ python My_task.py app
 
 ### 5. 攻击模拟与演示
 
+通过 Web 面板操作：
+
+- **攻击模拟**：控制面板 → 攻击模拟控制
+  - 支持 SYN Flood、端口扫描、UDP Flood、暴力破解、横向移动、全类型攻击
+  - 可指定持续时长
+
+- **一键演示**：控制面板 → 一键演示模式
+  - 自动启动抓包并触发模拟攻击
+
+也可通过命令行直接运行攻击模拟脚本：
+
 ```bash
 # SYN Flood 模拟
-python -m campus_ids.demo.attack_sim syn_flood --count 500
+python -m campus_ids.demo.attack_sim syn_flood --duration 30
 
 # 端口扫描模拟
-python -m campus_ids.demo.attack_sim port_scan --count 200
+python -m campus_ids.demo.attack_sim port_scan --duration 30
 
 # UDP Flood 模拟
-python -m campus_ids.demo.attack_sim udp_flood --count 1000
+python -m campus_ids.demo.attack_sim udp_flood --duration 30
 
 # 暴力破解模拟
-python -m campus_ids.demo.attack_sim brute_force --count 50
+python -m campus_ids.demo.attack_sim brute_force --duration 30
 
 # 横向移动模拟
-python -m campus_ids.demo.attack_sim lateral --count 30
+python -m campus_ids.demo.attack_sim lateral --duration 30
 
 # 全类型攻击模拟（30 秒）
 python -m campus_ids.demo.attack_sim all --duration 30
@@ -194,72 +184,13 @@ python -m campus_ids.demo.attack_sim all --duration 30
 python -m campus_ids.demo.attack_sim generate_pcap --output demo_attacks.pcap
 ```
 
-一键演示（自动启动 Web 面板并触发模拟攻击）：
-
-```bash
-python My_task.py demo --duration 60          # 60 秒全流程演示
-python My_task.py demo --no-browser           # 不自动打开浏览器
-python My_task.py demo --no-attack            # 只启动面板，不模拟攻击
-```
-
-### 6. 简化操作
-
-为降低使用门槛，提供三个简化命令，无需记忆子命令即可完成核心操作：
-
-#### 环境自检
-
-一键检查运行环境是否就绪：
-
-```bash
-python My_task.py check
-```
-
-检查项包括：
-- Python 版本（需 ≥3.10）
-- 必需依赖包（scapy / flask / scikit-learn / joblib / pandas / numpy）
-- 可选依赖包（xgboost / lightgbm — 缺失不影响基本功能）
-- Npcap/libpcap 抓包权限
-- 模型文件（model.pkl / evaluation_report.txt）
-- 数据文件（traffic_data.csv / traffic_stats.csv）
-
-#### 一键全流程
-
-自动执行「增强抓包 → 模型训练 → 入侵检测 → 启动 Web 面板」完整流水线：
-
-```bash
-python My_task.py auto           # 默认抓包 30 秒
-python My_task.py auto 60        # 指定抓包 60 秒
-```
-
-- 每步显示进度提示，出错时自动回退（如抓包失败则尝试使用已有数据）
-- 适合首次使用或快速验证全流程
-
-#### 交互式菜单
-
-数字选择操作，无需记忆命令参数：
-
-```bash
-python My_task.py menu
-```
-
-菜单选项：
-
-```
-  1. 环境自检          6. 启动 Web 面板 (app)
-  2. 基础抓包 (capture)  7. 一键演示 (demo)
-  3. 增强抓包 (ecapture) 8. 一键全流程 (auto)
-  4. 模型训练 (train)    9. 退出
-  5. 入侵检测 (detect)
-```
-
-- 选择后交互输入参数（如抓包时长、数据集名称），回车使用默认值
-- 操作完成后自动返回菜单
+> 注：攻击模拟脚本使用 `--duration` 参数（秒），不支持 `--count` 参数。
 
 ## 五、项目结构
 
 ```
 Task-main/
-├── My_task.py                     # CLI 入口（capture/ecapture/train/detect/app/demo/attack_sim/auto/menu/check）
+├── My_task.py                     # CLI 入口（仅 app 命令，所有功能通过 Web 面板操作）
 ├── pyproject.toml                 # 包声明（src layout）
 ├── requirements.txt               # 依赖清单
 ├── Dockerfile                     # Docker 容器构建
@@ -294,9 +225,17 @@ Task-main/
     ├── demo/
     │   ├── attack_sim.py          # 攻击模拟脚本
     │   └── run_demo.py            # 一键演示流程
-    └── web/
-        ├── app.py                 # Flask 路由与 API 端点
-        ├── helpers.py             # 全局状态、抓包线程、流量更新与保存
+    │   └── web/
+│       ├── app.py                 # Flask 应用入口 + 蓝图注册
+│       ├── bp_admin.py            # 配置/攻击模拟/健康检查蓝图
+│       ├── bp_capture.py          # 抓包/TLS/双引擎/载荷检测蓝图
+│       ├── bp_model.py            # 模型训练/全流程/演示蓝图
+│       ├── bp_monitor.py          # 流量监控/告警/SSE 推送蓝图
+│       ├── sse.py                 # SSE 实时推送基础设施
+│       ├── utils.py               # Web 层共享工具函数
+│       ├── auth.py                # Flask-Login 认证
+│       ├── database.py            # SQLite 用户数据库
+│       ├── helpers.py             # 全局状态、抓包线程、流量更新与保存
         ├── templates/
         │   └── index.html         # 仪表盘 Jinja 模板（6 页签）
         └── static/
@@ -416,7 +355,7 @@ docker compose up --build
 # 访问面板：http://localhost:5000
 ```
 
-关键环境变量：`CAMPUS_IDS_DEMO_MODE=1`（Docker 中必须启用）、`CAMPUS_IDS_AUTH_ENABLED`、`CAMPUS_IDS_API_TOKEN`、`CAMPUS_IDS_WEB_PORT`。
+关键环境变量：`CAMPUS_IDS_AUTH_ENABLED`、`CAMPUS_IDS_API_TOKEN`、`CAMPUS_IDS_WEB_PORT`。
 
 数据持久化：`model-data`（模型文件）、`log-data`（日志文件）。
 
@@ -431,7 +370,7 @@ docker compose up --build
 | Web 面板 | 端口 / 刷新间隔 | `CAMPUS_IDS_WEB_PORT` / `CAMPUS_IDS_REFRESH_MS` |
 | 检测阈值 | DDoS / 端口扫描 / SYN 洪水 / UDP 洪水 | `CAMPUS_IDS_DDoS_THRESHOLD` 等 |
 | ML 检测 | 检测间隔 / 缓冲区大小 | `CAMPUS_IDS_ML_INTERVAL` |
-| 其他 | 模拟模式 / API 认证 | `CAMPUS_IDS_DEMO_MODE` / `CAMPUS_IDS_AUTH_ENABLED` |
+| 其他 | API 认证 | `CAMPUS_IDS_AUTH_ENABLED` / `CAMPUS_IDS_API_TOKEN` |
 
 > 完整配置参数说明详见 [操作手册 §6](docs/操作手册.md)。
 

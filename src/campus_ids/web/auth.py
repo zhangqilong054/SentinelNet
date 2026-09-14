@@ -9,13 +9,12 @@ import hashlib
 import logging
 import os
 
-from flask import Blueprint, render_template, request, redirect, url_for, flash, session
+from flask import Blueprint, render_template, request, redirect, url_for, flash
 from flask_login import LoginManager, UserMixin, login_user, logout_user, login_required, current_user
 
 from campus_ids.web.database import (
     get_user_by_username,
     get_user_by_id,
-    create_user,
     ensure_default_user,
 )
 

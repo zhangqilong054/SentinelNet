@@ -9,7 +9,7 @@ import pandas as pd
 from sklearn.utils.class_weight import compute_class_weight
 
 from campus_ids.capture.enhanced_features import FEATURE_NAMES
-from campus_ids.config import MIN_TRAIN_SAMPLES, TRAFFIC_CSV, DATA_DIR
+from campus_ids.config import TRAFFIC_CSV, DATA_DIR
 
 logger = logging.getLogger(__name__)
 

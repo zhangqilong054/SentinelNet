@@ -42,11 +42,11 @@ ENV FLASK_APP=campus_ids.web.app
 ENV PYTHONUNBUFFERED=1
 ENV CAMPUS_IDS_DATA_DIR=/app/data
 ENV CAMPUS_IDS_LOG_DIR=/app/logs
-ENV CAMPUS_IDS_DEMO_MODE=1
+
 
 # 健康检查
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s \
-    CMD python -c "import urllib.request; urllib.request.urlopen('http://localhost:5000/api/traffic')" || exit 1
+    CMD python -c "import urllib.request; urllib.request.urlopen('http://localhost:5000/api/health')" || exit 1
 
 # Gunicorn 生产服务器（Linux 容器）
 RUN pip install --no-cache-dir gunicorn
@@ -55,5 +55,5 @@ RUN pip install --no-cache-dir gunicorn
 RUN useradd --create-home appuser && chown -R appuser:appuser /app
 USER appuser
 
-# 默认使用 Gunicorn 生产服务器（4 worker，超时 120 秒）
-CMD ["gunicorn", "--bind", "0.0.0.0:5000", "--workers", "4", "--timeout", "120", "campus_ids.web.app:app"]
+# 默认使用 Gunicorn 生产服务器（可通过环境变量配置 workers 和 timeout）
+CMD ["sh", "-c", "gunicorn --bind 0.0.0.0:5000 --workers ${GUNICORN_WORKERS:-4} --timeout ${GUNICORN_TIMEOUT:-120} campus_ids.web.app:app"]

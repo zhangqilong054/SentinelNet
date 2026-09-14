@@ -28,8 +28,8 @@ from campus_ids.config import (
     CONFUSION_MATRIX_PATH,
     DATA_DIR,
     LATEST_JSON,
+    MIN_TRAIN_SAMPLES,
     MODEL_PATH,
-    MODELS_DIR,
     REGISTRY_JSON,
     RUNS_DIR,
     TRAFFIC_CSV,
@@ -39,7 +39,6 @@ from campus_ids.config import (
 from campus_ids.model.data_loader import (
     ENHANCED_FEATURE_COLUMNS,
     LEGACY_FEATURE_COLUMNS,
-    MIN_TRAIN_SAMPLES,
     _load_local_data,
     _synthetic_data,
     balance_classes,

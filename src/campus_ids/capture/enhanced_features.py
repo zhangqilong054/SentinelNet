@@ -10,11 +10,10 @@ P0-12: 加密流量特征（JA3 哈希、TLS 版本、加密套件数量）
 from __future__ import annotations
 
 import csv
-import hashlib
 import logging
 import math
 from collections import defaultdict
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional
 
@@ -437,7 +436,7 @@ def run_enhanced_capture(duration: int, stop_filter=None) -> tuple[int, int] | N
     Returns:
         (packet_count, flow_count) 成功时，None 失败时
     """
-    from scapy.all import sniff
+    from scapy.all import sniff, IP, TCP
     from campus_ids.capture.tls_analyzer import tls_analyzer
 
     logger.info("开始增强抓包，持续 %s 秒...", duration)
