@@ -12,6 +12,7 @@ from campus_ids.web.helpers import (
     dual_detector, start_capture_thread, stop_capture_thread,
     start_enhanced_capture_thread, stop_enhanced_capture_thread,
     get_enhanced_capture_status,
+    start_detector_tick, stop_detector_tick,
 )
 from campus_ids.web.database import count_alerts, get_alert_type_distribution
 from campus_ids.web.utils import _int_param, _clamp_duration, _csrf_exempt
@@ -69,6 +70,68 @@ def api_capture_status():
     """
     with _state_lock:
         running = _helpers._capture_running
+    return jsonify({'running': running})
+
+
+# ── 检测节拍控制 ──────────────────────────────────────────────────────
+
+@bp_capture.route("/api/detector/start", methods=['POST'])
+@_csrf_exempt
+@write_limit
+def api_detector_start():
+    """启动检测节拍
+    ---
+    tags: [检测节拍]
+    responses:
+      200:
+        description: 检测节拍已启动
+        schema:
+          type: object
+          properties:
+            status: {type: string}
+            running: {type: boolean}
+    """
+    ok = start_detector_tick()
+    if not ok:
+        return jsonify({'status': 'already_running', 'running': True})
+    return jsonify({'status': 'success', 'running': True})
+
+
+@bp_capture.route("/api/detector/stop", methods=['POST'])
+@_csrf_exempt
+@write_limit
+def api_detector_stop():
+    """停止检测节拍
+    ---
+    tags: [检测节拍]
+    responses:
+      200:
+        description: 检测节拍已停止
+        schema:
+          type: object
+          properties:
+            status: {type: string}
+            running: {type: boolean}
+    """
+    stop_detector_tick()
+    return jsonify({'status': 'success', 'running': False})
+
+
+@bp_capture.route("/api/detector/status")
+def api_detector_status():
+    """查询检测节拍状态
+    ---
+    tags: [检测节拍]
+    responses:
+      200:
+        description: 检测节拍状态
+        schema:
+          type: object
+          properties:
+            running: {type: boolean}
+    """
+    with _state_lock:
+        running = _helpers._detector_tick_running
     return jsonify({'running': running})
 
 

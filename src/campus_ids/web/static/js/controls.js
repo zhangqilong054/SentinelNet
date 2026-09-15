@@ -391,6 +391,25 @@
         });
     });
 
+    // ---------- 检测节拍控制 ----------
+    SN.$('btnStartDetector').addEventListener('click', function () {
+        actionOnce(SN.$('btnStartDetector'), async function () {
+            await SN.apiPost('/api/detector/start');
+            var s = SN.$('detectorStatus');
+            s.textContent = '🟢 检测运行中';
+            s.style.color = 'var(--safe)';
+        });
+    });
+
+    SN.$('btnStopDetector').addEventListener('click', function () {
+        actionOnce(SN.$('btnStopDetector'), async function () {
+            await SN.apiPost('/api/detector/stop');
+            var s = SN.$('detectorStatus');
+            s.textContent = '⏹ 已停止';
+            s.style.color = 'var(--text-dim)';
+        });
+    });
+
     // ---------- ML 模型控制 ----------
     SN.$('btnLoadML').addEventListener('click', function () {
         actionOnce(SN.$('btnLoadML'), async function () {

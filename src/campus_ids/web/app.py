@@ -37,6 +37,7 @@ try:
             {"name": "配置", "description": "系统配置管理"},
             {"name": "数据管理", "description": "数据集与特征管理"},
             {"name": "抓包控制", "description": "网络抓包启停与状态"},
+            {"name": "检测节拍", "description": "入侵检测节拍启停与状态"},
             {"name": "TLS分析", "description": "TLS 加密流量分析"},
             {"name": "双引擎检测", "description": "规则引擎 + ML 双引擎检测"},
             {"name": "载荷检测", "description": "恶意载荷深度检测"},
@@ -76,7 +77,9 @@ except ImportError:
     _limiter = None
     logger.warning("flask-limiter 未安装，速率限制未启用")
 
-# Flask-WTF: CSRF 保护
+# Flask-WTF: CSRF 保护（需要 SECRET_KEY）
+_app_secret = os.environ.get("CAMPUS_IDS_SECRET_KEY", "sentinelnet-dev-secret-key-change-in-prod")
+app.secret_key = _app_secret
 try:
     from flask_wtf.csrf import CSRFProtect
     _csrf = CSRFProtect(app)
@@ -209,8 +212,7 @@ def run_app():
     logger.info("访问地址: http://localhost:%s", port)
     logger.info("刷新间隔: %sms", CONFIG['refresh_interval'])
 
-    # O-07: 启动检测节拍守护线程
-    start_detector_tick()
+    # O-07: 检测节拍守护线程不再自动启动，由 Web 面板手动控制
 
     # 生产模式：Waitress（Windows 原生支持，无需 WSL）
     if os.environ.get('CAMPUS_IDS_DEV_MODE', '0') != '1':
