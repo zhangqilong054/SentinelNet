@@ -62,8 +62,28 @@
     };
 
     // ---------- API 封装 + 拦截器 ----------
+    // O-08: 统一注入 Bearer 头（token 由登录/配置页写入 localStorage）
+    function _authHeaders() {
+        var token = localStorage.getItem('api_token');
+        var h = {};
+        if (token) h['Authorization'] = 'Bearer ' + token;
+        return h;
+    }
+
+    // O-09: 会话模式下注入 CSRF token（从 meta 标签读取）
+    function _csrfHeaders() {
+        var csrfMeta = document.querySelector('meta[name="csrf-token"]');
+        var h = {};
+        if (csrfMeta) h['X-CSRFToken'] = csrfMeta.getAttribute('content');
+        return h;
+    }
+
+    function _allHeaders() {
+        return Object.assign(_csrfHeaders(), _authHeaders());
+    }
+
     SN.apiGet = async function (path) {
-        var r = await fetch(path);
+        var r = await fetch(path, { headers: _allHeaders() });
         if (r.status === 401) {
             SN.showToast('登录已过期，请重新登录', 'warning');
             setTimeout(function () { window.location.href = '/login'; }, 1500);
@@ -84,7 +104,7 @@
     SN.apiPost = async function (path, body) {
         var r = await fetch(path, {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
+            headers: Object.assign({ 'Content-Type': 'application/json' }, _allHeaders()),
             body: body === undefined ? undefined : JSON.stringify(body),
         });
         if (r.status === 401) {

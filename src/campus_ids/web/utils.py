@@ -11,7 +11,19 @@ _csrf = None
 
 
 def _csrf_exempt(view_func):
-    """CSRF 豁免装饰器 — 对 SSE 和 API 端点禁用 CSRF 检查。"""
+    """CSRF 豁免装饰器 — Bearer 模式下豁免，会话模式下不豁免。
+
+    O-09: 会话模式（_LOGIN_ENABLED）下恢复 CSRF 实效，
+    Bearer 模式（AUTH_ENABLED）维持豁免（token 已提供认证）。
+    SSE/健康检查等端点始终豁免（通过 _csrf_always_exempt）。
+    """
+    if _csrf is not None and AUTH_ENABLED:
+        return _csrf.exempt(view_func)
+    return view_func
+
+
+def _csrf_always_exempt(view_func):
+    """CSRF 始终豁免装饰器 — 用于 SSE、健康检查等端点。"""
     if _csrf is not None:
         return _csrf.exempt(view_func)
     return view_func

@@ -14,6 +14,7 @@ from campus_ids.web.helpers import (
     start_auto_thread, get_auto_status,
 )
 from campus_ids.web.utils import _clamp_duration, _csrf_exempt
+from campus_ids.web.limiter import write_limit
 from campus_ids.web.attack_sim_state import start_attack_sim
 
 logger = logging.getLogger(__name__)
@@ -56,6 +57,7 @@ def api_model_list():
 
 @bp_model.route("/api/model/train", methods=['POST'])
 @_csrf_exempt
+@write_limit
 def api_model_train():
     """异步启动模型训练
     ---
@@ -145,6 +147,7 @@ def api_model_train_status():
 
 @bp_model.route("/api/auto/start", methods=['POST'])
 @_csrf_exempt
+@write_limit
 def api_auto_start():
     """一键全流程：增强抓包 → 训练 → ML 加载
     ---
@@ -202,6 +205,7 @@ def api_auto_status():
 
 @bp_model.route("/api/demo/start", methods=['POST'])
 @_csrf_exempt
+@write_limit
 def api_demo_start():
     """一键演示模式：启动抓包 + 攻击模拟 + ML模型加载
     ---

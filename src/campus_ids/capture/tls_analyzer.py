@@ -16,6 +16,17 @@ from campus_ids.config import TLS_RECORD_MAX
 
 logger = logging.getLogger(__name__)
 
+# ── GREASE 保留值（RFC 8701）── 用于兼容性测试，不应参与 JA3 指纹计算 ──
+GREASE_VALUES: set[int] = {
+    0x0a0a, 0x1a1a, 0x2a2a, 0x3a3a, 0x4a4a, 0x5a5a, 0x6a6a, 0x7a7a,
+    0x8a8a, 0x9a9a, 0xaaaa, 0xbaba, 0xcaca, 0xdada, 0xeaea, 0xfafa,
+}
+
+
+def _filter_grease(values: list[int]) -> list[int]:
+    """过滤 GREASE 保留值，返回净化的列表。"""
+    return [v for v in values if v not in GREASE_VALUES]
+
 # ── 已知良性 JA3 指纹库（常见浏览器 / 工具） ──────────────────────────
 # 来源：ja3er.com 等公开库中高频出现的指纹
 # 已知良性 JA3 指纹（原始字符串，启动时转为 MD5 哈希集合）
@@ -79,7 +90,15 @@ class TLSInfo:
 
 
 class TLSAnalyzer:
-    """TLS 加密流量分析器：提取 JA3 指纹并进行异常检测。"""
+    """TLS 加密流量分析器：提取 JA3 指纹并进行异常检测。
+
+    O-13: 良性库采用"学习期白名单"机制——未知指纹首见时标记为"待观察"，
+    观测次数达到 _LEARN_THRESHOLD 后自动纳入良性库，不再标记为可疑。
+    硬编码库仅作初始种子。
+    """
+
+    # 未知指纹被观察多少次后纳入良性库
+    _LEARN_THRESHOLD: int = 3
 
     def __init__(self, known_benign: set[str] | None = None,
                  known_malicious: set[str] | None = None):
@@ -91,6 +110,8 @@ class TLSAnalyzer:
         self._tls_records: deque[TLSInfo] = deque(maxlen=TLS_RECORD_MAX)
         # TLS 版本分布
         self._tls_version_counter: Counter[str] = Counter()
+        # 学习期频次基线：未知指纹观测计数
+        self._learn_counter: Counter[str] = Counter()
 
     # ── JA3 指纹计算 ────────────────────────────────────────────────
 
@@ -102,12 +123,17 @@ class TLSAnalyzer:
 
         返回 (ja3_raw, ja3_hash)。
         JA3 格式: TLSVersion,Ciphers,Extensions,EllipticCurves,EllipticCurvePointFormats
+
+        O-13: 组装前剔除 GREASE 码点（RFC 8701），确保不同 GREASE 变体产生相同 JA3。
         """
+        clean_ciphers = _filter_grease(cipher_suites)
+        clean_extensions = _filter_grease(extensions)
+        clean_curves = _filter_grease(elliptic_curves)
         ja3_raw = ",".join([
             str(tls_version),
-            "-".join(str(c) for c in cipher_suites),
-            "-".join(str(e) for e in extensions),
-            "-".join(str(c) for c in elliptic_curves),
+            "-".join(str(c) for c in clean_ciphers),
+            "-".join(str(e) for e in clean_extensions),
+            "-".join(str(c) for c in clean_curves),
             "-".join(str(f) for f in ec_point_formats),
         ])
         ja3_hash = hashlib.md5(ja3_raw.encode()).hexdigest()
@@ -248,29 +274,45 @@ class TLSAnalyzer:
             return None
 
     def _classify_tls(self, info: TLSInfo) -> None:
-        """基于 JA3 指纹进行异常分类。"""
+        """基于 JA3 指纹进行异常分类。
+
+        O-13: 未知指纹采用学习期机制——首见标记为"待观察"，
+        观测次数达到 _LEARN_THRESHOLD 后纳入良性库。
+        """
         # 已知恶意指纹
         if info.ja3_hash in self.known_malicious:
             info.is_suspicious = True
             info.suspicion_reason = "已知恶意 JA3 指纹"
             return
 
-        # 未知指纹（不在良性库中）
-        if info.ja3_hash not in self.known_benign:
-            info.is_suspicious = True
-            info.suspicion_reason = "未知 JA3 指纹（不在已知良性库中）"
+        # 已知良性指纹（含硬编码 + 学习期纳入的）
+        if info.ja3_hash in self.known_benign:
+            # 仍检查 TLS 版本
+            if info.tls_version in ("SSL 3.0", "TLS 1.0", "TLS 1.1"):
+                info.is_suspicious = True
+                info.suspicion_reason = f"使用过旧 TLS 版本: {info.tls_version}"
+                return
+            # 仍检查加密套件数量
+            if 0 < info.cipher_count < 5:
+                info.is_suspicious = True
+                info.suspicion_reason = f"加密套件数量异常少: {info.cipher_count}"
             return
 
-        # 过旧 TLS 版本
-        if info.tls_version in ("SSL 3.0", "TLS 1.0", "TLS 1.1"):
-            info.is_suspicious = True
-            info.suspicion_reason = f"使用过旧 TLS 版本: {info.tls_version}"
+        # 未知指纹：学习期机制
+        self._learn_counter[info.ja3_hash] += 1
+        count = self._learn_counter[info.ja3_hash]
+
+        if count >= self._LEARN_THRESHOLD:
+            # 观测次数达标，纳入良性库
+            self.known_benign.add(info.ja3_hash)
+            logger.info("JA3 指纹 %s 观测 %d 次后纳入良性库", info.ja3_hash[:12], count)
+            # 不标记为可疑
             return
 
-        # 异常少量加密套件（正常客户端通常 5+ 个）
-        if 0 < info.cipher_count < 5:
-            info.is_suspicious = True
-            info.suspicion_reason = f"加密套件数量异常少: {info.cipher_count}"
+        # 学习期内仍标记为可疑，但标注原因
+        info.is_suspicious = True
+        info.suspicion_reason = f"未知 JA3 指纹（待观察，已见 {count}/{self._LEARN_THRESHOLD} 次）"
+        return
 
     # ── 统计查询接口 ────────────────────────────────────────────────
 
@@ -332,6 +374,7 @@ class TLSAnalyzer:
         self._ja3_counter.clear()
         self._tls_records.clear()
         self._tls_version_counter.clear()
+        self._learn_counter.clear()
 
 
 # 全局 TLS 分析器实例

@@ -15,6 +15,7 @@ from campus_ids.web.helpers import (
 )
 from campus_ids.web.database import count_alerts, get_alert_type_distribution
 from campus_ids.web.utils import _int_param, _clamp_duration, _csrf_exempt
+from campus_ids.web.limiter import write_limit
 
 logger = logging.getLogger(__name__)
 
@@ -25,6 +26,7 @@ bp_capture = Blueprint("capture", __name__)
 
 @bp_capture.route("/api/capture/start", methods=['POST'])
 @_csrf_exempt
+@write_limit
 def api_capture_start():
     """启动网络抓包
     ---
@@ -39,6 +41,7 @@ def api_capture_start():
 
 @bp_capture.route("/api/capture/stop", methods=['POST'])
 @_csrf_exempt
+@write_limit
 def api_capture_stop():
     """停止网络抓包
     ---
@@ -73,6 +76,7 @@ def api_capture_status():
 
 @bp_capture.route("/api/capture/start-enhanced", methods=['POST'])
 @_csrf_exempt
+@write_limit
 def api_capture_start_enhanced():
     """启动增强抓包（18维流特征 + TLS 分析）
     ---
@@ -106,6 +110,7 @@ def api_capture_start_enhanced():
 
 @bp_capture.route("/api/capture/stop-enhanced", methods=['POST'])
 @_csrf_exempt
+@write_limit
 def api_capture_stop_enhanced():
     """停止增强抓包
     ---
@@ -193,6 +198,7 @@ def api_dual_stats():
 
 @bp_capture.route("/api/dual/load", methods=['POST'])
 @_csrf_exempt
+@write_limit
 def api_dual_load():
     """加载 ML 模型
     ---
@@ -248,6 +254,7 @@ def api_dual_load():
 
 @bp_capture.route("/api/dual/stop", methods=['POST'])
 @_csrf_exempt
+@write_limit
 def api_dual_stop():
     """停止 ML 预测循环
     ---
@@ -264,6 +271,7 @@ def api_dual_stop():
 
 @bp_capture.route("/api/payload/check", methods=['POST'])
 @_csrf_exempt
+@write_limit
 def api_payload_check():
     """应用层载荷检测（SQL 注入 / XSS）
     ---

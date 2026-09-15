@@ -10,7 +10,7 @@ from flask import Flask, render_template, jsonify, request
 from campus_ids.config import AUTH_ENABLED
 from campus_ids.web.helpers import (
     CONFIG, dual_detector,
-    stop_capture_thread,
+    stop_capture_thread, start_detector_tick, stop_detector_tick,
 )
 from campus_ids.web.sse import _broadcast_sse
 from campus_ids.web.utils import _check_auth
@@ -67,17 +67,11 @@ try:
 except ImportError:
     logger.warning("flask-cors 未安装，CORS 保护未启用")
 
-# Flask-Limiter: API 速率限制
+# Flask-Limiter: API 速率限制 — O-04: 按端点分级（详见 limiter.py）
 try:
-    from flask_limiter import Limiter
-    from flask_limiter.util import get_remote_address
-    _limiter = Limiter(
-        app=app,
-        key_func=get_remote_address,
-        default_limits=["60 per minute"],
-        storage_uri="memory://",
-    )
-    logger.info("Flask-Limiter 已初始化 (60 次/分钟)")
+    from campus_ids.web.limiter import limiter as _limiter
+    _limiter.init_app(app)
+    logger.info("Flask-Limiter 已初始化（写端点 30 次/分钟，GET/SSE 豁免）")
 except ImportError:
     _limiter = None
     logger.warning("flask-limiter 未安装，速率限制未启用")
@@ -100,7 +94,7 @@ try:
         force_https=False,  # 开发环境不强制 HTTPS
         content_security_policy={
             'default-src': "'self'",
-            'script-src': "'self' 'unsafe-inline' 'unsafe-eval'",
+            'script-src': "'self' 'unsafe-inline'",  # O-10: 移除 unsafe-eval（Chart.js v4 UMD 不需要）
             'style-src': "'self' 'unsafe-inline'",
             'img-src': "'self' data:",
             'connect-src': "'self'",
@@ -188,10 +182,11 @@ def dashboard():
 # ── M6: 信号处理（优雅关闭） ────────────────────────────────────────
 
 def _graceful_shutdown(signum, frame):
-    """SIGTERM/SIGINT 优雅关闭：停止抓包和 ML 循环。"""
+    """SIGTERM/SIGINT 优雅关闭：停止检测节拍、抓包和 ML 循环。"""
     import sys
     logger.info("收到信号 %d，开始优雅关闭…", signum)
     try:
+        stop_detector_tick()
         stop_capture_thread()
         if dual_detector.ml_running:
             dual_detector.stop_ml_loop()
@@ -214,12 +209,15 @@ def run_app():
     logger.info("访问地址: http://localhost:%s", port)
     logger.info("刷新间隔: %sms", CONFIG['refresh_interval'])
 
+    # O-07: 启动检测节拍守护线程
+    start_detector_tick()
+
     # 生产模式：Waitress（Windows 原生支持，无需 WSL）
     if os.environ.get('CAMPUS_IDS_DEV_MODE', '0') != '1':
         try:
             from waitress import serve
             logger.info("使用 Waitress 生产服务器")
-            serve(app, host=host, port=port, _quiet=True)
+            serve(app, host=host, port=port, threads=32, _quiet=True)
         except ImportError:
             logger.warning("waitress 未安装，回退到 Flask 开发服务器（不推荐生产使用）")
             app.run(debug=False, port=port, host=host)

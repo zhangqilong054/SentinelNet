@@ -28,7 +28,7 @@ FEATURE_NAMES = [
     # 流级特征 (P0-9)
     "avg_pkt_len",          # 平均包长
     "std_pkt_len",          # 包长标准差
-    "up_down_byte_ratio",   # 上下行字节比
+    "up_down_byte_ratio",   # 实为 bytes_per_packet（总字节/包数），历史命名保留以兼容已训练模型
     "pkt_count",            # 包数
     "total_bytes",          # 总字节数
     # TCP 行为特征 (P0-10)
@@ -250,7 +250,7 @@ def aggregate_flow_features(packets: list[PacketInfo],
         std_len = float(np.std(lengths)) if len(lengths) > 1 else 0.0
         total_bytes = sum(lengths)
 
-        # 上下行字节比（上行: src->dst, 下行: dst->src，简化为总字节/包数）
+        # bytes_per_packet（历史命名 up_down_byte_ratio，保留以兼容已训练模型）
         up_down_ratio = total_bytes / n if n > 0 else 0.0
 
         # TCP 行为特征
@@ -290,7 +290,7 @@ def aggregate_flow_features(packets: list[PacketInfo],
             "duration": duration,
             "psh_flag_ratio": psh_count / n if n > 0 else 0.0,
             "avg_pkt_len": avg_len,
-            "up_down_byte_ratio": 1.0,  # 流级无法精确计算，使用中性值
+            "up_down_byte_ratio": up_down_ratio,  # bytes_per_packet: 总字节/包数
             "rst_flag_ratio": rst_count / n if n > 0 else 0.0,
         })
 
@@ -328,7 +328,7 @@ def _batch_heuristic_labels(flow_rows: list[dict]) -> list[str]:
 
     Args:
         flow_rows: 每个元素为含 pkt_count/syn_flag_ratio/dst_port_entropy/
-                   duration/psh_flag_ratio/avg_pkt_len/up_down_byte_ratio/rst_flag_ratio 的字典
+                   duration/psh_flag_ratio/avg_pkt_len/bytes_per_packet(up_down_byte_ratio)/rst_flag_ratio 的字典
 
     Returns:
         与 flow_rows 等长的标签列表（"Attack" / "Normal"）
@@ -362,6 +362,7 @@ def _heuristic_label(pkts: list[PacketInfo], port_entropy: float,
     if pkt_count == 0:
         return "Normal"
 
+    total_bytes = sum(p.length for p in pkts)
     row = {
         "pkt_count": float(pkt_count),
         "syn_flag_ratio": syn_count / pkt_count,
@@ -369,7 +370,7 @@ def _heuristic_label(pkts: list[PacketInfo], port_entropy: float,
         "duration": (pkts[-1].timestamp - pkts[0].timestamp) if len(pkts) > 1 else 0.0,
         "psh_flag_ratio": sum(1 for p in pkts if p.is_psh) / pkt_count,
         "avg_pkt_len": sum(p.length for p in pkts) / pkt_count,
-        "up_down_byte_ratio": 1.0,
+        "up_down_byte_ratio": total_bytes / pkt_count,  # bytes_per_packet
         "rst_flag_ratio": sum(1 for p in pkts if p.is_rst) / pkt_count,
     }
     return _batch_heuristic_labels([row])[0]
@@ -480,19 +481,3 @@ def start_enhanced_capture(duration: int = 60) -> bool:
     return result is not None
 
 
-def label_packets(rows: list[list]) -> list[list]:
-    """基于本次 session 的统计给每行打 Normal/Attack Label。
-
-    启发式规则：源 IP 出现次数超过 HIGH_FREQ_IP_THRESHOLD 或
-    访问不同端口数超过 PORT_SCAN_THRESHOLD 则标记为 Attack。
-    """
-    src_count: dict[str, int] = defaultdict(int)
-    src_ports: dict[str, set] = defaultdict(set)
-    for r in rows:
-        src_count[r[0]] += 1
-        src_ports[r[0]].add(r[3])
-    attack_ips = set()
-    for ip, cnt in src_count.items():
-        if cnt > HIGH_FREQ_IP_THRESHOLD or len(src_ports[ip]) > PORT_SCAN_THRESHOLD:
-            attack_ips.add(ip)
-    return [r + (["Attack"] if r[0] in attack_ips else ["Normal"]) for r in rows]

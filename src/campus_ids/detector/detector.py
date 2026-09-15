@@ -192,6 +192,30 @@ def vectorized_rule_predict(X: pd.DataFrame) -> np.ndarray:
     统一规则判定逻辑，避免 detector / evaluation / enhanced_features 中重复实现。
     阈值与 AnomalyDetector 默认值保持一致。
 
+    ── 与 AnomalyDetector 的分工与差异 ──
+
+    AnomalyDetector（实时路径，dual_detector.py 调用）：
+      - 有状态：维护暴力破解滑窗（_bf_tracker）和横向移动追踪（_lateral_tracker）
+      - 逐包/逐流实时判定，每次调用只处理当前 tick 的聚合统计
+      - 检测类型：DDoS(QPS)、端口扫描(端口数)、SYN洪水、UDP洪水、
+        暴力破解(时序窗口)、横向移动(内网扩散)、载荷检测(SQL/XSS)
+      - 输出：(bool, str) 二元组，含告警消息
+
+    vectorized_rule_predict（离线路径，训练打标/评估调用）：
+      - 无状态：纯函数，不维护任何追踪器
+      - 批量向量化判定，一次处理整个 DataFrame
+      - 检测类型：基于流级聚合特征的复合条件（DoS/DDoS、PortScan、
+        WebAttack/BruteForce、RST异常、Infiltration/Botnet）
+      - 输出：布尔 ndarray，True 表示判定为攻击
+
+    两者阈值来源相同（config.py），但判定语义不同：
+      - 实时路径的 DDoS 检测基于 QPS（每秒包数），离线路径基于 pkt_count + duration + flow_pkt_per_sec
+      - 实时路径的端口扫描基于唯一端口数，离线路径基于 dst_port_entropy
+      - 离线路径不含暴力破解/横向移动/载荷检测（这些依赖有状态追踪或原始载荷）
+      - 离线路径额外含 Infiltration/Botnet 规则（基于前向/后向包数比和窗口大小）
+
+    中期目标：抽为同一套可配置规则定义，实时与离线共用（O-15 中期）。
+
     Args:
         X: 包含流量特征的 DataFrame，需包含 pkt_count, syn_flag_ratio 等列。
 
@@ -206,7 +230,7 @@ def vectorized_rule_predict(X: pd.DataFrame) -> np.ndarray:
     duration = _get("duration")
     psh_ratio = _get("psh_flag_ratio")
     avg_pkt_len = _get("avg_pkt_len")
-    up_down_ratio = _get("up_down_byte_ratio")
+    up_down_ratio = _get("up_down_byte_ratio")  # 实为 bytes_per_packet（历史命名保留）
     rst_ratio = _get("rst_flag_ratio")
     fwd_pkt_len_mean = _get("fwd_pkt_len_mean")
     fwd_pkt_count = _get("fwd_pkt_count")
@@ -233,7 +257,8 @@ def vectorized_rule_predict(X: pd.DataFrame) -> np.ndarray:
     # ── Web Attack / BruteForce 规则（保留 + 增强条件）──
     is_attack = is_attack | ((psh_ratio > 0.6) & (duration > 10) & (pkt_count > 50))
     is_attack = is_attack | ((avg_pkt_len < 100) & (pkt_count > 50) & (duration < 5))  # 收紧：加时间限制
-    is_attack = is_attack | (up_down_ratio > 10)  # 收紧 5→10
+    # bytes_per_packet 异常大值（> 50000 字节/包，可能是数据外泄或异常大包）
+    is_attack = is_attack | ((up_down_ratio > 50000) & (pkt_count > 5))
 
     # ── RST 异常规则（收紧）──
     is_attack = is_attack | ((rst_ratio > 0.7) & (pkt_count > 30))  # 0.5→0.7, 10→30

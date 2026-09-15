@@ -142,7 +142,6 @@ def train_model(X: pd.DataFrame, y: pd.Series,
 
     if model_type == "rf":
         rf_n_estimators = 100
-        rf_batch = max(1, rf_n_estimators // 10)
         # Attack 权重增强：在 balanced 基础上对 Attack 类额外加权 1.5x
         # 提升少数类召回率（Attack-F1 从 0.993 → 目标 >0.995）
         rf_cw = effective_cw
@@ -156,25 +155,17 @@ def train_model(X: pd.DataFrame, y: pd.Series,
         elif rf_cw == "balanced" or rf_cw is None:
             # 使用 balanced 并让 sklearn 自动计算，不额外修改
             pass
+        # O-17: 一次 fit 全部树，去除 warm_start 分批重拟合
+        # 旧版为进度条将 100 棵树分 10 批反复全量 fit，显著慢于一次训练。
+        # warm_start 下每次 fit 会重拟合已有树，10 次 fit 等于 ~5.5x 计算量。
         clf = RandomForestClassifier(
-            n_estimators=rf_batch, random_state=42,
+            n_estimators=rf_n_estimators, random_state=42,
             class_weight=rf_cw if isinstance(rf_cw, dict) else effective_cw,
-            n_jobs=-1, warm_start=True,
+            n_jobs=-1,
         )
-        # tqdm 实时进度条（每批 10 棵树更新，抑制 warm_start+class_weight 兼容警告）
-        pbar_rf = tqdm(total=rf_n_estimators, desc="RF 迭代", unit="树", leave=False)
-        fitted = 0
-        try:
-            with warnings.catch_warnings():
-                warnings.filterwarnings("ignore", message="class_weight presets.*warm_start")
-                while fitted < rf_n_estimators:
-                    batch = min(rf_batch, rf_n_estimators - fitted)
-                    clf.n_estimators = fitted + batch
-                    clf.fit(X_train_scaled, y_train_encoded)
-                    pbar_rf.update(batch)
-                    fitted += batch
-        finally:
-            pbar_rf.close()
+        logger.info("RF 训练开始: %d 棵树 ...", rf_n_estimators)
+        clf.fit(X_train_scaled, y_train_encoded)
+        logger.info("RF 训练完成: %d 棵树", rf_n_estimators)
         y_pred = clf.predict(X_test_scaled)
         return clf, scaler, le, X_test_scaled, y_test_encoded, y_pred
     # P1-7a: XGBoost — 带 tqdm 实时进度条

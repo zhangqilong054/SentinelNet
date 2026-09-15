@@ -13,6 +13,7 @@
 from __future__ import annotations
 
 import logging
+import os
 import threading
 import time
 from collections import deque
@@ -22,7 +23,6 @@ from pathlib import Path
 from campus_ids.config import (
     BRUTE_FORCE_PORTS, ML_INTERVAL_SEC, ML_FLOW_BUFFER_SIZE,
     ML_HISTORY_SIZE, MODEL_PATH as DEFAULT_MODEL_PATH,
-    ML_CONF_HIGH,
 )
 
 logger = logging.getLogger(__name__)
@@ -78,6 +78,14 @@ class DualDetector:
         self._flow_buffer: deque[dict] = deque(maxlen=ML_FLOW_BUFFER_SIZE)
         self._flow_lock = threading.Lock()
 
+        # O-20: ML 流表 — 按五元组分组，带 idle timeout
+        # 长连接流不关闭时，超时即产出预测并回收，避免缓冲无限膨胀
+        self._flow_idle_timeout: float = float(
+            os.environ.get("CAMPUS_IDS_FLOW_IDLE_TIMEOUT", "30.0")
+        )
+        # _flow_table: {(src_ip, dst_ip, src_port, dst_port, proto): {"packets": [...], "last_active": float}}
+        self._flow_table: dict[tuple, dict] = {}
+
         # 统计
         self._ml_predict_count = 0
         self._ml_attack_count = 0
@@ -131,9 +139,24 @@ class DualDetector:
         return self._model_loaded
 
     def add_packet(self, pkt_info: dict) -> None:
-        """添加包信息到流缓冲区。"""
+        """添加包信息到流缓冲区和流表。"""
         with self._flow_lock:
             self._flow_buffer.append(pkt_info)
+            # O-20: 同时添加到流表
+            flow_key = (
+                pkt_info.get('src_ip', ''), pkt_info.get('dst_ip', ''),
+                pkt_info.get('sport', 0), pkt_info.get('dport', 0),
+                pkt_info.get('proto', 'TCP'),
+            )
+            entry = self._flow_table.get(flow_key)
+            if entry is None:
+                self._flow_table[flow_key] = {
+                    "packets": [pkt_info],
+                    "last_active": time.time(),
+                }
+            else:
+                entry["packets"].append(pkt_info)
+                entry["last_active"] = time.time()
 
     def _drain_flow_buffer(self) -> list[dict]:
         """取出流缓冲区中的所有包。"""
@@ -141,6 +164,28 @@ class DualDetector:
             pkts = list(self._flow_buffer)
             self._flow_buffer.clear()
         return pkts
+
+    def _drain_idle_flows(self) -> list[dict]:
+        """O-20: 取出流表中 idle 超时的流的所有包，并回收流表条目。
+
+        长连接流不关闭时，超时即产出预测，避免缓冲无限膨胀。
+        同时也取出所有缓冲区中的包（保持向后兼容）。
+        """
+        now = time.time()
+        idle_packets: list[dict] = []
+        with self._flow_lock:
+            # 收集 idle 超时的流
+            idle_keys = [
+                k for k, v in self._flow_table.items()
+                if now - v["last_active"] >= self._flow_idle_timeout
+            ]
+            for key in idle_keys:
+                entry = self._flow_table.pop(key)
+                idle_packets.extend(entry["packets"])
+            # 同时取出缓冲区中的包（向后兼容非流表路径）
+            idle_packets.extend(self._flow_buffer)
+            self._flow_buffer.clear()
+        return idle_packets
 
     def rule_detect(self, qps: int, port_count: int,
                     syn_count: int, udp_count: int,
@@ -321,8 +366,8 @@ class DualDetector:
         ml_triggered = ml_result.is_anomaly
 
         # ── 融合判定（v2：自适应 OR 互补）──
-        # ML 高置信(>ML_CONF_HIGH)：直接采用 ML 判定
-        # ML 低置信(ML_CONF_LOW~ML_CONF_HIGH) + 规则触发：提升为攻击（互补提升召回）
+        # ML 触发 + 规则触发：高危
+        # ML 单独触发：中危
         # 规则独有触发：低危告警
         #
         # 注：向量化批处理版见 evaluation._evaluate_dual_fusion()，策略语义保持一致。
@@ -330,12 +375,8 @@ class DualDetector:
         if rule_triggered and ml_triggered:
             level = LEVEL_HIGH
             attack_type = ml_result.attack_type if ml_result.attack_type != "Normal" else "Attack"
-        elif ml_triggered and ml_result.ml_confidence >= ML_CONF_HIGH:
-            # ML 高置信单独触发：中危（ML 可信度高）
-            level = LEVEL_MEDIUM
-            attack_type = ml_result.attack_type
         elif ml_triggered:
-            # ML 低置信触发：中危但标记不确定
+            # ML 单独触发（含高/低置信）：中危
             level = LEVEL_MEDIUM
             attack_type = ml_result.attack_type
         elif rule_triggered:
@@ -357,8 +398,26 @@ class DualDetector:
         latency_ms = (_time.perf_counter() - t_start) * 1000
         self._latency_samples.append(latency_ms)
 
+        # O-16: 结构化检测日志 — 通过 extra={"detection_data": ...} 落盘到 detections.jsonl
+        is_anomaly = rule_triggered or ml_triggered
+        if is_anomaly:
+            detection_data = {
+                "level": level,
+                "attack_type": attack_type,
+                "ml_confidence": ml_result.ml_confidence,
+                "ml_prediction": ml_result.ml_prediction,
+                "rule_alerts": rule_alerts,
+                "description": " | ".join(desc_parts) if desc_parts else "正常",
+                "detection_latency_ms": round(latency_ms, 2),
+            }
+            logger.warning(
+                "检测到异常: %s [%s] %s",
+                attack_type, level, " | ".join(desc_parts) if desc_parts else "正常",
+                extra={"detection_data": detection_data},
+            )
+
         return DualDetectionResult(
-            is_anomaly=rule_triggered or ml_triggered,
+            is_anomaly=is_anomaly,
             level=level,
             rule_alerts=rule_alerts,
             ml_prediction=ml_result.ml_prediction,
@@ -380,6 +439,12 @@ class DualDetector:
             "last_ml_confidence": self._last_ml_result.ml_confidence,
             "last_ml_attack_type": self._last_ml_result.attack_type,
         }
+        # O-20: 流表统计
+        with self._flow_lock:
+            stats["flow_table"] = {
+                "active_flows": len(self._flow_table),
+                "idle_timeout_sec": self._flow_idle_timeout,
+            }
         # P2-11: 检测延迟统计
         if self._latency_samples:
             latencies = list(self._latency_samples)
@@ -407,7 +472,7 @@ class DualDetector:
         def _loop():
             while self._ml_running:
                 try:
-                    pkts = self._drain_flow_buffer()
+                    pkts = self._drain_idle_flows()
                     if pkts:
                         self.ml_detect(pkts)
                     time.sleep(self.ml_interval)

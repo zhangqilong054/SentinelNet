@@ -98,8 +98,7 @@ python My_task.py app
 
 - **基础抓包**：控制面板 → 实时抓包控制 → 开始抓包
   - 默认抓包 60 秒，可指定时长
-  - 输出文件：`traffic_data.csv`，包含 8 个基础字段：`Src_IP, Dst_IP, Src_Port, Dst_Port, Protocol, Length, Timestamp, Label`
-  - `Label` 字段基于启发式规则自动打标：同一源 IP 出现次数 > 50 或访问不同目的端口数 > 50 标记为 `Attack`，否则为 `Normal`
+  - 抓取的包直接入内存队列供实时检测使用，不输出 CSV 文件
 
 - **增强抓包**（推荐用于模型训练）：控制面板 → 增强抓包 → 开始增强抓包
   - 在抓包同时按流聚合，输出 **18 维特征**（流级 / TCP 行为 / 端口 / 时间 / 加密流量 / 基础）并同步进行 TLS/JA3 分析
@@ -186,15 +185,14 @@ Task-main/
 ├── requirements.txt               # 依赖清单
 ├── Dockerfile                     # Docker 容器构建
 ├── docker-compose.yml             # Docker Compose 一键部署
-├── traffic_data.csv               # 抓包数据（运行时生成）
+├── traffic_data.csv               # 增强抓包数据（运行时生成）
 ├── model.pkl                      # 训练模型（CICIDS2017, RF, Attack F1=0.9998）
 ├── confusion_matrix.png           # 混淆矩阵图（训练时生成）
 ├── evaluation_report.txt          # 评估报告（训练时生成）
-├── tests/                         # 单元测试（97 个）
+├── tests/                         # 单元测试（109 个）
 │   ├── test_attack_sim.py         #   攻击模拟测试（17 个）
 │   ├── test_detector.py           #   规则检测 + 双引擎测试（33 个）
 │   ├── test_enhanced_features.py  #   增强特征测试（20 个）
-│   ├── test_features.py           #   基础特征提取测试（7 个）
 │   ├── test_train.py              #   模型训练测试（11 个）
 │   ├── test_sse_endpoints.py      #   SSE 端点测试（6 个）
 │   ├── test_tls_analyzer.py       #   TLS 分析测试（10 个）
@@ -205,7 +203,7 @@ Task-main/
     ├── config.py                  # 集中配置常量（环境变量覆盖）
     ├── logging_config.py          # 日志系统（三级处理器 + JSON Lines）
     ├── capture/
-    │   ├── enhanced_features.py   #   基础抓包 + 8 字段输出 + 启发式打标 + 18 维流特征
+    │   ├── enhanced_features.py   #   基础抓包 + 18 维流特征提取
     │   └── tls_analyzer.py        # TLS 加密流量分析（JA3 指纹）
     ├── model/
     │   ├── train.py               # 模型训练 + 多算法对比主流程（防泄漏 + --quick 快速模式）
@@ -264,6 +262,24 @@ Task-main/
 | XSS 攻击 | 模式匹配 | HTTP 载荷匹配 XSS 模式 | — |
 | 暴力破解 | 10 次/60秒 | 同 IP 短时间多次连接敏感端口 | `CAMPUS_IDS_BF_THRESHOLD` |
 | 横向移动 | 5 连接 | 内网 IP 间异常连接模式 | `CAMPUS_IDS_LATERAL_THRESHOLD` |
+
+### 两套规则系统说明
+
+系统存在两套规则判定路径，分工不同：
+
+| 维度 | AnomalyDetector（实时路径） | vectorized_rule_predict（离线路径） |
+|------|----------------------------|-------------------------------------|
+| 调用方 | `dual_detector.py` 实时检测循环 | `enhanced_features.py` 训练打标、`evaluation.py` 离线评估 |
+| 状态 | 有状态（暴力破解滑窗、横向移动追踪） | 无状态纯函数 |
+| 粒度 | 逐 tick 聚合统计 | 批量 DataFrame 向量化 |
+| DDoS 检测 | 基于 QPS（每秒包数） | 基于 pkt_count + duration + flow_pkt_per_sec 复合条件 |
+| 端口扫描 | 基于唯一端口数 | 基于 dst_port_entropy |
+| 暴力破解/横向移动 | ✅ 有状态追踪 | ❌ 不含（依赖时序窗口/内网拓扑） |
+| 载荷检测 | ✅ SQL/XSS 正则 | ❌ 不含（依赖原始载荷） |
+| Infiltration/Botnet | ❌ 不含 | ✅ 基于前向/后向包数比+窗口大小 |
+| 输出 | `(bool, str)` 含告警消息 | `ndarray[bool]` 批量标签 |
+
+> 阈值来源均为 `config.py`，但判定语义因路径不同而有差异。中期目标：抽为同一套可配置规则定义，实时与离线共用。
 
 ### 加密流量检测
 
@@ -400,14 +416,13 @@ docker compose up --build
 ## 十二、测试
 
 ```bash
-# 运行全部测试（97 个）
+# 运行全部测试（109 个）
 python -m pytest tests/ -v
 
 # 运行指定模块测试
 python -m pytest tests/test_attack_sim.py -v          # 攻击模拟（17 个）
 python -m pytest tests/test_detector.py -v            # 规则检测 + 双引擎（33 个）
 python -m pytest tests/test_enhanced_features.py -v   # 增强特征（20 个）
-python -m pytest tests/test_features.py -v            # 基础特征提取（7 个）
 python -m pytest tests/test_train.py -v               # 模型训练（11 个）
 python -m pytest tests/test_sse_endpoints.py -v       # SSE 端点（6 个）
 python -m pytest tests/test_tls_analyzer.py -v        # TLS 分析（10 个）

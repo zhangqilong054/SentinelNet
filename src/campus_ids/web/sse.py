@@ -9,6 +9,9 @@ import threading
 _sse_subscribers: list[queue.Queue] = []
 _sse_lock = threading.Lock()
 
+# O-03: SSE 全局订阅上限（每个 SSE 连接占 1 个 Waitress 线程）
+MAX_SSE_SUBSCRIBERS = 20
+
 
 def _broadcast_sse(event: str, data: dict) -> None:
     """向所有 SSE 订阅者广播事件。"""

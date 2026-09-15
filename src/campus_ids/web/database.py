@@ -231,12 +231,22 @@ def create_user(username: str, password_hash: str) -> int:
     return cursor.lastrowid
 
 
+def update_user_password(user_id: int, new_hash: str) -> None:
+    """更新用户密码哈希。"""
+    conn = _get_conn()
+    conn.execute(
+        "UPDATE users SET password_hash = ? WHERE id = ?",
+        (new_hash, user_id),
+    )
+    conn.commit()
+
+
 def ensure_default_user() -> None:
     """确保默认管理员用户存在（首次启动时自动创建）。"""
     existing = get_user_by_username("admin")
     if existing is None:
-        # 默认密码: admin（应在首次登录后修改）
-        import hashlib
-        default_hash = hashlib.sha256("admin".encode()).hexdigest()
+        # O-10: 使用 werkzeug.security 生成密码哈希
+        from werkzeug.security import generate_password_hash
+        default_hash = generate_password_hash("admin")
         create_user("admin", default_hash)
         logger.info("已创建默认管理员用户 admin/admin，请尽快修改密码")

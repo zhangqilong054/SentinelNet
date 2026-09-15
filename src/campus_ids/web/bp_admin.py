@@ -20,6 +20,7 @@ from campus_ids.web.attack_sim_state import sim_state, start_attack_sim
 from campus_ids.web.database import cleanup_old_data
 from campus_ids.web.sse import _sse_lock, _sse_subscribers
 from campus_ids.web.utils import _clamp_duration, _csrf_exempt, _int_param
+from campus_ids.web.limiter import write_limit, write_limit_post
 
 import campus_ids.web.helpers as _helpers_module
 
@@ -35,6 +36,7 @@ _app_start_time = _time.time()
 
 @bp_admin.route("/api/config", methods=['GET', 'POST'])
 @_csrf_exempt
+@write_limit_post
 def config():
     """获取或更新检测阈值配置
     ---
@@ -79,6 +81,12 @@ def config():
                 brute_force_window=CONFIG['brute_force_window'],
                 lateral_movement_threshold=CONFIG['lateral_movement_threshold'],
             )
+            # O-18: 热更新时迁移追踪器状态，避免清空暴力破解/横向移动滑窗
+            old_detector = _helpers_module._rule_detector
+            if hasattr(old_detector, '_bf_tracker'):
+                new_detector._bf_tracker = old_detector._bf_tracker
+            if hasattr(old_detector, '_lateral_tracker'):
+                new_detector._lateral_tracker = old_detector._lateral_tracker
             # R-13 fix: 同时更新 helpers 模块级 _rule_detector 和 dual_detector 的引用
             _helpers_module._rule_detector = new_detector
             dual_detector.rule_detector = new_detector
@@ -127,6 +135,7 @@ def api_cleanup():
 
 @bp_admin.route("/api/attack/start", methods=['POST'])
 @_csrf_exempt
+@write_limit
 def api_attack_start():
     """启动攻击模拟
     ---
@@ -160,6 +169,7 @@ def api_attack_start():
 
 @bp_admin.route("/api/attack/stop", methods=['POST'])
 @_csrf_exempt
+@write_limit
 def api_attack_stop():
     """停止攻击模拟
     ---
@@ -345,16 +355,36 @@ def api_health():
         health["components"]["database"] = {"status": "error", "message": str(e)}
         health["status"] = "degraded"
 
-    # 抓包线程状态
+    # 抓包线程状态 & 队列丢包
     with _state_lock:
         health["components"]["capture"] = {
             "status": "running" if _helpers._capture_running else "stopped",
+            "dropped_packets": _helpers._dropped_packets,
+            "queue_size": _helpers._packet_queue.qsize(),
         }
 
     # ML 模型状态
+    ml_stats = dual_detector.get_stats()
+    ml_buffer_len = len(dual_detector._flow_buffer)
+    ml_buffer_oldest_age = None
+    if ml_buffer_len > 0:
+        try:
+            oldest_ts = dual_detector._flow_buffer[0].get("timestamp", 0)
+            if oldest_ts:
+                ml_buffer_oldest_age = round(_health_time.time() - oldest_ts, 1)
+        except Exception:
+            pass
     health["components"]["ml_model"] = {
-        "status": "loaded" if dual_detector.ml_running else "not_loaded",
+        "model_loaded": dual_detector.model_loaded,
+        "loop_running": dual_detector.ml_running,
+        "buffer_size": ml_buffer_len,
+        "buffer_oldest_age_sec": ml_buffer_oldest_age,
+        "predict_count": ml_stats.get("ml_predict_count", 0),
+        "attack_count": ml_stats.get("ml_attack_count", 0),
     }
+    # O-19: 检测延迟统计
+    if "detection_latency_ms" in ml_stats:
+        health["components"]["detection_latency"] = ml_stats["detection_latency_ms"]
 
     # 内存使用量
     try:
@@ -372,6 +402,19 @@ def api_health():
         health["components"]["sse"] = {
             "subscribers": len(_sse_subscribers),
         }
+
+    # O-19: tick 耗时与线程存活状态
+    health["components"]["detector_tick"] = {
+        "running": _helpers._detector_tick_running,
+        "last_duration_ms": round(_helpers._last_tick_duration_ms, 2),
+        "tick_count": _helpers._tick_count,
+    }
+    health["components"]["threads"] = {
+        "capture_alive": _helpers._capture_thread is not None and _helpers._capture_thread.is_alive(),
+        "enhanced_capture_alive": _helpers._enhanced_capture_thread is not None and _helpers._enhanced_capture_thread.is_alive(),
+        "detector_tick_alive": _helpers._detector_tick_thread is not None and _helpers._detector_tick_thread.is_alive(),
+        "ml_loop_alive": dual_detector._ml_thread is not None and dual_detector._ml_thread.is_alive(),
+    }
 
     status_code = 200 if health["status"] == "healthy" else 503
     return jsonify(health), status_code

@@ -7,10 +7,10 @@ import queue
 from flask import Blueprint, jsonify, request, Response
 
 from campus_ids.config import MAX_ALERT_API_RETURN
-from campus_ids.web.helpers import traffic_data, update_traffic_data, _state_lock
+from campus_ids.web.helpers import traffic_data, _state_lock
 from campus_ids.web.database import query_alerts, count_alerts, query_traffic
-from campus_ids.web.utils import _int_param, _csrf_exempt
-from campus_ids.web.sse import _sse_subscribers, _sse_lock
+from campus_ids.web.utils import _int_param, _csrf_exempt, _csrf_always_exempt
+from campus_ids.web.sse import _sse_subscribers, _sse_lock, MAX_SSE_SUBSCRIBERS
 
 bp_monitor = Blueprint("monitor", __name__)
 
@@ -38,7 +38,7 @@ def get_traffic_data():
             udp_packets: {type: integer, description: UDP包数}
             dns_packets: {type: integer, description: DNS查询数}
     """
-    update_traffic_data()
+    # O-07: 纯读当前状态，不再触发检测
     with _state_lock:
         return jsonify({
             'qps': traffic_data['qps'],
@@ -125,7 +125,7 @@ def get_alerts():
 # ── SSE 实时推送 ──────────────────────────────────────────────────────
 
 @bp_monitor.route("/api/stream/traffic")
-@_csrf_exempt
+@_csrf_always_exempt
 def stream_traffic():
     """SSE 实时流量推送
     ---
@@ -134,14 +134,20 @@ def stream_traffic():
     responses:
       200:
         description: "SSE 事件流（event: traffic）"
+      503:
+        description: "SSE 订阅数已达上限"
     """
+    # O-03: SSE 订阅上限检查
+    with _sse_lock:
+        if len(_sse_subscribers) >= MAX_SSE_SUBSCRIBERS:
+            return jsonify({"error": "SSE 订阅数已达上限，请稍后重试"}), 503
+
     def generate():
         q: queue.Queue = queue.Queue(maxsize=64)
         with _sse_lock:
             _sse_subscribers.append(q)
         try:
-            # 发送初始数据
-            update_traffic_data()
+            # 发送初始数据（O-07: 纯读当前状态，不再触发检测）
             with _state_lock:
                 initial = {
                     'qps': traffic_data['qps'],
@@ -174,7 +180,7 @@ def stream_traffic():
 
 
 @bp_monitor.route("/api/stream/alerts")
-@_csrf_exempt
+@_csrf_always_exempt
 def stream_alerts():
     """SSE 实时告警推送
     ---
@@ -183,7 +189,14 @@ def stream_alerts():
     responses:
       200:
         description: "SSE 事件流（event: alert）"
+      503:
+        description: "SSE 订阅数已达上限"
     """
+    # O-03: SSE 订阅上限检查
+    with _sse_lock:
+        if len(_sse_subscribers) >= MAX_SSE_SUBSCRIBERS:
+            return jsonify({"error": "SSE 订阅数已达上限，请稍后重试"}), 503
+
     def generate():
         q: queue.Queue = queue.Queue(maxsize=64)
         with _sse_lock:

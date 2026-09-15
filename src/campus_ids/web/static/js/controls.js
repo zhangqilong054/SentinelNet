@@ -68,8 +68,11 @@
 
     function connectSSE() {
         disconnectSSE();
+        // O-08: SSE URL 拼 token 参数（EventSource 不支持自定义头）
+        var sseToken = localStorage.getItem('api_token') || '';
+        var sseSuffix = sseToken ? '?token=' + encodeURIComponent(sseToken) : '';
         try {
-            sseTraffic = new EventSource('/api/stream/traffic');
+            sseTraffic = new EventSource('/api/stream/traffic' + sseSuffix);
             sseTraffic.addEventListener('traffic', function (e) {
                 try {
                     var data = JSON.parse(e.data);
@@ -86,7 +89,7 @@
                 startPollingFallback();
             };
 
-            sseAlerts = new EventSource('/api/stream/alerts');
+            sseAlerts = new EventSource('/api/stream/alerts' + sseSuffix);
             sseAlerts.addEventListener('alert', function (e) {
                 try {
                     var data = JSON.parse(e.data);
@@ -128,7 +131,7 @@
     }
 
     function stopPollingFallback() {
-        if (pollTimer) { clearInterval(pollTimer); pollTimer = null; }
+        // O-02: 不再清除 pollTimer — 它是常驻定时器，refreshAll 内部按 sseConnected 分叉决定刷新范围
         _pollingActive = false;
     }
 
