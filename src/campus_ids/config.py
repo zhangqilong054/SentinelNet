@@ -48,9 +48,6 @@ WINDOW_SIZE = int(os.environ.get("CAMPUS_IDS_WINDOW_SIZE", "60"))
 # 告警 API 返回上限
 MAX_ALERT_API_RETURN = int(os.environ.get("CAMPUS_IDS_MAX_ALERT_API", "20"))
 
-# QPS 趋势图最大数据点
-MAX_CHART_LABELS = int(os.environ.get("CAMPUS_IDS_MAX_CHART_LABELS", "30"))
-
 
 # ── 规则检测阈值 ──────────────────────────────────────────────
 DDOS_THRESHOLD = int(os.environ.get("CAMPUS_IDS_DDoS_THRESHOLD", "500"))
@@ -92,10 +89,7 @@ TLS_PORTS = (443, 8443)
 BRUTE_FORCE_PORTS = (22, 21, 3389, 25, 3306, 5432)
 
 
-# ── 模拟模式（Docker/演示） ──────────────────────────────────
-DEMO_MODE = os.environ.get("CAMPUS_IDS_DEMO_MODE", "0") == "1"
-
-# 模拟数据范围
+# ── 模拟数据范围（演示模式回退） ──────────────────────────────
 DEMO_QPS_MIN, DEMO_QPS_MAX = 100, 800
 DEMO_CONN_MIN, DEMO_CONN_MAX = 50, 200
 DEMO_SYN_MIN, DEMO_SYN_MAX = 0, 150

@@ -102,7 +102,7 @@ def get_alerts():
         in: query
         type: string
         default: all
-        description: 级别筛选 (critical/warning/info/all)
+        description: 级别筛选 (high/medium/low/all)
     responses:
       200:
         description: 告警列表

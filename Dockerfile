@@ -44,7 +44,7 @@ ENV CAMPUS_IDS_DATA_DIR=/app/data
 ENV CAMPUS_IDS_LOG_DIR=/app/logs
 
 
-# 健康检查
+# 健康检查（/api/health 已免认证，无需额外配置）
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s \
     CMD python -c "import urllib.request; urllib.request.urlopen('http://localhost:5000/api/health')" || exit 1
 

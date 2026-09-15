@@ -35,13 +35,6 @@ def _get_conn() -> sqlite3.Connection:
     return _local.conn
 
 
-def close_conn() -> None:
-    """关闭当前线程的数据库连接。"""
-    if hasattr(_local, 'conn') and _local.conn is not None:
-        _local.conn.close()
-        _local.conn = None
-
-
 # ── 建表 ────────────────────────────────────────────────────────
 
 _SCHEMA_SQL = """
@@ -173,23 +166,6 @@ def query_traffic(limit: int = 60, offset: int = 0) -> list[dict]:
 
 
 # ── 配置 CRUD ───────────────────────────────────────────────────
-
-def get_config(key: str, default: Optional[str] = None) -> Optional[str]:
-    """获取配置值。"""
-    conn = _get_conn()
-    row = conn.execute("SELECT value FROM config WHERE key = ?", (key,)).fetchone()
-    return row["value"] if row else default
-
-
-def set_config(key: str, value: str) -> None:
-    """设置配置值（UPSERT）。"""
-    conn = _get_conn()
-    conn.execute(
-        "INSERT INTO config (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = ?",
-        (key, value, value),
-    )
-    conn.commit()
-
 
 def get_all_config() -> dict[str, str]:
     """获取所有配置。"""

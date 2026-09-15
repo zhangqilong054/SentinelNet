@@ -8,12 +8,13 @@ import threading
 from flask import Blueprint, jsonify, request
 
 from campus_ids.config import REGISTRY_JSON
+from campus_ids.web import helpers as _helpers
 from campus_ids.web.helpers import (
-    _capture_running, dual_detector, start_capture_thread,
+    dual_detector, start_capture_thread,
     start_auto_thread, get_auto_status,
 )
 from campus_ids.web.utils import _clamp_duration, _csrf_exempt
-from campus_ids.web.bp_admin import _start_attack_sim
+from campus_ids.web.attack_sim_state import start_attack_sim
 
 logger = logging.getLogger(__name__)
 
@@ -67,7 +68,7 @@ def api_model_train():
           type: object
           properties:
             dataset_type: {type: string, enum: [cicids2017, nsl_kdd, local], default: cicids2017, description: 数据集类型}
-            balance_method: {type: string, enum: [smote, oversample, undersample, none], default: smote, description: 均衡方法}
+            balance_method: {type: string, enum: [class_weight, smote, oversample, undersample, none], default: smote, description: 均衡方法}
             quick: {type: boolean, default: false, description: 快速模式}
     responses:
       200:
@@ -231,11 +232,11 @@ def api_demo_start():
     duration = _clamp_duration(data, default=30, lo=5, hi=300)
 
     # 1. 启动抓包（如果未运行）
-    if not _capture_running:
+    if not _helpers._capture_running:
         start_capture_thread()
 
     # 2. 尝试加载 ML 模型（如果未加载）
-    if not dual_detector._ml_running:
+    if not dual_detector.ml_running:
         try:
             dual_detector.load_model(which='best')
             dual_detector.start_ml_loop()
@@ -243,7 +244,7 @@ def api_demo_start():
             logger.warning("演示模式: ML 模型加载失败（继续运行）: %s", exc)
 
     # 3. 启动攻击模拟（委托公共函数）
-    err = _start_attack_sim('all', duration)
+    err = start_attack_sim('all', duration)
     if err:
         return jsonify(err[0]), err[1]
 
@@ -252,6 +253,6 @@ def api_demo_start():
         'status': 'success',
         'duration': duration,
         'capture': True,
-        'ml_loaded': dual_detector._ml_running,
+        'ml_loaded': dual_detector.ml_running,
         'attack': True,
     })

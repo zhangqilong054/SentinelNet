@@ -728,7 +728,7 @@ def train(dataset_path: Path | None = None,
     Args:
         dataset_path: 数据集路径（None 则使用本地抓包数据）
         dataset_type: auto / local / cicids2017 / nsl_kdd
-        balance_method: class_weight / smote / undersample
+        balance_method: class_weight / smote / oversample / undersample / none
         quick: 快速模式 — 仅训练 RF+LGB，跳过 CV/融合/跨数据集评估
 
     Returns:

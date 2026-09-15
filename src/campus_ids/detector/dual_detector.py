@@ -86,6 +86,11 @@ class DualDetector:
         # P2-11: 检测延迟统计
         self._latency_samples: deque[float] = deque(maxlen=1000)
 
+    @property
+    def ml_running(self) -> bool:
+        """ML 预测循环是否正在运行（公开访问器，替代直接访问 _ml_running）。"""
+        return self._ml_running
+
     def load_model(self, model_path: Path | None = None, run_id: str | None = None,
                     which: str = "best") -> bool:
         """加载 ML 模型。
@@ -392,6 +397,9 @@ class DualDetector:
         """启动后台 ML 预测循环。"""
         if not self._model_loaded:
             logger.warning("ML 模型未加载，无法启动预测循环")
+            return
+        if self._ml_running:  # D5: 已在运行则直接返回，防止重复调用泄漏线程
+            logger.info("ML 预测循环已在运行，跳过重复启动")
             return
 
         self._ml_running = True

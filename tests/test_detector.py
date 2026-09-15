@@ -189,3 +189,75 @@ class TestCheckPayload:
     def test_benign_payload(self, det):
         alerts = det.check_payload("hello world")
         assert len(alerts) == 0
+
+
+# ── D5: DualDetector.start_ml_loop 重复调用守卫 ──────────────────
+
+class TestDualDetectorMLLoopGuard:
+    """D5 修复验证：start_ml_loop 重复调用不泄漏线程。
+
+    原缺陷：连续调用 start_ml_loop 会创建多个后台线程。
+    修复：dual_detector.py L401 加 if self._ml_running: return 守卫。
+    """
+
+    @pytest.fixture
+    def dual_det(self):
+        """创建一个 mock 了模型加载状态的 DualDetector。"""
+        from campus_ids.detector.dual_detector import DualDetector
+        from campus_ids.detector.detector import AnomalyDetector
+        rule_det = AnomalyDetector()
+        det = DualDetector(rule_det)
+        # 模拟模型已加载
+        det._model_loaded = True
+        det.ml_interval = 0.1  # 短间隔加速测试
+        return det
+
+    def test_start_ml_loop_idempotent(self, dual_det):
+        """连续调用 start_ml_loop 仅创建一个线程。"""
+        dual_det.start_ml_loop()
+        assert dual_det._ml_running is True
+        assert dual_det._ml_thread is not None
+        first_thread = dual_det._ml_thread
+
+        # 第二次调用应被守卫拦截
+        dual_det.start_ml_loop()
+        assert dual_det._ml_thread is first_thread, "重复调用不应创建新线程"
+
+        # 清理
+        dual_det.stop_ml_loop()
+
+    def test_stop_ml_loop_cleans_up(self, dual_det):
+        """stop_ml_loop 后 _ml_running 为 False 且无线程残留。"""
+        dual_det.start_ml_loop()
+        assert dual_det._ml_running is True
+
+        dual_det.stop_ml_loop()
+        assert dual_det._ml_running is False
+        # 线程应已结束
+        import time
+        time.sleep(0.3)
+        if dual_det._ml_thread is not None:
+            assert not dual_det._ml_thread.is_alive(), "停止后线程不应存活"
+
+    def test_start_after_stop(self, dual_det):
+        """停止后可以重新启动，且创建新线程。"""
+        dual_det.start_ml_loop()
+        first_thread = dual_det._ml_thread
+
+        dual_det.stop_ml_loop()
+        import time
+        time.sleep(0.3)
+
+        dual_det.start_ml_loop()
+        assert dual_det._ml_running is True
+        assert dual_det._ml_thread is not first_thread, "重新启动应创建新线程"
+
+        dual_det.stop_ml_loop()
+
+    def test_ml_running_property(self, dual_det):
+        """ml_running 属性访问器应正确反映内部状态。"""
+        assert dual_det.ml_running is False
+        dual_det.start_ml_loop()
+        assert dual_det.ml_running is True
+        dual_det.stop_ml_loop()
+        assert dual_det.ml_running is False

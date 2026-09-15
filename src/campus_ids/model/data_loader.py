@@ -334,10 +334,11 @@ def balance_classes(X: pd.DataFrame, y: pd.Series, method: str = "class_weight")
     """类别均衡处理。
 
     Args:
-        method: class_weight / smote / undersample
+        method: class_weight / smote / oversample / undersample / none
 
     Returns:
         (X_resampled, y_resampled, class_weight_dict_or_None)
+        第三项: dict → 传给模型的 class_weight；False → 数据已均衡无需加权；None → 回退到 balanced
     """
     class_weight_dict = None
 
@@ -361,6 +362,24 @@ def balance_classes(X: pd.DataFrame, y: pd.Series, method: str = "class_weight")
             logger.warning("imbalanced-learn 未安装，回退到 class_weight")
             return balance_classes(X, y, "class_weight")
 
+    elif method == "oversample":
+        # L1: 随机过采样 — 复制少数类样本至与多数类等量
+        from collections import Counter
+        counts = Counter(y)
+        max_count = max(counts.values())
+        dfs = []
+        for label in np.unique(y):
+            label_df = X[y == label]
+            if len(label_df) < max_count:
+                # 有放回抽样补齐
+                extra = label_df.sample(n=max_count - len(label_df), replace=True, random_state=42)
+                label_df = pd.concat([label_df, extra])
+            dfs.append(label_df)
+        X_res = pd.concat(dfs)
+        y_res = pd.Series([y[idx] for idx in X_res.index], index=X_res.index)
+        logger.info("随机过采样: %d → %d 条", len(y), len(y_res))
+        return X_res, y_res, False
+
     elif method == "undersample":
         from collections import Counter
         min_count = min(Counter(y).values())
@@ -373,7 +392,13 @@ def balance_classes(X: pd.DataFrame, y: pd.Series, method: str = "class_weight")
         # 数据已均衡，返回 False 表示不需要 class_weight 加权
         return X_res, y_res, False
 
-    return X, y, None
+    elif method == "none":
+        # L1: 显式不均衡 — 不做任何处理，也不加 class_weight
+        logger.info("不进行类别均衡处理")
+        return X, y, False
+
+    else:
+        raise ValueError(f"未知的均衡方法: {method!r}，可选: class_weight / smote / oversample / undersample / none")
 
 
 # ── 兼容旧接口 ──────────────────────────────────────────────────────

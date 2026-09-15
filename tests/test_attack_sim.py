@@ -187,3 +187,81 @@ class TestSimulatorLifecycle:
         sim = AttackSimulator()
         sim.stop()  # 未启动时 stop 不应报错
         assert sim._running is False
+
+
+# ── 测试：D2 — 单类型攻击通过 start_attack_sim 注入数据包 ──────────
+
+class TestSingleTypeViaStartAttackSim:
+    """D2 修复验证：start_attack_sim('syn_flood', duration) 应成功注入数据包。
+
+    原缺陷：非 'all' 路径未设 _running=True，inject 线程立即退出，0 包注入。
+    修复：attack_sim_state.py L70 手动置 sim_state.sim._running = True。
+    """
+
+    @pytest.fixture(autouse=True)
+    def _cleanup_sim_state(self):
+        """每个测试前后清理 sim_state 全局状态。"""
+        from campus_ids.web.attack_sim_state import sim_state
+        # 测试前：确保无残留
+        if sim_state.sim is not None:
+            sim_state.sim.stop()
+        with sim_state.lock:
+            sim_state.running = False
+            sim_state.type = ""
+            sim_state.sim = None
+            sim_state.duration = 0
+        yield
+        # 测试后：清理
+        if sim_state.sim is not None:
+            sim_state.sim.stop()
+        with sim_state.lock:
+            sim_state.running = False
+            sim_state.type = ""
+            sim_state.sim = None
+            sim_state.duration = 0
+
+    def test_syn_flood_via_start_attack_sim(self, mock_queue):
+        from campus_ids.web.attack_sim_state import start_attack_sim, sim_state
+        result = start_attack_sim('syn_flood', 2)
+        assert result is None, f"启动应返回 None，实际: {result}"
+        assert sim_state.running is True
+        assert sim_state.sim is not None
+        assert sim_state.sim._running is True
+        time.sleep(1.5)  # 等待注入
+        sim_state.sim.stop()
+        pkt_count = len(mock_queue.items)
+        assert pkt_count > 0, f"syn_flood 单类型应注入数据包，实际: {pkt_count}"
+
+    def test_port_scan_via_start_attack_sim(self, mock_queue):
+        from campus_ids.web.attack_sim_state import start_attack_sim, sim_state
+        result = start_attack_sim('port_scan', 2)
+        assert result is None
+        assert sim_state.sim._running is True
+        time.sleep(1.5)
+        sim_state.sim.stop()
+        pkt_count = len(mock_queue.items)
+        assert pkt_count > 0, f"port_scan 单类型应注入数据包，实际: {pkt_count}"
+
+    def test_udp_flood_via_start_attack_sim(self, mock_queue):
+        from campus_ids.web.attack_sim_state import start_attack_sim, sim_state
+        result = start_attack_sim('udp_flood', 2)
+        assert result is None
+        assert sim_state.sim._running is True
+        time.sleep(1.5)
+        sim_state.sim.stop()
+        pkt_count = len(mock_queue.items)
+        assert pkt_count > 0, f"udp_flood 单类型应注入数据包，实际: {pkt_count}"
+
+    def test_invalid_type_returns_error(self):
+        from campus_ids.web.attack_sim_state import start_attack_sim
+        result = start_attack_sim('invalid_type', 2)
+        assert result is not None
+        assert result[1] == 400
+
+    def test_duplicate_start_returns_409(self):
+        from campus_ids.web.attack_sim_state import start_attack_sim, sim_state
+        result1 = start_attack_sim('syn_flood', 5)
+        assert result1 is None
+        result2 = start_attack_sim('syn_flood', 5)
+        assert result2 is not None
+        assert result2[1] == 409

@@ -113,6 +113,7 @@ except ImportError:
     logger.warning("flask-talisman 未安装，安全响应头未启用")
 
 # Flask-Login: 用户认证（可选启用）
+# L6: 仅启动时读取一次 — Flask-Login 初始化不可运行时切换
 _LOGIN_ENABLED = os.environ.get("CAMPUS_IDS_LOGIN_ENABLED", "0") == "1"
 if _LOGIN_ENABLED:
     try:
@@ -132,8 +133,9 @@ def _require_auth():
     # M4: Flask-Login 会话认证优先
     if _LOGIN_ENABLED:
         from flask_login import current_user
-        # 登录页和静态资源免认证
-        if request.path.startswith("/login") or request.path.startswith("/logout") or request.path.startswith("/static"):
+        # 登录页、静态资源和健康检查免认证
+        if (request.path.startswith("/login") or request.path.startswith("/logout")
+                or request.path.startswith("/static") or request.path == "/api/health"):
             return None
         if not current_user.is_authenticated:
             from flask import redirect, url_for
@@ -145,7 +147,7 @@ def _require_auth():
     # P2-10.5: API Token 认证（无 Flask-Login 时的降级方案）
     if not AUTH_ENABLED:
         return None
-    if request.path == "/" or request.path.startswith("/static"):
+    if request.path == "/" or request.path.startswith("/static") or request.path == "/api/health":
         return None
     if request.path.startswith("/api/"):
         if not _check_auth():
@@ -191,7 +193,7 @@ def _graceful_shutdown(signum, frame):
     logger.info("收到信号 %d，开始优雅关闭…", signum)
     try:
         stop_capture_thread()
-        if dual_detector._ml_running:
+        if dual_detector.ml_running:
             dual_detector.stop_ml_loop()
         logger.info("优雅关闭完成")
     except Exception as e:

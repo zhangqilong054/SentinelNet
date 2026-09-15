@@ -6,8 +6,9 @@ from pathlib import Path
 
 from flask import Blueprint, jsonify, request
 
+from campus_ids.web import helpers as _helpers
 from campus_ids.web.helpers import (
-    _capture_running, _state_lock,
+    _state_lock,
     dual_detector, start_capture_thread, stop_capture_thread,
     start_enhanced_capture_thread, stop_enhanced_capture_thread,
     get_enhanced_capture_status,
@@ -64,7 +65,7 @@ def api_capture_status():
             running: {type: boolean, description: 是否正在抓包}
     """
     with _state_lock:
-        running = _capture_running
+        running = _helpers._capture_running
     return jsonify({'running': running})
 
 

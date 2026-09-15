@@ -77,7 +77,7 @@ class TestGracefulShutdown:
         """优雅关闭应调用 stop_capture_thread。"""
         from campus_ids.web.app import _graceful_shutdown
 
-        mock_detector._ml_running = False
+        mock_detector.ml_running = False
         with pytest.raises(SystemExit) as exc_info:
             _graceful_shutdown(signal.SIGINT, None)
         assert exc_info.value.code == 0
@@ -89,7 +89,7 @@ class TestGracefulShutdown:
         """ML 循环运行时应调用 stop_ml_loop。"""
         from campus_ids.web.app import _graceful_shutdown
 
-        mock_detector._ml_running = True
+        mock_detector.ml_running = True
         with pytest.raises(SystemExit):
             _graceful_shutdown(signal.SIGINT, None)
         mock_detector.stop_ml_loop.assert_called_once()
@@ -100,7 +100,7 @@ class TestGracefulShutdown:
         """ML 循环未运行时不应调用 stop_ml_loop。"""
         from campus_ids.web.app import _graceful_shutdown
 
-        mock_detector._ml_running = False
+        mock_detector.ml_running = False
         with pytest.raises(SystemExit):
             _graceful_shutdown(signal.SIGINT, None)
         mock_detector.stop_ml_loop.assert_not_called()
@@ -111,7 +111,7 @@ class TestGracefulShutdown:
         """优雅关闭应以退出码 0 退出。"""
         from campus_ids.web.app import _graceful_shutdown
 
-        mock_detector._ml_running = False
+        mock_detector.ml_running = False
         with pytest.raises(SystemExit) as exc_info:
             _graceful_shutdown(signal.SIGINT, None)
         assert exc_info.value.code == 0

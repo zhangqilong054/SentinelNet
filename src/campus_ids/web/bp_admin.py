@@ -3,7 +3,6 @@ from __future__ import annotations
 
 import importlib
 import logging
-import threading
 import time as _time
 
 from flask import Blueprint, jsonify, request
@@ -12,10 +11,12 @@ from campus_ids.config import (
     MODEL_PATH, EVALUATION_PATH, TRAFFIC_CSV, TRAFFIC_STATS_CSV,
 )
 from campus_ids.detector.detector import create_rule_detector
+from campus_ids.web import helpers as _helpers
 from campus_ids.web.helpers import (
-    CONFIG, _capture_running, _state_lock, dual_detector,
+    CONFIG, _state_lock, dual_detector,
     save_traffic_data, update_config,
 )
+from campus_ids.web.attack_sim_state import sim_state, start_attack_sim
 from campus_ids.web.database import cleanup_old_data
 from campus_ids.web.sse import _sse_lock, _sse_subscribers
 from campus_ids.web.utils import _clamp_duration, _csrf_exempt, _int_param
@@ -28,81 +29,6 @@ bp_admin = Blueprint("admin", __name__)
 
 # ── 应用启动时间（用于 uptime 计算）──────────────────────────────────
 _app_start_time = _time.time()
-
-
-# ── 攻击模拟全局状态 ────────────────────────────────────────────────
-
-class AttackSimState:
-    """攻击模拟状态管理（封装全局变量，消除 global 语句）。"""
-
-    def __init__(self):
-        self.lock = threading.Lock()
-        self.sim = None          # AttackSimulator 实例
-        self.running = False
-        self.type = ""
-        self.start_time = 0.0
-        self.duration = 0        # 攻击持续时长（秒），用于自动停止检测
-
-
-_sim_state = AttackSimState()
-
-
-def _attack_watchdog(duration: int) -> None:
-    """攻击模拟看门狗：在 duration 到期后自动清理状态。"""
-    _time.sleep(duration + 1)  # 等待攻击自然结束 + 1秒缓冲
-    with _sim_state.lock:
-        if _sim_state.running and _sim_state.sim is not None:
-            # 检查所有攻击线程是否已结束
-            all_dead = all(not t.is_alive() for t in _sim_state.sim._threads)
-            if all_dead:
-                _sim_state.running = False
-                _sim_state.type = ""
-                _sim_state.duration = 0
-                _sim_state.sim = None
-                logger.info("攻击模拟已自动结束（持续 %ds）", duration)
-
-
-def _start_attack_sim(attack_type: str, duration: int) -> tuple | None:
-    """启动攻击模拟的公共逻辑。
-
-    Returns:
-        tuple: (error_response, status_code) 如果启动失败
-        None: 如果启动成功
-    """
-    valid_types = ('syn_flood', 'port_scan', 'udp_flood', 'brute_force', 'lateral', 'all')
-    if attack_type not in valid_types:
-        return ({'status': 'failed', 'message': f'无效攻击类型，可选: {valid_types}'}), 400
-
-    with _sim_state.lock:
-        if _sim_state.running:
-            return ({'status': 'failed', 'message': '攻击模拟正在运行中，请先停止'}), 409
-
-        from campus_ids.demo.attack_sim import AttackSimulator
-        _sim_state.sim = AttackSimulator()
-        _sim_state.type = attack_type
-        _sim_state.start_time = _time.time()
-        _sim_state.duration = duration
-        _sim_state.running = True
-
-        if attack_type == 'all':
-            _sim_state.sim.start_all(duration)
-        else:
-            method_map = {
-                'syn_flood': _sim_state.sim.inject_syn_flood,
-                'port_scan': _sim_state.sim.inject_port_scan,
-                'udp_flood': _sim_state.sim.inject_udp_flood,
-                'brute_force': _sim_state.sim.inject_brute_force,
-                'lateral': _sim_state.sim.inject_lateral_movement,
-            }
-            t = threading.Thread(target=method_map[attack_type], args=(duration,), daemon=True)
-            t.start()
-            _sim_state.sim._threads.append(t)
-
-        watchdog = threading.Thread(target=_attack_watchdog, args=(duration,), daemon=True)
-        watchdog.start()
-
-    logger.info("攻击模拟已启动: type=%s, duration=%ds", attack_type, duration)
-    return None
 
 
 # ── 配置管理 API ──────────────────────────────────────────────────────
@@ -226,7 +152,7 @@ def api_attack_start():
     attack_type = data.get('type', 'all')
     duration = _clamp_duration(data, default=30, lo=5, hi=300)
 
-    err = _start_attack_sim(attack_type, duration)
+    err = start_attack_sim(attack_type, duration)
     if err:
         return jsonify(err[0]), err[1]
     return jsonify({'status': 'success', 'type': attack_type, 'duration': duration})
@@ -242,14 +168,14 @@ def api_attack_stop():
       200:
         description: 攻击模拟已停止
     """
-    with _sim_state.lock:
-        if not _sim_state.running or _sim_state.sim is None:
+    with sim_state.lock:
+        if not sim_state.running or sim_state.sim is None:
             return jsonify({'status': 'success', 'message': '攻击模拟未在运行'})
-        _sim_state.sim.stop()
-        _sim_state.running = False
-        _sim_state.type = ""
-        _sim_state.duration = 0
-        _sim_state.sim = None
+        sim_state.sim.stop()
+        sim_state.running = False
+        sim_state.type = ""
+        sim_state.duration = 0
+        sim_state.sim = None
 
     logger.info("攻击模拟已停止")
     return jsonify({'status': 'success', 'running': False})
@@ -270,11 +196,11 @@ def api_attack_status():
             type: {type: string}
             elapsed_seconds: {type: number}
     """
-    with _sim_state.lock:
-        elapsed = _time.time() - _sim_state.start_time if _sim_state.running else 0
+    with sim_state.lock:
+        elapsed = _time.time() - sim_state.start_time if sim_state.running else 0
         return jsonify({
-            'running': _sim_state.running,
-            'type': _sim_state.type if _sim_state.running else "",
+            'running': sim_state.running,
+            'type': sim_state.type if sim_state.running else "",
             'elapsed_seconds': round(elapsed, 1),
         })
 
@@ -422,12 +348,12 @@ def api_health():
     # 抓包线程状态
     with _state_lock:
         health["components"]["capture"] = {
-            "status": "running" if _capture_running else "stopped",
+            "status": "running" if _helpers._capture_running else "stopped",
         }
 
     # ML 模型状态
     health["components"]["ml_model"] = {
-        "status": "loaded" if dual_detector._ml_running else "not_loaded",
+        "status": "loaded" if dual_detector.ml_running else "not_loaded",
     }
 
     # 内存使用量
