@@ -793,6 +793,80 @@
         });
     });
 
+    // ---------- O-19: 系统健康检查 ----------
+    SN.$('btnHealth').addEventListener('click', function () {
+        actionOnce(SN.$('btnHealth'), async function () {
+            var s = SN.$('healthStatus');
+            var resultEl = SN.$('healthResult');
+            var tbody = SN.$('healthTableBody');
+            s.textContent = '检查中...';
+            s.style.color = 'var(--yellow)';
+            resultEl.style.display = 'none';
+            try {
+                var data = await SN.apiGet('/api/health');
+                resultEl.style.display = 'block';
+                SN.clearNode(tbody);
+
+                var overall = data.status === 'healthy' ? '✓ 健康' : '⚠ 降级';
+                s.textContent = overall + ' (uptime ' + (data.uptime_seconds || 0) + 's)';
+                s.style.color = data.status === 'healthy' ? 'var(--safe)' : 'var(--yellow)';
+
+                var comps = data.components || {};
+                // 数据库
+                var db = comps.database || {};
+                tbody.appendChild(makeHealthRow('数据库', db.status === 'ok' ? '✓ 正常' : '✗ 错误', db.message || ''));
+                // 抓包
+                var cap = comps.capture || {};
+                tbody.appendChild(makeHealthRow('抓包线程', cap.status === 'running' ? '🟢 运行中' : '⏹ 已停止',
+                    '队列: ' + (cap.queue_size || 0) + ', 丢包: ' + (cap.dropped_packets || 0)));
+                // ML 模型
+                var ml = comps.ml_model || {};
+                tbody.appendChild(makeHealthRow('ML 模型',
+                    ml.model_loaded ? '✓ 已加载' : '- 未加载',
+                    '循环: ' + (ml.loop_running ? '运行中' : '停止') +
+                    ', 缓冲: ' + (ml.buffer_size || 0) +
+                    ', 预测: ' + (ml.predict_count || 0) +
+                    ', 攻击: ' + (ml.attack_count || 0)));
+                // 检测延迟
+                if (comps.detection_latency) {
+                    var lat = comps.detection_latency;
+                    tbody.appendChild(makeHealthRow('检测延迟', '-',
+                        'p50=' + (lat.p50_ms || 0) + 'ms p99=' + (lat.p99_ms || 0) + 'ms'));
+                }
+                // 内存
+                var mem = comps.memory || {};
+                if (mem.rss_mb) {
+                    tbody.appendChild(makeHealthRow('内存', '-', 'RSS: ' + mem.rss_mb + ' MB, VMS: ' + mem.vms_mb + ' MB'));
+                }
+                // SSE
+                var sse = comps.sse || {};
+                tbody.appendChild(makeHealthRow('SSE 订阅', '-', (sse.subscribers || 0) + ' 个连接'));
+                // Tick
+                var tick = comps.detector_tick || {};
+                tbody.appendChild(makeHealthRow('检测节拍',
+                    tick.running ? '🟢 运行中' : '⏹ 已停止',
+                    '耗时: ' + (tick.last_duration_ms || 0) + 'ms, 计数: ' + (tick.tick_count || 0)));
+                // 线程
+                var threads = comps.threads || {};
+                tbody.appendChild(makeHealthRow('线程存活', '-',
+                    '抓包: ' + (threads.capture_alive ? '✓' : '✗') +
+                    ', 增强: ' + (threads.enhanced_capture_alive ? '✓' : '✗') +
+                    ', tick: ' + (threads.detector_tick_alive ? '✓' : '✗') +
+                    ', ML: ' + (threads.ml_loop_alive ? '✓' : '✗')));
+
+            } catch (e) {
+                s.textContent = '✗ 检查失败: ' + e.message;
+                s.style.color = 'var(--danger)';
+            }
+        });
+    });
+
+    function makeHealthRow(name, status, detail) {
+        var tr = document.createElement('tr');
+        tr.innerHTML = '<td>' + name + '</td><td>' + status + '</td><td>' + detail + '</td>';
+        return tr;
+    }
+
     // ---------- 演示模式 ----------
     var demoPollTimer = null;
 

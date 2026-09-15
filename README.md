@@ -323,7 +323,7 @@ Task-main/
 | GET | `/api/dual/stats` | 双引擎检测统计 |
 | POST | `/api/dual/load` | 加载 ML 模型 |
 | POST | `/api/dual/stop` | 停止 ML 预测 |
-| POST | `/api/payload/check` | 载荷检测（SQL 注入 / XSS） |
+| POST | `/api/payload/check` | 载荷检测（SQL 注入 / XSS）— **手工送检**，非实时链路 |
 | POST | `/api/attack/start` | 启动攻击模拟 |
 | POST | `/api/attack/stop` | 停止攻击模拟 |
 | GET | `/api/attack/status` | 查询攻击模拟状态 |

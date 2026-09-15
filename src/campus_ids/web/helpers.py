@@ -476,7 +476,20 @@ def update_traffic_data():
                         logger.warning("SSE 告警回调失败: %s", exc)
         else:
             traffic_data['alert'] = None
-            # O-07b: 恢复正常时重置告警冷却
+            # O-07b: 恢复正常时重置告警冷却并推送恢复 SSE 事件
+            if _last_alert_key:  # 仅在之前有活跃告警时推送恢复事件
+                recovery_entry = {
+                    'time': traffic_data['timestamp'],
+                    'message': '✅ 恢复正常',
+                    'level': 'normal',
+                    'attack_type': 'recovery',
+                    'ml_confidence': 0.0,
+                }
+                for cb in _on_alert_callbacks:
+                    try:
+                        cb(recovery_entry)
+                    except Exception as exc:
+                        logger.warning("SSE 恢复回调失败: %s", exc)
             reset_alert_cooldown()
 
         history_entry = {

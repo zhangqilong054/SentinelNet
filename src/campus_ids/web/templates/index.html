@@ -298,6 +298,22 @@
                 </div>
             </div>
 
+            <!-- O-19: 系统健康指标 -->
+            <div class="panel">
+                <div class="panel-title">💓 系统健康</div>
+                <p class="demo-desc">实时系统运行状态（队列、线程、内存等）</p>
+                <div class="btn-row">
+                    <button class="btn btn-primary" id="btnHealth">🔄 刷新健康状态</button>
+                    <span class="status-text" id="healthStatus">--</span>
+                </div>
+                <div class="model-list" id="healthResult" style="display:none;">
+                    <table class="config-table" id="healthTable">
+                        <thead><tr><th>组件</th><th>状态</th><th>详情</th></tr></thead>
+                        <tbody id="healthTableBody"></tbody>
+                    </table>
+                </div>
+            </div>
+
             <!-- 攻击模拟控制 -->
             <div class="panel">
                 <div class="panel-title">🎯 攻击模拟控制</div>
