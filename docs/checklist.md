@@ -21,7 +21,7 @@
   - [x] `alerts` 表：时间、级别、攻击类型、置信度、描述
   - [x] `traffic_history` 表：时间戳、QPS、连接数、包计数、端口数、源IP数、告警
   - [x] `config` 表：键值对存储检测阈值
-  - [x] `models` 表：模型版本注册（替代 `registry.json`）
+  - [ ] `models` 表：模型版本注册（替代 `registry.json`）— 迁移未完成，当前仍由 `models/registry.json` 承担
   - [x] 应用启动时自动建表（`init_db()` 函数）
 - [x] 修改 `helpers.py`：`update_traffic_data()` 写入 SQLite 而非内存列表
 - [x] 修改 `helpers.py`：告警写入改用数据库插入

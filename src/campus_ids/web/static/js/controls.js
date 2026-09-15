@@ -382,7 +382,7 @@
     SN.$('btnSaveCsv').addEventListener('click', function () {
         actionOnce(SN.$('btnSaveCsv'), async function () {
             try {
-                await SN.apiGet('/api/save');
+                await SN.apiPost('/api/save');
                 setFormMsg('saveMsg', '\u2713 已保存到 traffic_stats.csv', 'success');
             } catch (e) {
                 setFormMsg('saveMsg', '\u2717 保存失败：' + e.message, 'error');

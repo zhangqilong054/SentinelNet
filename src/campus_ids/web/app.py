@@ -80,6 +80,8 @@ except ImportError:
 # Flask-WTF: CSRF 保护（需要 SECRET_KEY）
 _app_secret = os.environ.get("CAMPUS_IDS_SECRET_KEY", "sentinelnet-dev-secret-key-change-in-prod")
 app.secret_key = _app_secret
+if _app_secret == "sentinelnet-dev-secret-key-change-in-prod":
+    logger.warning("⚠️ 使用默认 SECRET_KEY（仅限开发环境），生产环境请设置 CAMPUS_IDS_SECRET_KEY 环境变量！")
 try:
     from flask_wtf.csrf import CSRFProtect
     _csrf = CSRFProtect(app)

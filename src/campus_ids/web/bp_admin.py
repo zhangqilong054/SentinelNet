@@ -98,7 +98,9 @@ def config():
 
 # ── 数据管理 API ──────────────────────────────────────────────────────
 
-@bp_admin.route("/api/save")
+@bp_admin.route("/api/save", methods=['POST'])
+@_csrf_exempt
+@write_limit
 def save_data():
     """保存流量数据到 CSV 文件
     ---
@@ -111,22 +113,29 @@ def save_data():
     return jsonify({'status': 'success', 'message': '数据已保存到 traffic_stats.csv'})
 
 
-@bp_admin.route("/api/cleanup")
+@bp_admin.route("/api/cleanup", methods=['POST'])
+@_csrf_exempt
+@write_limit
 def api_cleanup():
     """清理过期历史数据
     ---
     tags: [数据管理]
     parameters:
-      - name: days
-        in: query
-        type: integer
-        default: 7
-        description: 保留最近N天的数据
+      - name: body
+        in: body
+        required: false
+        schema:
+          type: object
+          properties:
+            days: {type: integer, default: 7, description: 保留最近N天的数据}
     responses:
       200:
         description: 清理结果
     """
-    days = _int_param("days", 7, min_val=1)
+    data = request.get_json() or {}
+    days = data.get("days", 7)
+    if not isinstance(days, int) or days < 1:
+        days = 7
     result = cleanup_old_data(days=days)
     return jsonify({'status': 'success', **result})
 

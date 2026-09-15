@@ -186,17 +186,22 @@ Task-main/
 ├── Dockerfile                     # Docker 容器构建
 ├── docker-compose.yml             # Docker Compose 一键部署
 ├── traffic_data.csv               # 增强抓包数据（运行时生成）
-├── model.pkl                      # 训练模型（CICIDS2017, RF, Attack F1=0.9998）
+├── model.pkl                      # 当前模型（synthetic_demo 合成数据，仅演示用途）
 ├── confusion_matrix.png           # 混淆矩阵图（训练时生成）
 ├── evaluation_report.txt          # 评估报告（训练时生成）
-├── tests/                         # 单元测试（109 个）
+├── tests/                         # 单元测试（144 个，12 个文件）
+│   ├── test_alert_cooldown.py     #   告警冷却测试（9 个）
 │   ├── test_attack_sim.py         #   攻击模拟测试（17 个）
 │   ├── test_detector.py           #   规则检测 + 双引擎测试（33 个）
+│   ├── test_dual_confidence.py    #   双引擎置信度测试（7 个）
 │   ├── test_enhanced_features.py  #   增强特征测试（20 个）
-│   ├── test_train.py              #   模型训练测试（11 个）
+│   ├── test_grease_filter.py      #   GREASE 过滤测试（10 个）
+│   ├── test_idle_flow.py          #   空闲流检测测试（8 个）
+│   ├── test_queue_overflow.py     #   队列溢出测试（5 个）
 │   ├── test_sse_endpoints.py      #   SSE 端点测试（6 个）
 │   ├── test_tls_analyzer.py       #   TLS 分析测试（10 个）
-│   └── test_verification.py       #   验证测试（12 个）
+│   ├── test_train.py              #   模型训练测试（11 个）
+│   └── test_verification.py       #   验证测试（8 个）
 ├── docs/                          # 文档（checklist.md、操作手册.md）
 └── src/campus_ids/
     ├── __init__.py
@@ -227,9 +232,11 @@ Task-main/
         ├── auth.py                # Flask-Login 认证
         ├── database.py            # SQLite 用户数据库
         ├── helpers.py             # 全局状态、抓包线程、流量更新与保存
+        ├── limiter.py             # API 速率限制（按端点分级）
         ├── templates/
         │   ├── index.html         # 仪表盘 Jinja 模板（6 页签）
-        │   └── login.html         # 登录页模板
+        │   ├── login.html         # 登录页模板
+        │   └── change_password.html  # 修改密码模板
         └── static/
             ├── css/dashboard.css  # 设计 token + 组件样式
             └── js/
@@ -310,11 +317,14 @@ Task-main/
 | GET | `/api/stream/alerts` | SSE 实时告警推送 |
 | GET | `/api/config` | 获取当前检测阈值配置 |
 | POST | `/api/config` | 更新检测阈值 |
-| GET | `/api/save` | 保存流量统计到 CSV |
+| POST | `/api/save` | 保存流量统计到 CSV |
 | POST | `/api/cleanup` | 清理旧数据 |
 | POST | `/api/capture/start` | 启动基础抓包线程 |
 | POST | `/api/capture/stop` | 停止基础抓包线程 |
 | GET | `/api/capture/status` | 查询基础抓包状态 |
+| POST | `/api/detector/start` | 启动检测节拍 |
+| POST | `/api/detector/stop` | 停止检测节拍 |
+| GET | `/api/detector/status` | 查询检测节拍状态 |
 | POST | `/api/capture/start-enhanced` | 启动增强抓包（18 维特征） |
 | POST | `/api/capture/stop-enhanced` | 停止增强抓包 |
 | GET | `/api/capture/enhanced-status` | 查询增强抓包状态 |
@@ -341,6 +351,8 @@ Task-main/
 ## 八、模型评估
 
 ### 算法对比（CICIDS2017 DDoS 数据集，2026-09-12 实测）
+
+> **注意**：当前交付的 `model.pkl` 来自 `synthetic_demo` 合成数据（200 样本），仅用于演示，不具备实际检测能力。如需生产级模型，请使用 CICIDS2017 或其他真实数据集重新训练（通过 Web 面板 → 模型管理 → 训练模型，选择 `cicids2017` 数据源）。以下 CICIDS2017 指标为历史训练记录。
 
 | 模型 | F1 | Attack F1 | FPR | 备注 |
 |------|-----|-----------|-----|------|
@@ -415,18 +427,28 @@ docker compose up --build
 
 ## 十二、测试
 
+> **覆盖率**：当前 branch 模式覆盖率 **34%**（3501 语句 / 2211 未覆盖）。核心规则检测 `detector.py` 达 100%，但模型训练→评估链路（5%–17%）、Web 蓝图层（21%–32%）覆盖偏低，后续迭代建议优先补测试。
+
 ```bash
-# 运行全部测试（109 个）
+# 运行全部测试（144 个）
 python -m pytest tests/ -v
 
+# 运行覆盖率（branch 模式）
+python -m pytest tests/ --cov=campus_ids --cov-report=term-missing --cov-branch
+
 # 运行指定模块测试
+python -m pytest tests/test_alert_cooldown.py -v     # 告警冷却（9 个）
 python -m pytest tests/test_attack_sim.py -v          # 攻击模拟（17 个）
 python -m pytest tests/test_detector.py -v            # 规则检测 + 双引擎（33 个）
+python -m pytest tests/test_dual_confidence.py -v     # 双引擎置信度（7 个）
 python -m pytest tests/test_enhanced_features.py -v   # 增强特征（20 个）
-python -m pytest tests/test_train.py -v               # 模型训练（11 个）
+python -m pytest tests/test_grease_filter.py -v       # GREASE 过滤（10 个）
+python -m pytest tests/test_idle_flow.py -v           # 空闲流检测（8 个）
+python -m pytest tests/test_queue_overflow.py -v      # 队列溢出（5 个）
 python -m pytest tests/test_sse_endpoints.py -v       # SSE 端点（6 个）
 python -m pytest tests/test_tls_analyzer.py -v        # TLS 分析（10 个）
-python -m pytest tests/test_verification.py -v        # 验证测试（12 个）
+python -m pytest tests/test_train.py -v               # 模型训练（11 个）
+python -m pytest tests/test_verification.py -v        # 验证测试（8 个）
 ```
 
 > **注意**：若系统 Python 缺少 pytest，请使用 Anaconda Python 完整路径：
