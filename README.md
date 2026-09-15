@@ -348,6 +348,31 @@ Task-main/
 
 > API 认证默认关闭，通过 `CAMPUS_IDS_AUTH_ENABLED=1` 启用。详见 [操作手册 §5](docs/操作手册.md)。
 
+### 写操作为何需要 CSRF Token
+
+所有 `POST` 端点受 Flask-WTF CSRF 保护。仅附加 `Content-Type` 头**不能**通过校验，必须提交首页 `<meta name="csrf-token">` 中的 token；`utils._csrf_exempt` 只在 Bearer 模式下豁免（即设置了 `CAMPUS_IDS_API_TOKEN` 时）。默认配置下的两步调用：
+
+```bash
+# 1) 取 token（HTML 页面免认证，同时保存会话 cookie）
+TOKEN=$(curl -s -c cookie.txt http://localhost:5000/ \
+  | grep -o 'name="csrf-token" content="[^"]*"' | cut -d'"' -f4)
+
+# 2) 带 token 调用写操作
+curl -X POST http://localhost:5000/api/cleanup \
+  -b cookie.txt -H "X-CSRFToken: $TOKEN" \
+  -H "Content-Type: application/json" -d '{"days": 30}'   # 保留最近 30 天
+
+curl -X POST http://localhost:5000/api/save -b cookie.txt -H "X-CSRFToken: $TOKEN"
+```
+
+设置了 `CAMPUS_IDS_API_TOKEN` 后转为 Bearer 模式，写操作豁免 CSRF，直接带 `Authorization` 即可：
+
+```bash
+curl -X POST http://localhost:5000/api/cleanup \
+  -H "Authorization: Bearer $CAMPUS_IDS_API_TOKEN" \
+  -H "Content-Type: application/json" -d '{"days": 30}'
+```
+
 ## 八、模型评估
 
 ### 算法对比（CICIDS2017 DDoS 数据集，2026-09-12 实测）

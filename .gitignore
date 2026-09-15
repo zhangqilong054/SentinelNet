@@ -39,6 +39,7 @@ desktop.ini
 # Project specific
 .trae/
 .joycode/memory/
+.workbuddy/memory/
 confusion_matrix.png
 evaluation_report.txt
 
