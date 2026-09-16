@@ -30,13 +30,6 @@ from campus_ids.web_new.security import limiter
 
 logger = logging.getLogger(__name__)
 
-# ── 剧本定义（ADR-0001 §3.3）──────────────────────────────────────
-SCENARIOS = {
-    "demo": ["capture", "ml", "attack"],
-    "full": ["capture_full", "train", "ml"],
-    "attack": ["attack"],
-}
-
 
 def _register_default_tasks(registry: TaskRegistry) -> None:
     """注册默认任务描述符（阶段1空壳，阶段2接入 services/）。"""
@@ -131,6 +124,10 @@ async def lifespan(app: FastAPI):
     registry = TaskRegistry()
     _register_default_tasks(registry)
     app.state.task_registry = registry
+
+    # 初始化剧本服务
+    from campus_ids.services.scenario_service import ScenarioService
+    app.state.scenario_service = ScenarioService(registry)
 
     logger.info("SentinelNet FastAPI 应用启动 (port=%d)", settings.web_port)
 

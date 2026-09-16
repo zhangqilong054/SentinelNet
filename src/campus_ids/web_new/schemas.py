@@ -191,7 +191,7 @@ class ScenarioInfoResponse(BaseModel):
     """剧本信息响应。"""
     name: str
     description: str
-    tasks: list[str]
+    steps: list[str] = Field(description="剧本子任务序列")
 
 
 class ScenarioListResponse(BaseModel):
@@ -201,6 +201,16 @@ class ScenarioListResponse(BaseModel):
 
 class ScenarioStartRequest(BaseModel):
     """剧本启动请求。"""
+    scenario: str = Field(description="剧本名称: demo | full | attack")
+    duration: int | None = Field(
+        default=None,
+        ge=1,
+        description="限时子任务运行秒数（仅影响 TIMED 类型子任务）",
+    )
+
+
+class ScenarioStopRequest(BaseModel):
+    """剧本停止请求。"""
     scenario: str = Field(description="剧本名称: demo | full | attack")
 
 
