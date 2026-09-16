@@ -206,17 +206,51 @@ def _assert_single_worker() -> None:
                 )
 
 
+# ── 已知不安全的默认密钥 ──────────────────────────────────────────
+_INSECURE_SECRET_KEYS = frozenset({
+    "change-me-in-production",
+    "sentinelnet-dev-secret-key-change-in-prod",
+})
+
+
+def _assert_secret_key(settings: Settings) -> None:
+    """断言 secret_key 不是公开默认值（ADR-0001 §6.1 安全要求）。
+
+    生产模式（debug=False）：使用公开默认密钥 → 拒绝启动。
+    开发模式（debug=True）：使用公开默认密钥 → 打印 WARNING。
+    """
+    if settings.secret_key not in _INSECURE_SECRET_KEYS:
+        return  # 密钥已自定义，安全
+
+    if settings.debug:
+        logger.warning(
+            "⚠️  secret_key 仍为公开默认值 '%s'，仅限开发环境使用！"
+            "生产环境请设置 CAMPUS_IDS_SECRET_KEY 环境变量。",
+            settings.secret_key,
+        )
+    else:
+        raise RuntimeError(
+            f"secret_key 为公开默认值 '{settings.secret_key}'，拒绝启动。"
+            "CSRF 签名和会话 cookie 可被伪造，存在严重安全风险。"
+            "请设置 CAMPUS_IDS_SECRET_KEY 环境变量，"
+            "或在开发环境设置 CAMPUS_IDS_DEBUG=1。"
+        )
+
+
 def create_app() -> FastAPI:
     """创建 FastAPI 应用实例。
 
     约束（ADR-0001 §4.1）：
     - 单 worker：检测到 WEB_CONCURRENCY>1 或 CLI --workers>1 时拒绝启动
+    - secret_key：不得使用公开默认值（生产模式拒绝启动）
     - 所有初始化在此函数内完成，import 不产生副作用
     """
     # ── 单 worker 断言 ──────────────────────────────────────────
     _assert_single_worker()
 
+    # ── secret_key 安全断言 ─────────────────────────────────────
     settings = get_settings()
+    _assert_secret_key(settings)
 
     app = FastAPI(
         title="SentinelNet",

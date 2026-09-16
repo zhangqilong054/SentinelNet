@@ -1,13 +1,19 @@
-"""单 worker 不变量测试 — 验证 _assert_single_worker() 四组断言。
+"""启动断言测试 — 验证 _assert_single_worker() 与 _assert_secret_key()。
 
 ADR-0001 §4.1：运行时状态全部驻留进程内，多 worker 会导致状态分裂。
-create_app() 启动时调用 _assert_single_worker()，检测到违规即拒绝启动。
+ADR-0001 §6.1：secret_key 不得使用公开默认值（生产模式拒绝启动）。
 
-四组断言：
+单 worker 四组断言：
 1. WEB_CONCURRENCY>1 → RuntimeError
 2. --workers>1 / --workers=N>1 → RuntimeError
 3. 非数字值（WEB_CONCURRENCY/--workers）→ RuntimeError
 4. 单 worker 正常启动（WEB_CONCURRENCY=1/--workers=1/无约束）
+
+secret_key 断言：
+1. 默认密钥 + 非调试模式 → RuntimeError（拒绝启动）
+2. 默认密钥 + 调试模式 → WARNING（允许启动）
+3. 自定义密钥 → 正常启动
+4. .env.example 中的公开密钥 → 同默认密钥处理
 """
 from __future__ import annotations
 
@@ -16,8 +22,13 @@ import sys
 
 import pytest
 
-from campus_ids.web_new.app import _assert_single_worker, create_app
-from campus_ids.runtime.settings import reset_settings
+from campus_ids.web_new.app import (
+    _assert_single_worker,
+    _assert_secret_key,
+    _INSECURE_SECRET_KEYS,
+    create_app,
+)
+from campus_ids.runtime.settings import Settings, reset_settings
 
 
 @pytest.fixture(autouse=True)
@@ -163,3 +174,64 @@ class TestCombinedConstraints:
         monkeypatch.setattr(sys, "argv", ["uvicorn", "--workers", "4"])
         with pytest.raises(RuntimeError, match=r"--workers=4"):
             _assert_single_worker()
+
+
+# ── secret_key 安全断言 ──────────────────────────────────────────
+
+
+class TestSecretKeyAssertion:
+    """_assert_secret_key() 验证：公开默认密钥在非调试模式下拒绝启动。"""
+
+    def test_default_key_production_raises(self):
+        """默认密钥 + 非调试模式 → RuntimeError（拒绝启动）。"""
+        settings = Settings(secret_key="change-me-in-production", debug=False)
+        with pytest.raises(RuntimeError, match="公开默认值"):
+            _assert_secret_key(settings)
+
+    def test_default_key_debug_warns(self, caplog):
+        """默认密钥 + 调试模式 → WARNING（允许启动）。"""
+        import logging
+
+        settings = Settings(secret_key="change-me-in-production", debug=True)
+        with caplog.at_level(logging.WARNING):
+            _assert_secret_key(settings)  # 不应抛出异常
+
+        assert "secret_key" in caplog.text.lower()
+        assert "公开默认值" in caplog.text or "WARNING" in caplog.text
+
+    def test_custom_key_production_ok(self):
+        """自定义密钥 + 非调试模式 → 正常启动。"""
+        settings = Settings(secret_key="my-super-secret-key-12345", debug=False)
+        _assert_secret_key(settings)  # 不应抛出异常
+
+    def test_env_example_key_production_raises(self):
+        """.env.example 中的公开密钥 + 非调试模式 → RuntimeError。"""
+        settings = Settings(
+            secret_key="sentinelnet-dev-secret-key-change-in-prod", debug=False
+        )
+        with pytest.raises(RuntimeError, match="公开默认值"):
+            _assert_secret_key(settings)
+
+    def test_insecure_keys_set_contains_both_defaults(self):
+        """_INSECURE_SECRET_KEYS 包含两个已知的公开默认值。"""
+        assert "change-me-in-production" in _INSECURE_SECRET_KEYS
+        assert "sentinelnet-dev-secret-key-change-in-prod" in _INSECURE_SECRET_KEYS
+
+    def test_create_app_with_default_key_in_debug_mode(self):
+        """create_app() 在调试模式 + 默认密钥下可正常创建（conftest 已设 DEBUG=1）。"""
+        # conftest.py 的 _test_debug_mode 已设 CAMPUS_IDS_DEBUG=1
+        app = create_app()
+        assert app is not None
+
+    def test_create_app_with_custom_key_in_production_mode(self):
+        """create_app() 在自定义密钥 + 非调试模式下可正常创建。"""
+        os.environ["CAMPUS_IDS_SECRET_KEY"] = "my-production-secret-key-67890"
+        os.environ.pop("CAMPUS_IDS_DEBUG", None)
+        reset_settings()
+        try:
+            app = create_app()
+            assert app is not None
+        finally:
+            os.environ.pop("CAMPUS_IDS_SECRET_KEY", None)
+            os.environ["CAMPUS_IDS_DEBUG"] = "1"
+            reset_settings()

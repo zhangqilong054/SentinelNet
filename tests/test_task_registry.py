@@ -270,3 +270,87 @@ class TestFailedTask:
         assert handle is not None
         assert handle.status == TaskStatus.FAILED
         assert handle.error is not None
+
+
+# ── 看门狗超时自动停止 ──────────────────────────────────────────
+
+
+class TestWatchdogAutoStop:
+    """验证限时任务超时后看门狗自动停止（T1.4 验收缺口补测）。
+
+    T1 报告指出：原测试 start(duration=2) 后立刻 stop()，从未等看门狗触发。
+    此测试验证：start(duration=N) → 不调 stop() → N 秒后看门狗自动停止。
+    """
+
+    def test_timed_task_auto_stops_on_timeout(self):
+        """限时任务超时后看门狗自动停止（到点真停了）。"""
+        reg = TaskRegistry()
+        reg.register(Task(
+            name="attack",
+            kind=TaskKind.TIMED,
+            target=_slow_worker,
+            default_duration=60,
+        ))
+        # 启动限时任务，duration=2 秒
+        result = reg.start("attack", duration=2)
+        assert result["status"] == "started"
+
+        # 确认正在运行
+        s = reg.status("attack")
+        assert s["status"] == TaskStatus.RUNNING.value
+
+        # 不调用 stop()，等待看门狗触发（看门狗每 1 秒轮询，需等 >2 秒）
+        time.sleep(3.5)
+
+        # 看门狗应已自动停止任务
+        s = reg.status("attack")
+        assert s["status"] in (TaskStatus.STOPPING.value, TaskStatus.FINISHED.value), (
+            f"限时任务超时后应自动停止，实际状态: {s['status']}"
+        )
+
+    def test_timed_task_actual_duration_used_by_watchdog(self):
+        """看门狗使用 actual_duration（而非 default_duration）判断超时。"""
+        reg = TaskRegistry()
+        reg.register(Task(
+            name="demo",
+            kind=TaskKind.TIMED,
+            target=_slow_worker,
+            default_duration=60,  # 默认 60 秒
+        ))
+        # 覆盖 duration=2 秒（远小于 default_duration=60）
+        result = reg.start("demo", duration=2)
+        assert result["status"] == "started"
+
+        # 等待看门狗触发
+        time.sleep(3.5)
+
+        # 如果看门狗用的是 default_duration=60，任务仍应为 RUNNING
+        # 如果用的是 actual_duration=2，任务应已停止
+        s = reg.status("demo")
+        assert s["status"] in (TaskStatus.STOPPING.value, TaskStatus.FINISHED.value), (
+            f"看门狗应使用 actual_duration=2 而非 default_duration=60，"
+            f"实际状态: {s['status']}"
+        )
+
+    def test_continuous_task_not_stopped_by_watchdog(self):
+        """连续任务不受看门狗影响。"""
+        reg = TaskRegistry()
+        reg.register(Task(
+            name="capture",
+            kind=TaskKind.CONTINUOUS,
+            target=_slow_worker,
+        ))
+        reg.start("capture")
+
+        # 等待超过任何可能的超时
+        time.sleep(2.5)
+
+        # 连续任务应仍在运行
+        s = reg.status("capture")
+        assert s["status"] == TaskStatus.RUNNING.value, (
+            f"连续任务不应被看门狗停止，实际状态: {s['status']}"
+        )
+
+        # 清理
+        reg.stop("capture")
+        time.sleep(0.3)

@@ -102,27 +102,28 @@ def validate_csrf(request: Request) -> None:
 _bearer_scheme = HTTPBearer(auto_error=False)
 
 
-async def require_api_token(
+async def _verify_bearer_token(
     credentials: Annotated[HTTPAuthorizationCredentials | None, Depends(_bearer_scheme)],
     settings: Annotated[Settings, Depends(get_settings)],
-) -> None:
-    """验证 API Token（Bearer 认证）。
+) -> bool:
+    """验证 Bearer Token，返回是否通过认证。
 
-    若 settings.auth_enabled=False 或 api_token 为空，跳过认证。
+    - 认证未启用（auth_enabled=False 或 api_token 为空）→ True（视为已通过）
+    - 无 Bearer 凭据 → False（未提供，可能通过 session 回退）
+    - Bearer 无效 → 抛 401（提供了但错误，不给回退机会）
+    - Bearer 有效 → True
     """
     if not settings.auth_enabled or not settings.api_token:
-        return  # 认证未启用
+        return True  # 认证未启用，视为已通过
     if credentials is None:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="未提供 API Token",
-            headers={"WWW-Authenticate": "Bearer"},
-        )
+        return False  # 未提供 Bearer，允许 session 回退
     if not hmac.compare_digest(credentials.credentials, settings.api_token):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="API Token 无效",
+            headers={"WWW-Authenticate": "Bearer"},
         )
+    return True  # Bearer 认证通过
 
 
 # ── 会话认证 ──────────────────────────────────────────────────────
@@ -146,40 +147,52 @@ async def public_policy() -> None:
 
 async def readonly_policy(
     request: Request,
-    auth: Annotated[None, Depends(require_api_token)],
+    bearer_ok: Annotated[bool, Depends(_verify_bearer_token)],
 ) -> None:
     """@readonly 策略：需认证（若开启），免 CSRF。用于 GET 端点。
 
-    认证顺序：Bearer Token 优先；若 auth_enabled=False 则跳过。
-    会话认证：若 Bearer 未提供且 session 中有 user，视为已认证。
+    认证顺序：Bearer Token 优先 → session 回退。
+    - Bearer 有效 → 通过
+    - 无 Bearer 但 session 有 user → 通过
+    - Bearer 无效 → _verify_bearer_token 已抛 401
+    - 认证启用但无 Bearer 且无会话 → 401
     """
-    # Bearer 已由 require_api_token 验证（或认证未启用时跳过）
-    # 若 Bearer 未提供但 session 有 user，也视为已认证
-    if request.headers.get("authorization"):
-        return  # Bearer 已验证
+    if bearer_ok:
+        return  # Bearer 已验证或认证未启用
+    # Bearer 未提供，尝试 session 回退
     session_user = await require_session_user(request)
     if session_user:
         return  # 会话已认证
-    # 认证启用但无 Bearer 且无会话 — require_api_token 已抛 401
-    return
+    # 认证启用但无 Bearer 且无会话
+    raise HTTPException(
+        status_code=status.HTTP_401_UNAUTHORIZED,
+        detail="未提供认证凭据",
+        headers={"WWW-Authenticate": "Bearer"},
+    )
 
 
 async def write_policy(
     request: Request,
-    auth: Annotated[None, Depends(require_api_token)],
+    bearer_ok: Annotated[bool, Depends(_verify_bearer_token)],
     csrf: Annotated[None, Depends(validate_csrf)],
 ) -> None:
     """@write 策略：认证 + CSRF。用于 POST/PUT/DELETE 端点。
 
     CSRF 双提交 cookie 与认证模式无关（Bearer / session 一致）。
+    认证顺序与 readonly 相同：Bearer 优先 → session 回退。
     """
-    # Bearer + CSRF 已验证；若 Bearer 未提供但 session 有 user 也可
-    if not request.headers.get("authorization"):
-        session_user = await require_session_user(request)
-        if not session_user:
-            # require_api_token 已抛 401（若认证启用）
-            pass
-    return
+    if bearer_ok:
+        return  # Bearer 已验证或认证未启用
+    # Bearer 未提供，尝试 session 回退
+    session_user = await require_session_user(request)
+    if session_user:
+        return  # 会话已认证
+    # 认证启用但无 Bearer 且无会话
+    raise HTTPException(
+        status_code=status.HTTP_401_UNAUTHORIZED,
+        detail="未提供认证凭据",
+        headers={"WWW-Authenticate": "Bearer"},
+    )
 
 
 # ── 依赖别名（方便在路由中使用）────────────────────────────────────

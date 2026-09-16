@@ -80,6 +80,7 @@ class Settings(BaseSettings):
     auth_enabled: bool = Field(default=True, description="是否启用 API Token 认证")
     login_enabled: bool = Field(default=False, description="是否启用 Flask-Login 会话认证")
     secret_key: str = Field(default="change-me-in-production", description="会话密钥")
+    debug: bool = Field(default=False, description="开发模式（允许不安全默认值）")
 
     # ── CORS ──────────────────────────────────────────────────────
     cors_origins: list[str] = Field(

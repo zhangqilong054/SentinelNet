@@ -543,3 +543,94 @@ class TestSessionAuth:
 
         req = FakeRequest()
         assert is_authenticated(req) is False
+
+
+# ── 会话认证 HTTP 级集成测试（修复 T1.11 ① 死代码）─────────────────────
+
+
+class TestSessionAuthHTTP:
+    """验证会话认证在 HTTP 层实际生效（T1.11 ① 修复验证）。
+
+    修复前：require_api_token 在无 Bearer 时直接抛 401，会话回退是死代码。
+    修复后：_verify_bearer_token 返回 False，policy 函数回退检查 session。
+    """
+
+    @pytest.fixture()
+    def client_with_session_auth(self):
+        """认证开启 + 会话登录的 TestClient。
+
+        使用 itsdangerous.TimestampSigner 创建合法 session cookie，
+        签名方式与 Starlette SessionMiddleware 完全一致：
+        - 无 salt（Starlette 默认不传 salt）
+        - 默认 JSON 分隔符（带空格）
+        - base64 编码
+        """
+        import base64
+        import json
+
+        import itsdangerous
+
+        os.environ["CAMPUS_IDS_AUTH_ENABLED"] = "1"
+        os.environ["CAMPUS_IDS_API_TOKEN"] = "test-secret-token"
+        reset_settings()
+        app = create_app()
+        client = TestClient(app)
+
+        # 获取 secret_key（与 SessionMiddleware 使用同一个）
+        from campus_ids.runtime.settings import get_settings
+        settings = get_settings()
+
+        # 创建签名器（与 Starlette SessionMiddleware 相同：无 salt）
+        signer = itsdangerous.TimestampSigner(str(settings.secret_key))
+        session_data = {"user": "admin", "authenticated": True}
+        # 使用默认 JSON 分隔符（与 Starlette 一致）
+        data = base64.b64encode(json.dumps(session_data).encode("utf-8"))
+        signed = signer.sign(data).decode("utf-8")
+        client.cookies.set("campus_ids_session", signed)
+        yield client
+        os.environ.pop("CAMPUS_IDS_AUTH_ENABLED", None)
+        os.environ.pop("CAMPUS_IDS_API_TOKEN", None)
+        reset_settings()
+
+    def test_readonly_with_session_no_bearer(self, client_with_session_auth):
+        """认证开启 + 会话登录（无 Bearer）→ GET /api/alerts 返回 200。
+
+        这是 T1.11 ① 的核心修复验证：会话回退不再是死代码。
+        """
+        resp = client_with_session_auth.get("/api/alerts")
+        assert resp.status_code == 200, (
+            f"会话认证应生效：auth_enabled=1 + session user=admin → 期望 200，"
+            f"实际 {resp.status_code}（{resp.text[:200]})"
+        )
+
+    def test_write_with_session_and_csrf(self, client_with_session_auth):
+        """认证开启 + 会话登录 + CSRF → POST 返回 200。"""
+        # 获取 CSRF token
+        csrf_resp = client_with_session_auth.get("/api/csrf-token")
+        csrf_token = csrf_resp.json().get("csrf_token", "")
+        client_with_session_auth.cookies.set("csrf_token", csrf_token)
+        resp = client_with_session_auth.post(
+            "/api/tasks/capture/start",
+            json={"duration": 30},
+            headers={"X-CSRFToken": csrf_token},
+        )
+        assert resp.status_code == 200, (
+            f"会话认证 + CSRF 应生效：期望 200，实际 {resp.status_code}"
+        )
+
+    def test_session_without_user_fails(self, client_with_auth):
+        """认证开启 + 空 session（无 user）→ GET /api/alerts 返回 401。"""
+        # client_with_auth 有 Bearer token 认证但无 session user
+        # 使用不带 Authorization header 的请求
+        resp = client_with_auth.get("/api/alerts")
+        assert resp.status_code == 401, (
+            f"无 Bearer + 无 session user → 期望 401，实际 {resp.status_code}"
+        )
+
+    def test_bearer_still_works_with_session_auth_fix(self, client_with_auth):
+        """修复后 Bearer 认证仍然正常工作。"""
+        resp = client_with_auth.get(
+            "/api/alerts",
+            headers={"Authorization": "Bearer test-secret-token"},
+        )
+        assert resp.status_code == 200
