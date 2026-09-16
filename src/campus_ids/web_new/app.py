@@ -141,6 +141,22 @@ async def lifespan(app: FastAPI):
     from campus_ids.capture.tls_analyzer import tls_analyzer
     app.state.tls_analyzer = tls_analyzer
 
+    # 初始化双引擎检测器
+    from campus_ids.detector.detector import create_rule_detector
+    from campus_ids.detector.dual_detector import DualDetector
+    rule_detector = create_rule_detector(
+        ddos_threshold=settings.ddos_threshold,
+        port_scan_threshold=settings.port_scan_threshold,
+        syn_flood_threshold=settings.syn_flood_threshold,
+        udp_flood_threshold=settings.udp_flood_threshold,
+        brute_force_threshold=settings.brute_force_threshold,
+        brute_force_window=settings.brute_force_window,
+        lateral_movement_threshold=settings.lateral_movement_threshold,
+    )
+    dual_detector = DualDetector(rule_detector=rule_detector)
+    app.state.rule_detector = rule_detector
+    app.state.dual_detector = dual_detector
+
     logger.info("SentinelNet FastAPI 应用启动 (port=%d)", settings.web_port)
 
     yield

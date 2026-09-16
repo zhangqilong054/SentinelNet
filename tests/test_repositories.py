@@ -371,7 +371,7 @@ class TestUserRepositoryCleanupOldData:
             conn, time="2099-01-01 00:00:00", level="high",
             attack_type="ddos", message="future alert",
         )
-        deleted = UserRepository.cleanup_old_data(conn, days=30)
-        assert deleted >= 1
+        alerts_deleted, traffic_deleted = UserRepository.cleanup_old_data(conn, days=30)
+        assert alerts_deleted >= 1
         remaining = AlertRepository.count(conn)
         assert remaining == 1  # 未来记录保留

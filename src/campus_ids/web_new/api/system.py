@@ -10,12 +10,16 @@
 from __future__ import annotations
 
 import importlib
+import logging
 import sys
 import time
 from pathlib import Path
 
 from fastapi import APIRouter, Request
 from fastapi.responses import JSONResponse
+from sqlalchemy import text
+
+logger = logging.getLogger(__name__)
 
 from campus_ids.runtime.db import get_connection
 from campus_ids.runtime.repositories import ConfigRepository
@@ -58,7 +62,7 @@ async def health_check(request: Request) -> HealthResponse:
     # 数据库连接状态
     try:
         with get_connection() as conn:
-            conn.execute("SELECT 1")
+            conn.execute(text("SELECT 1"))
         health["components"]["database"] = {"status": "ok"}
     except Exception as e:
         health["components"]["database"] = {"status": "error", "message": str(e)}
@@ -249,6 +253,59 @@ async def get_settings_endpoint(request: Request) -> SettingsResponse:
     )
 
 
+# ── T2.12: 阈值热更新辅助 ──────────────────────────────────────
+
+_RULE_THRESHOLD_KEYS = frozenset({
+    "ddos_threshold", "port_scan_threshold", "syn_flood_threshold",
+    "udp_flood_threshold", "brute_force_threshold",
+    "brute_force_window", "lateral_movement_threshold",
+})
+
+
+def _rebuild_rule_detector(app) -> None:
+    """用当前 settings 重建 rule_detector，迁移有状态追踪器。
+
+    仅在阈值类配置变更时调用，保证：
+    1. 新 detector 使用最新阈值
+    2. _bf_tracker / _lateral_tracker 从旧实例迁移（不丢失运行时状态）
+    3. app.state.rule_detector 和 dual_detector.rule_detector 同步更新
+    """
+    from campus_ids.detector.detector import create_rule_detector
+
+    settings: Settings = app.state.settings
+    old_detector = getattr(app.state, "rule_detector", None)
+
+    new_detector = create_rule_detector(
+        ddos_threshold=settings.ddos_threshold,
+        port_scan_threshold=settings.port_scan_threshold,
+        syn_flood_threshold=settings.syn_flood_threshold,
+        udp_flood_threshold=settings.udp_flood_threshold,
+        brute_force_threshold=settings.brute_force_threshold,
+        brute_force_window=settings.brute_force_window,
+        lateral_movement_threshold=settings.lateral_movement_threshold,
+    )
+
+    # 迁移有状态追踪器（暴力破解滑窗 + 横向移动追踪）
+    if old_detector is not None:
+        new_detector._bf_tracker = old_detector._bf_tracker
+        new_detector._lateral_tracker = old_detector._lateral_tracker
+
+    app.state.rule_detector = new_detector
+
+    # 同步更新 dual_detector 的 rule_detector 引用
+    dual_detector = getattr(app.state, "dual_detector", None)
+    if dual_detector is not None:
+        dual_detector.rule_detector = new_detector
+
+    logger.info(
+        "规则检测器已热重建 (ddos=%d, port_scan=%d, syn=%d, udp=%d, bf=%d, bf_win=%d, lateral=%d)",
+        settings.ddos_threshold, settings.port_scan_threshold,
+        settings.syn_flood_threshold, settings.udp_flood_threshold,
+        settings.brute_force_threshold, settings.brute_force_window,
+        settings.lateral_movement_threshold,
+    )
+
+
 # ── PUT /api/settings ──────────────────────────────────────────────
 
 @router.put("/settings", dependencies=[Write], summary="更新阈值配置")
@@ -257,7 +314,7 @@ async def update_settings(
     body: ThresholdUpdateRequest,
     request: Request,
 ) -> MessageResponse:
-    """更新阈值配置 — 运行期覆盖 + DB 持久化。"""
+    """更新阈值配置 — 运行期覆盖 + DB 持久化 + 检测器热重建。"""
     settings: Settings = request.app.state.settings
 
     # 校验 key 是否为可配置阈值
@@ -282,6 +339,9 @@ async def update_settings(
     # DB 持久化
     with get_connection() as conn:
         ConfigRepository.set(conn, key=body.key, value=str(typed_value))
+
+    # T2.12: 阈值热更新 — 重建 rule_detector 并迁移有状态追踪器
+    _rebuild_rule_detector(request.app)
 
     return MessageResponse(message=f"阈值 {body.key} 已更新为 {typed_value}")
 

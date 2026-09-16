@@ -110,6 +110,7 @@ class TestOpenAPIPaths:
         "/api/tls/stats",
         "/api/tls/suspicious",
         "/api/payload/analyze",
+        "/api/payload/check",
         "/api/stream",
         "/api/admin/cleanup",
         "/api/admin/export",

@@ -16,6 +16,7 @@ from pydantic import BaseModel, Field
 from campus_ids.runtime.db import get_connection
 from campus_ids.runtime.repositories import UserRepository
 from campus_ids.runtime.settings import get_settings
+from campus_ids.web_new.errors import ApiError
 from campus_ids.web_new.security import Write, limiter
 
 logger = logging.getLogger(__name__)
@@ -53,14 +54,13 @@ async def cleanup_data(body: CleanupRequest, request: Request) -> CleanupRespons
     """
     days = body.days
     with get_connection() as conn:
-        deleted = UserRepository.cleanup_old_data(conn, days=days)
+        alerts_deleted, traffic_deleted = UserRepository.cleanup_old_data(conn, days=days)
 
-    # cleanup_old_data 返回总删除数，需要分别统计
-    # 重新查询获取各表删除数（近似值，用总删除数代替）
-    logger.info("数据清理完成: 保留 %d 天, 删除 %d 条", days, deleted)
+    logger.info("数据清理完成: 保留 %d 天, 告警删除 %d 条, 流量删除 %d 条",
+                days, alerts_deleted, traffic_deleted)
     return CleanupResponse(
-        alerts_deleted=0,  # 精确数需改 Repository，此处用总数
-        traffic_deleted=deleted,
+        alerts_deleted=alerts_deleted,
+        traffic_deleted=traffic_deleted,
     )
 
 
@@ -105,8 +105,4 @@ async def export_data(request: Request) -> ExportResponse:
         )
     except Exception as exc:
         logger.error("导出数据失败: %s", exc)
-        return ExportResponse(
-            status="error",
-            message=f"导出失败: {exc}",
-            rows=0,
-        )
+        raise ApiError("EXPORT_FAILED", f"导出数据失败: {exc}", status_code=500)

@@ -6,7 +6,7 @@ ADR-0001 §5.1: SQLAlchemy 2.0 Core 写法，不引 ORM Session。
 from __future__ import annotations
 
 import logging
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Sequence
 
 from sqlalchemy import delete, insert, select, update, func
@@ -198,14 +198,14 @@ class UserRepository:
             logger.info("默认用户 %s 已创建", username)
 
     @staticmethod
-    def cleanup_old_data(conn: Connection, *, days: int = 30) -> int:
+    def cleanup_old_data(conn: Connection, *, days: int = 30) -> tuple[int, int]:
         """清理超过 days 天的旧数据（alerts + traffic_history）。
 
-        返回删除的行数。
+        返回 (alerts_deleted, traffic_deleted) 两表分别删除数。
         """
-        cutoff = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")
+        cutoff = (datetime.utcnow() - timedelta(days=days)).strftime("%Y-%m-%d %H:%M:%S")
         # SQLite 字符串比较可直接用于时间戳
         r1 = conn.execute(delete(alerts).where(alerts.c.time < cutoff))
         r2 = conn.execute(delete(traffic_history).where(traffic_history.c.time < cutoff))
         conn.commit()
-        return (r1.rowcount or 0) + (r2.rowcount or 0)
+        return (r1.rowcount or 0, r2.rowcount or 0)
