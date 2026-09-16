@@ -1,0 +1,23 @@
+{
+  "status_code": 200,
+  "headers": {
+    "Content-Type": "application/json",
+    "Content-Length": "218",
+    "Permissions-Policy": "browsing-topics=()",
+    "X-Frame-Options": "DENY",
+    "X-Content-Type-Options": "nosniff",
+    "Content-Security-Policy": "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'",
+    "Referrer-Policy": "strict-origin-when-cross-origin"
+  },
+  "json": {
+    "brute_force_threshold": 10,
+    "brute_force_window": 60,
+    "ddos_threshold": 500,
+    "lateral_movement_threshold": 5,
+    "port": 5000,
+    "port_scan_threshold": 50,
+    "refresh_interval": 2000,
+    "syn_flood_threshold": 100,
+    "udp_flood_threshold": 200
+  }
+}

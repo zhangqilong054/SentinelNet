@@ -1,0 +1,53 @@
+{
+  "status_code": 200,
+  "headers": {
+    "Content-Type": "application/json",
+    "Content-Length": "570",
+    "Permissions-Policy": "browsing-topics=()",
+    "X-Frame-Options": "DENY",
+    "X-Content-Type-Options": "nosniff",
+    "Content-Security-Policy": "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'",
+    "Referrer-Policy": "strict-origin-when-cross-origin"
+  },
+  "json": {
+    "components": {
+      "capture": {
+        "dropped_packets": 0,
+        "queue_size": 0,
+        "status": "stopped"
+      },
+      "database": {
+        "status": "ok"
+      },
+      "detector_tick": {
+        "last_duration_ms": 0.0,
+        "running": false,
+        "tick_count": 0
+      },
+      "memory": {
+        "rss_mb": 112.9,
+        "vms_mb": 90.4
+      },
+      "ml_model": {
+        "attack_count": 0,
+        "buffer_oldest_age_sec": null,
+        "buffer_size": 0,
+        "loop_running": false,
+        "model_loaded": false,
+        "predict_count": 0
+      },
+      "sse": {
+        "subscribers": 0
+      },
+      "threads": {
+        "capture_alive": false,
+        "detector_tick_alive": false,
+        "enhanced_capture_alive": false,
+        "ml_loop_alive": false
+      }
+    },
+    "status": "healthy",
+    "timestamp": "2026-09-16 00:25:22",
+    "uptime_seconds": 0.1
+  }
+}

@@ -1,0 +1,14 @@
+{
+  "status_code": 400,
+  "headers": {
+    "Content-Type": "text/html; charset=utf-8",
+    "Content-Length": "117",
+    "Permissions-Policy": "browsing-topics=()",
+    "X-Frame-Options": "DENY",
+    "X-Content-Type-Options": "nosniff",
+    "Content-Security-Policy": "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'",
+    "Referrer-Policy": "strict-origin-when-cross-origin"
+  },
+  "json": null,
+  "body": "<!doctype html>\n<html lang=en>\n<title>400 Bad Request</title>\n<h1>Bad Request</h1>\n<p>The CSRF token is missing.</p>\n"
+}

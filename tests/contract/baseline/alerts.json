@@ -1,0 +1,199 @@
+{
+  "status_code": 200,
+  "headers": {
+    "Content-Type": "application/json",
+    "Content-Length": "5870",
+    "Permissions-Policy": "browsing-topics=()",
+    "X-Frame-Options": "DENY",
+    "X-Content-Type-Options": "nosniff",
+    "Content-Security-Policy": "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'",
+    "Referrer-Policy": "strict-origin-when-cross-origin"
+  },
+  "json": {
+    "alerts": [
+      {
+        "attack_type": "RuleAlert",
+        "created_at": "2026-09-15 15:10:28",
+        "id": 264,
+        "level": "low",
+        "message": "🟡低危 规则: 检测到疑似 DDoS 攻击 (QPS: 616); 检测到疑似 TCP SYN 洪水攻击 (SYN包: 109)",
+        "ml_confidence": 0.0,
+        "time": "2026-09-15 23:10:28"
+      },
+      {
+        "attack_type": "RuleAlert",
+        "created_at": "2026-09-15 15:10:22",
+        "id": 263,
+        "level": "low",
+        "message": "🟡低危 规则: 检测到疑似 TCP SYN 洪水攻击 (SYN包: 106)",
+        "ml_confidence": 0.0,
+        "time": "2026-09-15 23:10:22"
+      },
+      {
+        "attack_type": "RuleAlert",
+        "created_at": "2026-09-15 15:10:16",
+        "id": 262,
+        "level": "low",
+        "message": "🟡低危 规则: 检测到疑似 TCP SYN 洪水攻击 (SYN包: 109)",
+        "ml_confidence": 0.0,
+        "time": "2026-09-15 23:10:16"
+      },
+      {
+        "attack_type": "RuleAlert",
+        "created_at": "2026-09-15 15:10:08",
+        "id": 261,
+        "level": "low",
+        "message": "🟡低危 规则: 检测到疑似 DDoS 攻击 (QPS: 529); 检测到疑似 UDP 洪水攻击 (UDP包: 250)",
+        "ml_confidence": 0.0,
+        "time": "2026-09-15 23:10:08"
+      },
+      {
+        "attack_type": "RuleAlert",
+        "created_at": "2026-09-15 15:09:58",
+        "id": 260,
+        "level": "low",
+        "message": "🟡低危 规则: 检测到疑似 TCP SYN 洪水攻击 (SYN包: 147); 检测到疑似 UDP 洪水攻击 (UDP包: 202)",
+        "ml_confidence": 0.0,
+        "time": "2026-09-15 23:09:58"
+      },
+      {
+        "attack_type": "RuleAlert",
+        "created_at": "2026-09-15 15:09:54",
+        "id": 259,
+        "level": "low",
+        "message": "🟡低危 规则: 检测到疑似 DDoS 攻击 (QPS: 727); 检测到疑似 TCP SYN 洪水攻击 (SYN包: 130)",
+        "ml_confidence": 0.0,
+        "time": "2026-09-15 23:09:54"
+      },
+      {
+        "attack_type": "RuleAlert",
+        "created_at": "2026-09-15 15:09:46",
+        "id": 258,
+        "level": "low",
+        "message": "🟡低危 规则: 检测到疑似 DDoS 攻击 (QPS: 696)",
+        "ml_confidence": 0.0,
+        "time": "2026-09-15 23:09:46"
+      },
+      {
+        "attack_type": "RuleAlert",
+        "created_at": "2026-09-15 15:09:34",
+        "id": 257,
+        "level": "low",
+        "message": "🟡低危 规则: 检测到疑似 DDoS 攻击 (QPS: 722)",
+        "ml_confidence": 0.0,
+        "time": "2026-09-15 23:09:34"
+      },
+      {
+        "attack_type": "RuleAlert",
+        "created_at": "2026-09-15 15:09:30",
+        "id": 256,
+        "level": "low",
+        "message": "🟡低危 规则: 检测到疑似 UDP 洪水攻击 (UDP包: 218)",
+        "ml_confidence": 0.0,
+        "time": "2026-09-15 23:09:30"
+      },
+      {
+        "attack_type": "RuleAlert",
+        "created_at": "2026-09-15 15:09:22",
+        "id": 255,
+        "level": "low",
+        "message": "🟡低危 规则: 检测到疑似 DDoS 攻击 (QPS: 728)",
+        "ml_confidence": 0.0,
+        "time": "2026-09-15 23:09:22"
+      },
+      {
+        "attack_type": "RuleAlert",
+        "created_at": "2026-09-15 15:09:12",
+        "id": 254,
+        "level": "low",
+        "message": "🟡低危 规则: 检测到疑似 DDoS 攻击 (QPS: 772); 检测到疑似 TCP SYN 洪水攻击 (SYN包: 121)",
+        "ml_confidence": 0.0,
+        "time": "2026-09-15 23:09:12"
+      },
+      {
+        "attack_type": "RuleAlert",
+        "created_at": "2026-09-15 15:09:08",
+        "id": 253,
+        "level": "low",
+        "message": "🟡低危 规则: 检测到疑似 DDoS 攻击 (QPS: 690); 检测到疑似 TCP SYN 洪水攻击 (SYN包: 137)",
+        "ml_confidence": 0.0,
+        "time": "2026-09-15 23:09:08"
+      },
+      {
+        "attack_type": "RuleAlert",
+        "created_at": "2026-09-15 15:08:38",
+        "id": 252,
+        "level": "low",
+        "message": "🟡低危 规则: 检测到疑似 TCP SYN 洪水攻击 (SYN包: 131)",
+        "ml_confidence": 0.0,
+        "time": "2026-09-15 23:08:38"
+      },
+      {
+        "attack_type": "RuleAlert",
+        "created_at": "2026-09-15 15:08:34",
+        "id": 251,
+        "level": "low",
+        "message": "🟡低危 规则: 检测到疑似 DDoS 攻击 (QPS: 566)",
+        "ml_confidence": 0.0,
+        "time": "2026-09-15 23:08:34"
+      },
+      {
+        "attack_type": "RuleAlert",
+        "created_at": "2026-09-15 15:08:30",
+        "id": 250,
+        "level": "low",
+        "message": "🟡低危 规则: 检测到疑似 DDoS 攻击 (QPS: 577); 检测到疑似 TCP SYN 洪水攻击 (SYN包: 150); 检测到疑似 UDP 洪水攻击 (UDP包: 213)",
+        "ml_confidence": 0.0,
+        "time": "2026-09-15 23:08:30"
+      },
+      {
+        "attack_type": "RuleAlert",
+        "created_at": "2026-09-15 15:08:26",
+        "id": 249,
+        "level": "low",
+        "message": "🟡低危 规则: 检测到疑似 DDoS 攻击 (QPS: 714); 检测到疑似 TCP SYN 洪水攻击 (SYN包: 117)",
+        "ml_confidence": 0.0,
+        "time": "2026-09-15 23:08:26"
+      },
+      {
+        "attack_type": "RuleAlert",
+        "created_at": "2026-09-15 15:08:18",
+        "id": 248,
+        "level": "low",
+        "message": "🟡低危 规则: 检测到疑似 TCP SYN 洪水攻击 (SYN包: 107)",
+        "ml_confidence": 0.0,
+        "time": "2026-09-15 23:08:18"
+      },
+      {
+        "attack_type": "RuleAlert",
+        "created_at": "2026-09-15 15:08:10",
+        "id": 247,
+        "level": "low",
+        "message": "🟡低危 规则: 检测到疑似 UDP 洪水攻击 (UDP包: 227)",
+        "ml_confidence": 0.0,
+        "time": "2026-09-15 23:08:10"
+      },
+      {
+        "attack_type": "RuleAlert",
+        "created_at": "2026-09-15 15:07:56",
+        "id": 246,
+        "level": "low",
+        "message": "🟡低危 规则: 检测到疑似 UDP 洪水攻击 (UDP包: 209)",
+        "ml_confidence": 0.0,
+        "time": "2026-09-15 23:07:56"
+      },
+      {
+        "attack_type": "RuleAlert",
+        "created_at": "2026-09-15 15:07:48",
+        "id": 245,
+        "level": "low",
+        "message": "🟡低危 规则: 检测到疑似 TCP SYN 洪水攻击 (SYN包: 138)",
+        "ml_confidence": 0.0,
+        "time": "2026-09-15 23:07:48"
+      }
+    ],
+    "limit": 20,
+    "offset": 0,
+    "total": 264
+  }
+}

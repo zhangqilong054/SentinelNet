@@ -1,0 +1,20 @@
+{
+  "status_code": 200,
+  "headers": {
+    "Content-Type": "application/json",
+    "Content-Length": "156",
+    "Permissions-Policy": "browsing-topics=()",
+    "X-Frame-Options": "DENY",
+    "X-Content-Type-Options": "nosniff",
+    "Content-Security-Policy": "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'",
+    "Referrer-Policy": "strict-origin-when-cross-origin"
+  },
+  "json": {
+    "ja3_top_fingerprints": [],
+    "suspicious_sni_list": [],
+    "suspicious_tls_flows": 0,
+    "tls_version_distribution": {},
+    "total_tls_flows": 0,
+    "unique_ja3_fingerprints": 0
+  }
+}

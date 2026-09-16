@@ -1,0 +1,1212 @@
+{
+ "basePath": "/",
+ "definitions": {},
+ "info": {
+  "description": "校园网加密流量入侵检测系统 — REST API 文档",
+  "title": "SentinelNet API",
+  "version": "1.0"
+ },
+ "paths": {
+  "/api/alerts": {
+   "get": {
+    "parameters": [
+     {
+      "default": 20,
+      "description": "返回条数上限",
+      "in": "query",
+      "name": "limit",
+      "type": "integer"
+     },
+     {
+      "default": 0,
+      "description": "偏移量",
+      "in": "query",
+      "name": "offset",
+      "type": "integer"
+     },
+     {
+      "default": "all",
+      "description": "级别筛选 (high/medium/low/all)",
+      "in": "query",
+      "name": "level",
+      "type": "string"
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "告警列表",
+      "schema": {
+       "properties": {
+        "alerts": {
+         "description": "告警记录列表",
+         "type": "array"
+        },
+        "limit": {
+         "type": "integer"
+        },
+        "offset": {
+         "type": "integer"
+        },
+        "total": {
+         "description": "符合条件的总数",
+         "type": "integer"
+        }
+       },
+       "type": "object"
+      }
+     }
+    },
+    "summary": "查询告警列表（支持分页和级别筛选）",
+    "tags": [
+     "告警"
+    ]
+   }
+  },
+  "/api/attack/start": {
+   "post": {
+    "parameters": [
+     {
+      "in": "body",
+      "name": "body",
+      "required": false,
+      "schema": {
+       "properties": {
+        "duration": {
+         "5-300)": null,
+         "default": 30,
+         "description": "持续时间(秒",
+         "type": "integer"
+        },
+        "type": {
+         "default": "all",
+         "description": "攻击类型",
+         "enum": [
+          "syn_flood",
+          "port_scan",
+          "udp_flood",
+          "brute_force",
+          "lateral",
+          "all"
+         ],
+         "type": "string"
+        }
+       },
+       "type": "object"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "攻击模拟已启动"
+     },
+     "400": {
+      "description": "无效参数"
+     },
+     "409": {
+      "description": "攻击模拟已在运行"
+     }
+    },
+    "summary": "启动攻击模拟",
+    "tags": [
+     "攻击模拟"
+    ]
+   }
+  },
+  "/api/attack/status": {
+   "get": {
+    "responses": {
+     "200": {
+      "description": "攻击模拟状态",
+      "schema": {
+       "properties": {
+        "elapsed_seconds": {
+         "type": "number"
+        },
+        "running": {
+         "type": "boolean"
+        },
+        "type": {
+         "type": "string"
+        }
+       },
+       "type": "object"
+      }
+     }
+    },
+    "summary": "获取攻击模拟状态",
+    "tags": [
+     "攻击模拟"
+    ]
+   }
+  },
+  "/api/attack/stop": {
+   "post": {
+    "responses": {
+     "200": {
+      "description": "攻击模拟已停止"
+     }
+    },
+    "summary": "停止攻击模拟",
+    "tags": [
+     "攻击模拟"
+    ]
+   }
+  },
+  "/api/auto/start": {
+   "post": {
+    "parameters": [
+     {
+      "in": "body",
+      "name": "body",
+      "required": false,
+      "schema": {
+       "properties": {
+        "duration": {
+         "10-300)": null,
+         "default": 30,
+         "description": "抓包时长(秒",
+         "type": "integer"
+        }
+       },
+       "type": "object"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "全流程已启动",
+      "schema": {
+       "properties": {
+        "duration": {
+         "type": "integer"
+        },
+        "status": {
+         "type": "string"
+        }
+       },
+       "type": "object"
+      }
+     },
+     "409": {
+      "description": "全流程已在运行"
+     }
+    },
+    "summary": "一键全流程：增强抓包 → 训练 → ML 加载",
+    "tags": [
+     "一键全流程"
+    ]
+   }
+  },
+  "/api/auto/status": {
+   "get": {
+    "responses": {
+     "200": {
+      "description": "全流程状态",
+      "schema": {
+       "properties": {
+        "error": {
+         "type": "string"
+        },
+        "message": {
+         "type": "string"
+        },
+        "result": {
+         "type": "object"
+        },
+        "running": {
+         "type": "boolean"
+        },
+        "step": {
+         "type": "integer"
+        },
+        "step_name": {
+         "type": "string"
+        },
+        "total_steps": {
+         "type": "integer"
+        }
+       },
+       "type": "object"
+      }
+     }
+    },
+    "summary": "查询一键全流程进度",
+    "tags": [
+     "一键全流程"
+    ]
+   }
+  },
+  "/api/capture/enhanced-status": {
+   "get": {
+    "responses": {
+     "200": {
+      "description": "增强抓包状态",
+      "schema": {
+       "properties": {
+        "duration": {
+         "type": "integer"
+        },
+        "error": {
+         "type": "string"
+        },
+        "flows": {
+         "type": "integer"
+        },
+        "packets": {
+         "type": "integer"
+        },
+        "running": {
+         "type": "boolean"
+        },
+        "status": {
+         "type": "string"
+        }
+       },
+       "type": "object"
+      }
+     }
+    },
+    "summary": "查询增强抓包状态",
+    "tags": [
+     "增强抓包"
+    ]
+   }
+  },
+  "/api/capture/start": {
+   "post": {
+    "responses": {
+     "200": {
+      "description": "抓包已启动"
+     }
+    },
+    "summary": "启动网络抓包",
+    "tags": [
+     "抓包控制"
+    ]
+   }
+  },
+  "/api/capture/start-enhanced": {
+   "post": {
+    "parameters": [
+     {
+      "in": "body",
+      "name": "body",
+      "required": false,
+      "schema": {
+       "properties": {
+        "duration": {
+         "10-600)": null,
+         "default": 60,
+         "description": "抓包时长(秒",
+         "type": "integer"
+        }
+       },
+       "type": "object"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "增强抓包已启动",
+      "schema": {
+       "properties": {
+        "duration": {
+         "type": "integer"
+        },
+        "status": {
+         "type": "string"
+        }
+       },
+       "type": "object"
+      }
+     },
+     "409": {
+      "description": "增强抓包已在运行"
+     }
+    },
+    "summary": "启动增强抓包（18维流特征 + TLS 分析）",
+    "tags": [
+     "增强抓包"
+    ]
+   }
+  },
+  "/api/capture/status": {
+   "get": {
+    "responses": {
+     "200": {
+      "description": "抓包状态",
+      "schema": {
+       "properties": {
+        "running": {
+         "description": "是否正在抓包",
+         "type": "boolean"
+        }
+       },
+       "type": "object"
+      }
+     }
+    },
+    "summary": "查询抓包状态",
+    "tags": [
+     "抓包控制"
+    ]
+   }
+  },
+  "/api/capture/stop": {
+   "post": {
+    "responses": {
+     "200": {
+      "description": "抓包已停止"
+     }
+    },
+    "summary": "停止网络抓包",
+    "tags": [
+     "抓包控制"
+    ]
+   }
+  },
+  "/api/capture/stop-enhanced": {
+   "post": {
+    "responses": {
+     "200": {
+      "description": "增强抓包已停止"
+     }
+    },
+    "summary": "停止增强抓包",
+    "tags": [
+     "增强抓包"
+    ]
+   }
+  },
+  "/api/check": {
+   "get": {
+    "responses": {
+     "200": {
+      "description": "环境检查结果",
+      "schema": {
+       "properties": {
+        "capture": {
+         "type": "object"
+        },
+        "data_files": {
+         "type": "object"
+        },
+        "dependencies": {
+         "type": "object"
+        },
+        "model_files": {
+         "type": "object"
+        },
+        "ok": {
+         "description": "整体是否通过",
+         "type": "boolean"
+        },
+        "python": {
+         "type": "object"
+        }
+       },
+       "type": "object"
+      }
+     }
+    },
+    "summary": "环境自检：Python 版本、依赖包、Npcap、模型文件、数据文件",
+    "tags": [
+     "环境自检"
+    ]
+   }
+  },
+  "/api/cleanup": {
+   "post": {
+    "parameters": [
+     {
+      "in": "body",
+      "name": "body",
+      "required": false,
+      "schema": {
+       "properties": {
+        "days": {
+         "default": 7,
+         "description": "保留最近N天的数据",
+         "type": "integer"
+        }
+       },
+       "type": "object"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "清理结果"
+     }
+    },
+    "summary": "清理过期历史数据",
+    "tags": [
+     "数据管理"
+    ]
+   }
+  },
+  "/api/config": {
+   "get": {
+    "parameters": [
+     {
+      "in": "body",
+      "name": "body",
+      "required": false,
+      "schema": {
+       "properties": {
+        "brute_force_threshold": {
+         "description": "暴力破解阈值",
+         "type": "integer"
+        },
+        "brute_force_window": {
+         "description": "暴力破解时间窗口(秒)",
+         "type": "integer"
+        },
+        "ddos_threshold": {
+         "description": "DDoS QPS阈值",
+         "type": "integer"
+        },
+        "lateral_movement_threshold": {
+         "description": "横向移动阈值",
+         "type": "integer"
+        },
+        "port_scan_threshold": {
+         "description": "端口扫描阈值",
+         "type": "integer"
+        },
+        "syn_flood_threshold": {
+         "description": "SYN Flood阈值",
+         "type": "integer"
+        },
+        "udp_flood_threshold": {
+         "description": "UDP Flood阈值",
+         "type": "integer"
+        }
+       },
+       "type": "object"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "当前配置（GET）或更新结果（POST）"
+     },
+     "400": {
+      "description": "无效 JSON"
+     }
+    },
+    "summary": "获取或更新检测阈值配置",
+    "tags": [
+     "配置"
+    ]
+   },
+   "post": {
+    "parameters": [
+     {
+      "in": "body",
+      "name": "body",
+      "required": false,
+      "schema": {
+       "properties": {
+        "brute_force_threshold": {
+         "description": "暴力破解阈值",
+         "type": "integer"
+        },
+        "brute_force_window": {
+         "description": "暴力破解时间窗口(秒)",
+         "type": "integer"
+        },
+        "ddos_threshold": {
+         "description": "DDoS QPS阈值",
+         "type": "integer"
+        },
+        "lateral_movement_threshold": {
+         "description": "横向移动阈值",
+         "type": "integer"
+        },
+        "port_scan_threshold": {
+         "description": "端口扫描阈值",
+         "type": "integer"
+        },
+        "syn_flood_threshold": {
+         "description": "SYN Flood阈值",
+         "type": "integer"
+        },
+        "udp_flood_threshold": {
+         "description": "UDP Flood阈值",
+         "type": "integer"
+        }
+       },
+       "type": "object"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "当前配置（GET）或更新结果（POST）"
+     },
+     "400": {
+      "description": "无效 JSON"
+     }
+    },
+    "summary": "获取或更新检测阈值配置",
+    "tags": [
+     "配置"
+    ]
+   }
+  },
+  "/api/demo/start": {
+   "post": {
+    "parameters": [
+     {
+      "in": "body",
+      "name": "body",
+      "required": false,
+      "schema": {
+       "properties": {
+        "duration": {
+         "5-300)": null,
+         "default": 30,
+         "description": "演示时长(秒",
+         "type": "integer"
+        }
+       },
+       "type": "object"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "演示已启动",
+      "schema": {
+       "properties": {
+        "attack": {
+         "type": "boolean"
+        },
+        "capture": {
+         "type": "boolean"
+        },
+        "duration": {
+         "type": "integer"
+        },
+        "ml_loaded": {
+         "type": "boolean"
+        },
+        "status": {
+         "type": "string"
+        }
+       },
+       "type": "object"
+      }
+     },
+     "409": {
+      "description": "攻击模拟已在运行"
+     }
+    },
+    "summary": "一键演示模式：启动抓包 + 攻击模拟 + ML模型加载",
+    "tags": [
+     "演示模式"
+    ]
+   }
+  },
+  "/api/detector/start": {
+   "post": {
+    "responses": {
+     "200": {
+      "description": "检测节拍已启动",
+      "schema": {
+       "properties": {
+        "running": {
+         "type": "boolean"
+        },
+        "status": {
+         "type": "string"
+        }
+       },
+       "type": "object"
+      }
+     }
+    },
+    "summary": "启动检测节拍",
+    "tags": [
+     "检测节拍"
+    ]
+   }
+  },
+  "/api/detector/status": {
+   "get": {
+    "responses": {
+     "200": {
+      "description": "检测节拍状态",
+      "schema": {
+       "properties": {
+        "running": {
+         "type": "boolean"
+        }
+       },
+       "type": "object"
+      }
+     }
+    },
+    "summary": "查询检测节拍状态",
+    "tags": [
+     "检测节拍"
+    ]
+   }
+  },
+  "/api/detector/stop": {
+   "post": {
+    "responses": {
+     "200": {
+      "description": "检测节拍已停止",
+      "schema": {
+       "properties": {
+        "running": {
+         "type": "boolean"
+        },
+        "status": {
+         "type": "string"
+        }
+       },
+       "type": "object"
+      }
+     }
+    },
+    "summary": "停止检测节拍",
+    "tags": [
+     "检测节拍"
+    ]
+   }
+  },
+  "/api/dual/load": {
+   "post": {
+    "parameters": [
+     {
+      "in": "body",
+      "name": "body",
+      "required": false,
+      "schema": {
+       "properties": {
+        "model_path": {
+         "description": "传统pkl路径",
+         "type": "string"
+        },
+        "run_id": {
+         "description": "版本化run ID",
+         "type": "string"
+        },
+        "which": {
+         "description": "模型指针",
+         "enum": [
+          "best",
+          "latest"
+         ],
+         "type": "string"
+        }
+       },
+       "type": "object"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "模型加载成功"
+     },
+     "400": {
+      "description": "参数无效或加载失败"
+     }
+    },
+    "summary": "加载 ML 模型",
+    "tags": [
+     "双引擎检测"
+    ]
+   }
+  },
+  "/api/dual/stats": {
+   "get": {
+    "responses": {
+     "200": {
+      "description": "双引擎统计数据（含攻击类型分布）"
+     }
+    },
+    "summary": "获取双引擎检测统计",
+    "tags": [
+     "双引擎检测"
+    ]
+   }
+  },
+  "/api/dual/stop": {
+   "post": {
+    "responses": {
+     "200": {
+      "description": "ML 预测已停止"
+     }
+    },
+    "summary": "停止 ML 预测循环",
+    "tags": [
+     "双引擎检测"
+    ]
+   }
+  },
+  "/api/health": {
+   "get": {
+    "responses": {
+     "200": {
+      "description": "系统健康",
+      "schema": {
+       "properties": {
+        "components": {
+         "properties": {
+          "capture": {
+           "type": "object"
+          },
+          "database": {
+           "type": "object"
+          },
+          "memory": {
+           "type": "object"
+          },
+          "ml_model": {
+           "type": "object"
+          },
+          "sse": {
+           "type": "object"
+          }
+         },
+         "type": "object"
+        },
+        "status": {
+         "enum": [
+          "healthy",
+          "degraded"
+         ],
+         "type": "string"
+        },
+        "timestamp": {
+         "type": "string"
+        },
+        "uptime_seconds": {
+         "type": "number"
+        }
+       },
+       "type": "object"
+      }
+     },
+     "503": {
+      "description": "系统降级"
+     }
+    },
+    "summary": "系统健康检查",
+    "tags": [
+     "运维"
+    ]
+   }
+  },
+  "/api/model/list": {
+   "get": {
+    "responses": {
+     "200": {
+      "description": "模型版本列表",
+      "schema": {
+       "properties": {
+        "count": {
+         "type": "integer"
+        },
+        "runs": {
+         "description": "模型版本列表",
+         "type": "array"
+        },
+        "source": {
+         "description": "数据来源(registry_json)",
+         "type": "string"
+        }
+       },
+       "type": "object"
+      }
+     }
+    },
+    "summary": "列出所有已训练的模型版本",
+    "tags": [
+     "模型管理"
+    ]
+   }
+  },
+  "/api/model/train": {
+   "post": {
+    "parameters": [
+     {
+      "in": "body",
+      "name": "body",
+      "required": false,
+      "schema": {
+       "properties": {
+        "balance_method": {
+         "default": "smote",
+         "description": "均衡方法",
+         "enum": [
+          "class_weight",
+          "smote",
+          "oversample",
+          "undersample",
+          "none"
+         ],
+         "type": "string"
+        },
+        "dataset_type": {
+         "default": "cicids2017",
+         "description": "数据集类型",
+         "enum": [
+          "cicids2017",
+          "nsl_kdd",
+          "local"
+         ],
+         "type": "string"
+        },
+        "quick": {
+         "default": false,
+         "description": "快速模式",
+         "type": "boolean"
+        }
+       },
+       "type": "object"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "训练已启动"
+     },
+     "409": {
+      "description": "训练已在进行中"
+     }
+    },
+    "summary": "异步启动模型训练",
+    "tags": [
+     "模型管理"
+    ]
+   }
+  },
+  "/api/model/train-status": {
+   "get": {
+    "responses": {
+     "200": {
+      "description": "训练状态",
+      "schema": {
+       "properties": {
+        "error": {
+         "type": "string"
+        },
+        "progress": {
+         "type": "string"
+        },
+        "result": {
+         "type": "object"
+        },
+        "running": {
+         "type": "boolean"
+        }
+       },
+       "type": "object"
+      }
+     }
+    },
+    "summary": "获取模型训练状态",
+    "tags": [
+     "模型管理"
+    ]
+   }
+  },
+  "/api/payload/check": {
+   "post": {
+    "parameters": [
+     {
+      "in": "body",
+      "name": "body",
+      "required": true,
+      "schema": {
+       "properties": {
+        "payload": {
+         "description": "待检测的载荷文本",
+         "type": "string"
+        }
+       },
+       "required": [
+        "payload"
+       ],
+       "type": "object"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "检测结果",
+      "schema": {
+       "properties": {
+        "alerts": {
+         "description": "告警列表",
+         "type": "array"
+        },
+        "is_anomaly": {
+         "description": "是否异常",
+         "type": "boolean"
+        },
+        "payload_length": {
+         "description": "载荷长度",
+         "type": "integer"
+        }
+       },
+       "type": "object"
+      }
+     },
+     "400": {
+      "description": "参数无效"
+     }
+    },
+    "summary": "应用层载荷检测（SQL 注入 / XSS）",
+    "tags": [
+     "载荷检测"
+    ]
+   }
+  },
+  "/api/save": {
+   "post": {
+    "responses": {
+     "200": {
+      "description": "保存成功"
+     }
+    },
+    "summary": "保存流量数据到 CSV 文件",
+    "tags": [
+     "数据管理"
+    ]
+   }
+  },
+  "/api/stream/alerts": {
+   "get": {
+    "produces": [
+     "text/event-stream"
+    ],
+    "responses": {
+     "200": {
+      "description": "SSE 事件流（event: alert）"
+     },
+     "503": {
+      "description": "SSE 订阅数已达上限"
+     }
+    },
+    "summary": "SSE 实时告警推送",
+    "tags": [
+     "SSE实时推送"
+    ]
+   }
+  },
+  "/api/stream/traffic": {
+   "get": {
+    "produces": [
+     "text/event-stream"
+    ],
+    "responses": {
+     "200": {
+      "description": "SSE 事件流（event: traffic）"
+     },
+     "503": {
+      "description": "SSE 订阅数已达上限"
+     }
+    },
+    "summary": "SSE 实时流量推送",
+    "tags": [
+     "SSE实时推送"
+    ]
+   }
+  },
+  "/api/tls/stats": {
+   "get": {
+    "responses": {
+     "200": {
+      "description": "TLS 流量统计数据"
+     }
+    },
+    "summary": "获取 TLS 加密流量统计",
+    "tags": [
+     "TLS分析"
+    ]
+   }
+  },
+  "/api/tls/suspicious": {
+   "get": {
+    "parameters": [
+     {
+      "default": 20,
+      "description": "返回条数上限（最大1000）",
+      "in": "query",
+      "name": "limit",
+      "type": "integer"
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "可疑 TLS 记录列表"
+     }
+    },
+    "summary": "获取可疑 TLS 记录",
+    "tags": [
+     "TLS分析"
+    ]
+   }
+  },
+  "/api/traffic": {
+   "get": {
+    "responses": {
+     "200": {
+      "description": "当前流量统计",
+      "schema": {
+       "properties": {
+        "alert": {
+         "description": "告警状态",
+         "type": "string"
+        },
+        "connections": {
+         "description": "活跃连接数",
+         "type": "integer"
+        },
+        "dns_packets": {
+         "description": "DNS查询数",
+         "type": "integer"
+        },
+        "packet_count": {
+         "description": "数据包计数",
+         "type": "integer"
+        },
+        "port_count": {
+         "description": "访问端口数",
+         "type": "integer"
+        },
+        "qps": {
+         "description": "每秒请求数",
+         "type": "number"
+        },
+        "src_ip_count": {
+         "description": "来源IP数",
+         "type": "integer"
+        },
+        "syn_packets": {
+         "description": "TCP SYN包数",
+         "type": "integer"
+        },
+        "udp_packets": {
+         "description": "UDP包数",
+         "type": "integer"
+        }
+       },
+       "type": "object"
+      }
+     }
+    },
+    "summary": "获取当前流量统计数据",
+    "tags": [
+     "流量监控"
+    ]
+   }
+  },
+  "/api/traffic/history": {
+   "get": {
+    "parameters": [
+     {
+      "default": 60,
+      "description": "返回条数上限（最大200）",
+      "in": "query",
+      "name": "limit",
+      "type": "integer"
+     },
+     {
+      "default": 0,
+      "description": "偏移量",
+      "in": "query",
+      "name": "offset",
+      "type": "integer"
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "流量历史记录"
+     }
+    },
+    "summary": "查询流量历史数据（支持分页）",
+    "tags": [
+     "流量监控"
+    ]
+   }
+  }
+ },
+ "swagger": "2.0",
+ "tags": [
+  {
+   "description": "实时流量统计与监控",
+   "name": "流量监控"
+  },
+  {
+   "description": "入侵检测告警查询",
+   "name": "告警"
+  },
+  {
+   "description": "系统配置管理",
+   "name": "配置"
+  },
+  {
+   "description": "数据集与特征管理",
+   "name": "数据管理"
+  },
+  {
+   "description": "网络抓包启停与状态",
+   "name": "抓包控制"
+  },
+  {
+   "description": "入侵检测节拍启停与状态",
+   "name": "检测节拍"
+  },
+  {
+   "description": "TLS 加密流量分析",
+   "name": "TLS分析"
+  },
+  {
+   "description": "规则引擎 + ML 双引擎检测",
+   "name": "双引擎检测"
+  },
+  {
+   "description": "恶意载荷深度检测",
+   "name": "载荷检测"
+  },
+  {
+   "description": "Server-Sent Events 实时推送",
+   "name": "SSE实时推送"
+  },
+  {
+   "description": "攻击模拟与演示",
+   "name": "攻击模拟"
+  },
+  {
+   "description": "ML 模型训练与管理",
+   "name": "模型管理"
+  },
+  {
+   "description": "演示模式控制",
+   "name": "演示模式"
+  },
+  {
+   "description": "增强版抓包（18维流特征 + TLS 分析）",
+   "name": "增强抓包"
+  },
+  {
+   "description": "一键全流程：抓包 → 训练 → 检测",
+   "name": "一键全流程"
+  },
+  {
+   "description": "运行环境检查与诊断",
+   "name": "环境自检"
+  },
+  {
+   "description": "系统运维与健康检查",
+   "name": "运维"
+  }
+ ]
+}

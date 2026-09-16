@@ -46,9 +46,9 @@ class User(UserMixin):
 
     def verify_password(self, password: str) -> bool:
         """验证密码（兼容旧 SHA-256 哈希，成功后自动升级为 werkzeug 格式）。"""
-        # 先尝试 werkzeug 格式
+        # 先尝试 werkzeug 格式（pbkdf2/sha256/scrypt/argon2 等）
         from werkzeug.security import check_password_hash as _check, generate_password_hash as _gen
-        if self.password_hash.startswith("pbkdf2:") or self.password_hash.startswith("sha256$"):
+        if ':' in self.password_hash or '$' in self.password_hash:
             result = _check(self.password_hash, password)
             return result
 

@@ -1,6 +1,9 @@
 # SentinelNet 哨兵网络 — 校园网加密流量入侵检测系统
 # 一键启动: docker compose up --build
 # 访问: http://localhost:5000
+#
+# ADR-0001 §4.1 约束：单 worker，运行时状态全部驻留进程内。
+# 禁止设置 WEB_CONCURRENCY>1 或 GUNICORN_WORKERS>1。
 version: "3.8"
 
 services:
@@ -15,9 +18,8 @@ services:
     environment:
       - CAMPUS_IDS_DATA_DIR=/app/data
       - CAMPUS_IDS_LOG_DIR=/app/logs
-      # Gunicorn 配置
-      - GUNICORN_WORKERS=4
-      - GUNICORN_TIMEOUT=120
+      # 单 worker 约束：不设置 WEB_CONCURRENCY（默认为空，即单 worker）
+      # 违反约束（WEB_CONCURRENCY>1）时 create_app() 会拒绝启动
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:5000/api/health')"]

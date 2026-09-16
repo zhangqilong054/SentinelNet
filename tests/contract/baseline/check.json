@@ -1,0 +1,86 @@
+{
+  "status_code": 200,
+  "headers": {
+    "Content-Type": "application/json",
+    "Content-Length": "743",
+    "Permissions-Policy": "browsing-topics=()",
+    "X-Frame-Options": "DENY",
+    "X-Content-Type-Options": "nosniff",
+    "Content-Security-Policy": "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'",
+    "Referrer-Policy": "strict-origin-when-cross-origin"
+  },
+  "json": {
+    "capture": {
+      "message": "Npcap/libpcap 可用",
+      "ok": true
+    },
+    "data_files": [
+      {
+        "exists": true,
+        "name": "traffic_data.csv",
+        "size_kb": 0.4
+      },
+      {
+        "exists": true,
+        "name": "traffic_stats.csv",
+        "size_kb": 100.3
+      }
+    ],
+    "dependencies": {
+      "optional": [
+        {
+          "installed": true,
+          "package": "xgboost"
+        },
+        {
+          "installed": true,
+          "package": "lightgbm"
+        }
+      ],
+      "required": [
+        {
+          "installed": true,
+          "package": "scapy"
+        },
+        {
+          "installed": true,
+          "package": "flask"
+        },
+        {
+          "installed": true,
+          "package": "scikit-learn"
+        },
+        {
+          "installed": true,
+          "package": "joblib"
+        },
+        {
+          "installed": true,
+          "package": "pandas"
+        },
+        {
+          "installed": true,
+          "package": "numpy"
+        }
+      ]
+    },
+    "model_files": [
+      {
+        "exists": true,
+        "name": "model.pkl",
+        "size_kb": 70.8
+      },
+      {
+        "exists": true,
+        "name": "evaluation_report.txt",
+        "size_kb": 4.7
+      }
+    ],
+    "ok": true,
+    "python": {
+      "ok": true,
+      "required": ">=3.10",
+      "version": "3.13.9"
+    }
+  }
+}

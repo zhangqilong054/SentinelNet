@@ -6,8 +6,20 @@ build-backend = "setuptools.build_meta"
 name = "sentinel-net"
 version = "0.1.0"
 description = "SentinelNet 哨兵网络 — 校园网加密流量入侵检测系统"
-requires-python = ">=3.10"
+requires-python = ">=3.13"
 dependencies = [
+    # ── FastAPI 生态（ADR-0001）────────────────────────────────
+    "fastapi>=0.115",
+    "uvicorn[standard]>=0.30",
+    "pydantic>=2.0",
+    "pydantic-settings>=2.0",
+    "sqlalchemy>=2.0",
+    "alembic>=1.13",
+    "sse-starlette>=2.0",
+    "slowapi>=0.1.9",
+    # ── 安全响应头（ADR-0001 §1.1 / §6 #3，T1.11 ③）──────────
+    "secure>=0.3.0",
+    # ── 既有依赖 ──────────────────────────────────────────────
     "flask>=3.0",
     "scapy>=2.5",
     "numpy>=1.24",
@@ -32,6 +44,9 @@ dependencies = [
 [project.optional-dependencies]
 dev = [
     "pytest>=7.0",
+    # ── 开发期工具（ADR-0001 §1.1）────────────────────────────
+    "pytest-regressions>=0.1",    # T0.2/T0.3: golden file 录制与比对
+    "pytest-alembic>=0.1",        # T1.10: 迁移链自动化测试
 ]
 
 [tool.setuptools.packages.find]

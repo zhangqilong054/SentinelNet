@@ -1,0 +1,29 @@
+{
+  "status_code": 200,
+  "headers": {
+    "Content-Type": "application/json",
+    "Content-Length": "291",
+    "Permissions-Policy": "browsing-topics=()",
+    "X-Frame-Options": "DENY",
+    "X-Content-Type-Options": "nosniff",
+    "Content-Security-Policy": "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'",
+    "Referrer-Policy": "strict-origin-when-cross-origin"
+  },
+  "json": {
+    "attack_type_distribution": {
+      "RuleAlert": 264
+    },
+    "flow_table": {
+      "active_flows": 0,
+      "idle_timeout_sec": 30.0
+    },
+    "last_ml_attack_type": "Normal",
+    "last_ml_confidence": 0.0,
+    "last_ml_prediction": "Normal",
+    "ml_attack_count": 0,
+    "ml_predict_count": 0,
+    "model_loaded": false,
+    "rule_alert_count": 0,
+    "total_alerts": 264
+  }
+}
