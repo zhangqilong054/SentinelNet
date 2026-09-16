@@ -152,9 +152,9 @@ class TaskRegistry:
                     handle.status = TaskStatus.FAILED
                     handle.error = str(exc)
                 return
-            # 正常结束
+            # 正常结束（包括被请求停止后正常退出）
             handle = self._handles.get(name)
-            if handle and handle.status != TaskStatus.STOPPING:
+            if handle and handle.status not in (TaskStatus.FAILED,):
                 handle.status = TaskStatus.FINISHED
 
         thread = threading.Thread(target=_worker, daemon=True, name=f"task-{name}")
@@ -178,6 +178,8 @@ class TaskRegistry:
     def stop(self, name: str) -> dict:
         """请求停止任务（非阻塞，幂等）。"""
         with self._lock:
+            if name not in self._tasks:
+                raise KeyError(f"任务未注册: {name}")
             handle = self._handles.get(name)
             if handle is None or handle.status != TaskStatus.RUNNING:
                 return {"status": "not_running"}
@@ -195,13 +197,21 @@ class TaskRegistry:
                 raise KeyError(f"任务未注册: {name}")
             handle = self._handles.get(name)
             if handle is None:
-                return {"name": name, "status": TaskStatus.IDLE.value, "kind": task.kind.value}
+                return {
+                    "name": name,
+                    "status": TaskStatus.IDLE.value,
+                    "kind": task.kind.value,
+                    "description": task.description,
+                    "default_duration": task.default_duration,
+                }
             return {
                 "name": name,
                 "status": handle.status.value,
                 "kind": task.kind.value,
                 "elapsed": round(handle.elapsed, 1),
                 "error": handle.error,
+                "description": task.description,
+                "default_duration": task.default_duration,
             }
 
     def status_all(self) -> list[dict]:
@@ -211,7 +221,13 @@ class TaskRegistry:
             for name, task in self._tasks.items():
                 handle = self._handles.get(name)
                 if handle is None:
-                    result.append({"name": name, "status": TaskStatus.IDLE.value, "kind": task.kind.value})
+                    result.append({
+                        "name": name,
+                        "status": TaskStatus.IDLE.value,
+                        "kind": task.kind.value,
+                        "description": task.description,
+                        "default_duration": task.default_duration,
+                    })
                 else:
                     result.append({
                         "name": name,
@@ -219,6 +235,8 @@ class TaskRegistry:
                         "kind": task.kind.value,
                         "elapsed": round(handle.elapsed, 1),
                         "error": handle.error,
+                        "description": task.description,
+                        "default_duration": task.default_duration,
                     })
             return result
 

@@ -34,19 +34,21 @@ def _clean_env():
 
 @pytest.fixture()
 def client_no_auth():
-    """认证关闭的 TestClient。"""
+    """认证关闭的 TestClient（触发 lifespan 以初始化 task_registry）。"""
     app = create_app()
-    return TestClient(app)
+    with TestClient(app) as c:
+        yield c
 
 
 @pytest.fixture()
 def client_with_auth():
-    """认证开启的 TestClient。"""
+    """认证开启的 TestClient（触发 lifespan 以初始化 task_registry）。"""
     os.environ["CAMPUS_IDS_AUTH_ENABLED"] = "1"
     os.environ["CAMPUS_IDS_API_TOKEN"] = "test-secret-token"
     reset_settings()
     app = create_app()
-    return TestClient(app)
+    with TestClient(app) as c:
+        yield c
 
 
 # ── @public 策略 ──────────────────────────────────────────────────
@@ -153,8 +155,8 @@ class TestWritePolicy:
         )
         assert resp.status_code == 403
 
-    def test_post_task_start_with_csrf_no_auth(self, client_no_auth):
-        """认证关闭 + 有 CSRF 时 POST /api/tasks/x/start 返回 200。"""
+    def test_post_task_stop_with_csrf_no_auth(self, client_no_auth):
+        """认证关闭 + 有 CSRF 时 POST /api/tasks/x/stop 返回 200（幂等）。"""
         # 先获取 CSRF token
         csrf_resp = client_no_auth.get("/api/csrf-token")
         csrf_data = csrf_resp.json()
@@ -162,8 +164,7 @@ class TestWritePolicy:
         # 设置 cookie + header
         client_no_auth.cookies.set("csrf_token", csrf_token)
         resp = client_no_auth.post(
-            "/api/tasks/capture/start",
-            json={"duration": 30},
+            "/api/tasks/capture/stop",
             headers={"X-CSRFToken": csrf_token},
         )
         assert resp.status_code == 200
@@ -185,15 +186,14 @@ class TestWritePolicy:
         )
         assert resp.status_code == 403
 
-    def test_post_task_start_auth_enabled_full(self, client_with_auth):
-        """认证开启 + 有效 Token + CSRF 时 POST 返回 200。"""
+    def test_post_task_stop_auth_enabled_full(self, client_with_auth):
+        """认证开启 + 有效 Token + CSRF 时 POST /api/tasks/x/stop 返回 200。"""
         # 获取 CSRF
         csrf_resp = client_with_auth.get("/api/csrf-token")
         csrf_token = csrf_resp.json().get("csrf_token", "")
         client_with_auth.cookies.set("csrf_token", csrf_token)
         resp = client_with_auth.post(
-            "/api/tasks/capture/start",
-            json={"duration": 30},
+            "/api/tasks/capture/stop",
             headers={
                 "Authorization": "Bearer test-secret-token",
                 "X-CSRFToken": csrf_token,
@@ -281,8 +281,7 @@ class TestWritePolicy:
         # 使用签名 token 发起写请求
         client_no_auth.cookies.set("csrf_token", csrf_token)
         resp = client_no_auth.post(
-            "/api/tasks/capture/start",
-            json={"duration": 30},
+            "/api/tasks/capture/stop",
             headers={"X-CSRFToken": csrf_token},
         )
         assert resp.status_code == 200
@@ -574,20 +573,18 @@ class TestSessionAuthHTTP:
         os.environ["CAMPUS_IDS_API_TOKEN"] = "test-secret-token"
         reset_settings()
         app = create_app()
-        client = TestClient(app)
+        with TestClient(app) as client:
+            from campus_ids.runtime.settings import get_settings
+            settings = get_settings()
 
-        # 获取 secret_key（与 SessionMiddleware 使用同一个）
-        from campus_ids.runtime.settings import get_settings
-        settings = get_settings()
-
-        # 创建签名器（与 Starlette SessionMiddleware 相同：无 salt）
-        signer = itsdangerous.TimestampSigner(str(settings.secret_key))
-        session_data = {"user": "admin", "authenticated": True}
-        # 使用默认 JSON 分隔符（与 Starlette 一致）
-        data = base64.b64encode(json.dumps(session_data).encode("utf-8"))
-        signed = signer.sign(data).decode("utf-8")
-        client.cookies.set("campus_ids_session", signed)
-        yield client
+            # 创建签名器（与 Starlette SessionMiddleware 相同：无 salt）
+            signer = itsdangerous.TimestampSigner(str(settings.secret_key))
+            session_data = {"user": "admin", "authenticated": True}
+            # 使用默认 JSON 分隔符（与 Starlette 一致）
+            data = base64.b64encode(json.dumps(session_data).encode("utf-8"))
+            signed = signer.sign(data).decode("utf-8")
+            client.cookies.set("campus_ids_session", signed)
+            yield client
         os.environ.pop("CAMPUS_IDS_AUTH_ENABLED", None)
         os.environ.pop("CAMPUS_IDS_API_TOKEN", None)
         reset_settings()
@@ -610,8 +607,7 @@ class TestSessionAuthHTTP:
         csrf_token = csrf_resp.json().get("csrf_token", "")
         client_with_session_auth.cookies.set("csrf_token", csrf_token)
         resp = client_with_session_auth.post(
-            "/api/tasks/capture/start",
-            json={"duration": 30},
+            "/api/tasks/capture/stop",
             headers={"X-CSRFToken": csrf_token},
         )
         assert resp.status_code == 200, (

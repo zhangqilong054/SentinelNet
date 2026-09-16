@@ -66,6 +66,8 @@ class TaskStatusResponse(BaseModel):
     status: str = Field(description="idle | running | stopping | finished | failed")
     elapsed: float = 0.0
     error: str | None = None
+    description: str = ""
+    default_duration: int | None = Field(default=None, description="限时任务默认时长(秒)")
 
 
 class TaskListResponse(BaseModel):
