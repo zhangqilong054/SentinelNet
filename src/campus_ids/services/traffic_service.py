@@ -2,22 +2,81 @@
 
 合并原 helpers.py 的 update_traffic_data / _drain_packets / 流量统计逻辑。
 
-阶段1空壳，阶段2接入实际流量处理逻辑。
+数据源：
+- RuntimeState.traffic_data：实时流量统计（内存）
+- TrafficRepository：流量历史（SQLite）
 """
 from __future__ import annotations
 
+import logging
+from typing import Any
+
+from campus_ids.runtime.db import get_connection
+from campus_ids.runtime.repositories import TrafficRepository
+from campus_ids.runtime.state import RuntimeState
+
+logger = logging.getLogger(__name__)
+
 
 class TrafficService:
-    """流量服务 — 管理流量数据窗口和统计。"""
+    """流量服务 — 管理流量数据窗口和统计。
 
-    def update_traffic_data(self) -> dict:
-        """更新流量数据（从队列消费 + 计算 QPS + 落库）。阶段2实现。"""
-        raise NotImplementedError("阶段2接入")
+    通过 RuntimeState 获取实时数据，通过 DB 获取历史数据。
+    """
 
-    def get_traffic(self) -> dict:
-        """获取当前流量数据。阶段2实现。"""
-        raise NotImplementedError("阶段2接入")
+    def __init__(self, state: RuntimeState) -> None:
+        self._state = state
 
-    def get_traffic_history(self, limit: int = 60) -> list[dict]:
-        """获取历史流量数据。阶段2实现。"""
-        raise NotImplementedError("阶段2接入")
+    def get_traffic(self) -> dict[str, Any]:
+        """获取当前实时流量统计数据。
+
+        对应旧端点 GET /api/traffic 返回的字段。
+        """
+        with self._state._state_lock:
+            td = self._state.traffic_data
+            return {
+                "qps": td.get("qps", 0),
+                "connections": td.get("connections", 0),
+                "alert": td.get("alert", ""),
+                "timestamp": td.get("timestamp", ""),
+                "packet_count": td.get("packet_count", 0),
+                "port_count": len(set(td.get("unique_ports", []))),
+                "src_ip_count": len(set(td.get("src_ips", []))),
+                "syn_packets": td.get("syn_packets", 0),
+                "udp_packets": td.get("udp_packets", 0),
+                "dns_packets": td.get("dns_packets", 0),
+            }
+
+    def get_traffic_history(self, limit: int = 60, offset: int = 0) -> dict[str, Any]:
+        """获取流量历史数据。
+
+        Args:
+            limit: 返回条数上限（最大200）
+            offset: 偏移量
+
+        Returns:
+            {"history": [...], "total": N, "limit": limit, "offset": offset}
+        """
+        limit = min(limit, 200)
+        with get_connection() as conn:
+            rows = TrafficRepository.query(conn, limit=limit, offset=offset)
+            history = [
+                {
+                    "id": row.id,
+                    "time": row.time,
+                    "qps": row.qps,
+                    "connections": row.connections,
+                    "packet_count": row.packet_count,
+                    "port_count": row.port_count,
+                    "src_ip_count": row.src_ip_count,
+                    "alert": row.alert,
+                }
+                for row in rows
+            ]
+            total = TrafficRepository.count(conn)
+        return {
+            "history": history,
+            "total": total,
+            "limit": limit,
+            "offset": offset,
+        }

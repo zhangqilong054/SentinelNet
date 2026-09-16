@@ -89,6 +89,7 @@ class TestOpenAPIPaths:
     # 预期的 API 路径（基于 web_new/api/ 路由模块）
     EXPECTED_PATHS = [
         "/api/health",
+        "/api/check",
         "/api/settings",
         "/api/csrf-token",
         "/api/alerts",
@@ -106,7 +107,15 @@ class TestOpenAPIPaths:
         "/api/scenarios/start",
         "/api/scenarios/stop",
         "/api/tls/analyze",
+        "/api/tls/stats",
+        "/api/tls/suspicious",
         "/api/payload/analyze",
+        "/api/stream",
+        "/api/admin/cleanup",
+        "/api/admin/export",
+        "/api/login",
+        "/api/logout",
+        "/api/change-password",
     ]
 
     def test_paths_exist(self, spec):
@@ -153,6 +162,7 @@ class TestOpenAPISchemas:
 
     EXPECTED_SCHEMAS = [
         "HealthResponse",
+        "CheckResponse",
         "MessageResponse",
         # ErrorResponse 未被端点引用，FastAPI 不自动生成
         "SettingsResponse",
@@ -173,6 +183,14 @@ class TestOpenAPISchemas:
         "TlsAnalysisResponse",
         "PayloadAnalysisRequest",
         "PayloadAnalysisResponse",
+        "CleanupRequest",
+        "CleanupResponse",
+        "ExportResponse",
+        "LoginRequest",
+        "LoginResponse",
+        "LogoutResponse",
+        "ChangePasswordRequest",
+        "ChangePasswordResponse",
     ]
 
     def test_schemas_exist(self, spec):
@@ -187,8 +205,9 @@ class TestOpenAPISchemas:
         health = schemas.get("HealthResponse", {})
         props = health.get("properties", {})
         assert "status" in props
-        assert "version" in props
+        assert "timestamp" in props
         assert "uptime_seconds" in props
+        assert "components" in props
 
     def test_message_response_schema(self, spec):
         """MessageResponse schema 包含 message 和 status 字段。"""
@@ -211,7 +230,7 @@ class TestOpenAPISchemas:
 class TestOpenAPITags:
     """验证 API 按 tag 正确分组。"""
 
-    EXPECTED_TAGS = ["system", "traffic", "alerts", "tasks", "models", "scenarios", "tls", "payload"]
+    EXPECTED_TAGS = ["system", "traffic", "alerts", "tasks", "models", "scenarios", "tls", "payload", "admin", "auth"]
 
     def test_tags_used_in_paths(self, spec):
         """所有预期 tag 出现在路径的 tags 中。"""

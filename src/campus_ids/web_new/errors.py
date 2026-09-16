@@ -114,6 +114,17 @@ class ValidationError(ApiError):
         )
 
 
+class UnauthorizedError(ApiError):
+    """认证失败（未登录或凭据无效）。"""
+
+    def __init__(self, detail: str = "认证失败") -> None:
+        super().__init__(
+            error_code="UNAUTHORIZED",
+            detail=detail,
+            status_code=status.HTTP_401_UNAUTHORIZED,
+        )
+
+
 # ── 全局异常处理器 ─────────────────────────────────────────────────
 
 def _api_error_handler(request: Request, exc: ApiError) -> JSONResponse:

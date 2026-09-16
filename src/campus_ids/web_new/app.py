@@ -129,6 +129,18 @@ async def lifespan(app: FastAPI):
     from campus_ids.services.scenario_service import ScenarioService
     app.state.scenario_service = ScenarioService(registry)
 
+    # 初始化流量服务
+    from campus_ids.services.traffic_service import TrafficService
+    app.state.traffic_service = TrafficService(state)
+
+    # 初始化告警服务
+    from campus_ids.services.alert_service import AlertService
+    app.state.alert_service = AlertService(event_bus=state.event_bus)
+
+    # 初始化 TLS 分析器
+    from campus_ids.capture.tls_analyzer import tls_analyzer
+    app.state.tls_analyzer = tls_analyzer
+
     logger.info("SentinelNet FastAPI 应用启动 (port=%d)", settings.web_port)
 
     yield
@@ -288,7 +300,7 @@ def create_app() -> FastAPI:
     app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
     # ── 注册路由 ──────────────────────────────────────────────
-    from campus_ids.web_new.api import system, traffic, alerts, tasks, models, scenarios, tls, payload
+    from campus_ids.web_new.api import system, traffic, alerts, tasks, models, scenarios, tls, payload, stream, admin, auth_routes
 
     app.include_router(system.router, tags=["system"])
     app.include_router(traffic.router, tags=["traffic"])
@@ -298,6 +310,9 @@ def create_app() -> FastAPI:
     app.include_router(scenarios.router, tags=["scenarios"])
     app.include_router(tls.router, tags=["tls"])
     app.include_router(payload.router, tags=["payload"])
+    app.include_router(stream.router, tags=["stream"])
+    app.include_router(admin.router, tags=["admin"])
+    app.include_router(auth_routes.router, tags=["auth"])
 
     # ── 注册全局异常处理器 ──────────────────────────────────────
     register_exception_handlers(app)

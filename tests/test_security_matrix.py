@@ -67,6 +67,16 @@ class TestPublicPolicy:
         resp = client_with_auth.get("/api/health")
         assert resp.status_code == 200
 
+    def test_check_no_auth(self, client_no_auth):
+        """GET /api/check 无需认证返回 200。"""
+        resp = client_no_auth.get("/api/check")
+        assert resp.status_code == 200
+
+    def test_check_with_auth_still_accessible(self, client_with_auth):
+        """GET /api/check 认证开启时仍无需 Token。"""
+        resp = client_with_auth.get("/api/check")
+        assert resp.status_code == 200
+
     def test_csrf_token_no_auth(self, client_no_auth):
         """GET /api/csrf-token 无需认证返回 200。"""
         resp = client_no_auth.get("/api/csrf-token")
@@ -224,7 +234,7 @@ class TestWritePolicy:
         assert resp.status_code == 403
 
     def test_delete_model_with_csrf(self, client_no_auth):
-        """有 CSRF 时 DELETE /api/models/x 返回 200。"""
+        """有 CSRF 时 DELETE /api/models/x 返回 200 或 404（模型不存在）。"""
         csrf_resp = client_no_auth.get("/api/csrf-token")
         csrf_token = csrf_resp.json().get("csrf_token", "")
         client_no_auth.cookies.set("csrf_token", csrf_token)
@@ -232,7 +242,8 @@ class TestWritePolicy:
             "/api/models/test-model",
             headers={"X-CSRFToken": csrf_token},
         )
-        assert resp.status_code == 200
+        # CSRF 验证通过即可，200=删除成功，404=模型不存在
+        assert resp.status_code in (200, 404)
 
     def test_csrf_mismatch(self, client_no_auth):
         """CSRF cookie 与 header 不匹配时 POST 返回 403。"""

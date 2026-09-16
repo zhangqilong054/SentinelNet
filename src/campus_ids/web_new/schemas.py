@@ -36,14 +36,24 @@ class ErrorResponse(BaseModel):
 
 
 class HealthResponse(BaseModel):
-    """健康检查响应。"""
-    status: str = "ok"
-    version: str = "0.2.0"
+    """健康检查响应 — 对齐旧 Flask /api/health 返回格式。"""
+    status: str = "healthy"
+    timestamp: str = ""
     uptime_seconds: float = 0.0
+    components: dict[str, Any] = Field(default_factory=dict)
 
     model_config = {
         "json_schema_extra": {
-            "examples": [{"status": "ok", "version": "0.2.0", "uptime_seconds": 3600.0}]
+            "examples": [{
+                "status": "healthy",
+                "timestamp": "2026-01-01 12:00:00",
+                "uptime_seconds": 3600.0,
+                "components": {
+                    "database": {"status": "ok"},
+                    "capture": {"status": "stopped"},
+                    "ml_model": {"model_loaded": False},
+                },
+            }]
         }
     }
 
@@ -79,51 +89,66 @@ class TaskListResponse(BaseModel):
 
 class TrafficStatsResponse(BaseModel):
     """流量统计响应。"""
-    total_packets: int = 0
-    packets_per_second: float = 0.0
-    avg_packet_size: float = 0.0
-    protocol_distribution: dict[str, int] = Field(default_factory=dict)
-    top_sources: list[dict[str, Any]] = Field(default_factory=list)
-    top_destinations: list[dict[str, Any]] = Field(default_factory=list)
+    qps: float = 0.0
+    connections: int = 0
+    alert: str = ""
+    timestamp: str = ""
+    packet_count: int = 0
+    port_count: int = 0
+    src_ip_count: int = 0
+    syn_packets: int = 0
+    udp_packets: int = 0
+    dns_packets: int = 0
 
     model_config = {
         "json_schema_extra": {
             "examples": [{
-                "total_packets": 10000, "packets_per_second": 150.5,
-                "avg_packet_size": 512.0,
-                "protocol_distribution": {"TCP": 8000, "UDP": 1500, "ICMP": 500},
-                "top_sources": [], "top_destinations": [],
+                "qps": 150.5, "connections": 42, "alert": "",
+                "timestamp": "2026-01-01T00:00:00", "packet_count": 10000,
+                "port_count": 15, "src_ip_count": 8,
+                "syn_packets": 500, "udp_packets": 200, "dns_packets": 50,
             }]
         }
     }
 
 
+class TrafficHistoryRecord(BaseModel):
+    """单条流量历史记录。"""
+    id: int
+    time: str
+    qps: int | None = None
+    connections: int | None = None
+    packet_count: int | None = None
+    port_count: int | None = None
+    src_ip_count: int | None = None
+    alert: str | None = None
+
+
 class TrafficHistoryResponse(BaseModel):
     """流量历史响应。"""
-    timestamps: list[str] = Field(default_factory=list)
-    packets_per_second: list[float] = Field(default_factory=list)
+    history: list[TrafficHistoryRecord] = Field(default_factory=list)
+    total: int = 0
+    limit: int = 60
+    offset: int = 0
 
 
 # ── 告警 (Alerts) ─────────────────────────────────────────────────
 
 class AlertResponse(BaseModel):
     """单条告警响应。"""
-    id: str
-    timestamp: str
-    src_ip: str
-    dst_ip: str
+    id: int
+    time: str
+    level: str
     attack_type: str
-    confidence: float
-    severity: str = "medium"
-    detail: dict[str, Any] = Field(default_factory=dict)
+    message: str
+    ml_confidence: float = 0.0
 
     model_config = {
         "json_schema_extra": {
             "examples": [{
-                "id": "1", "timestamp": "2026-01-01T00:00:00",
-                "src_ip": "192.168.1.100", "dst_ip": "10.0.0.1",
-                "attack_type": "ddos", "confidence": 0.95,
-                "severity": "high", "detail": {},
+                "id": 1, "time": "2026-01-01 00:00:00",
+                "level": "high", "attack_type": "ddos",
+                "message": "DDoS attack detected", "ml_confidence": 0.95,
             }]
         }
     }
@@ -133,10 +158,12 @@ class AlertListResponse(BaseModel):
     """告警列表响应。"""
     alerts: list[AlertResponse]
     total: int
+    limit: int = 50
+    offset: int = 0
 
     model_config = {
         "json_schema_extra": {
-            "examples": [{"alerts": [], "total": 0}]
+            "examples": [{"alerts": [], "total": 0, "limit": 50, "offset": 0}]
         }
     }
 
@@ -146,7 +173,6 @@ class AlertStatsResponse(BaseModel):
     total_alerts: int = 0
     alerts_by_type: dict[str, int] = Field(default_factory=dict)
     alerts_by_severity: dict[str, int] = Field(default_factory=dict)
-    recent_alerts: list[AlertResponse] = Field(default_factory=list)
 
 
 # ── 模型 (Models) ─────────────────────────────────────────────────
@@ -223,17 +249,21 @@ class ThresholdUpdateRequest(BaseModel):
 
 
 class SettingsResponse(BaseModel):
-    """配置响应。"""
-    thresholds: dict[str, float] = Field(default_factory=dict)
-    ml_config: dict[str, Any] = Field(default_factory=dict)
+    """配置响应 — 对齐 Settings 类字段。"""
+    thresholds: dict[str, Any] = Field(default_factory=dict, description="规则检测阈值")
+    ml_config: dict[str, Any] = Field(default_factory=dict, description="ML 检测配置")
+    web_config: dict[str, Any] = Field(default_factory=dict, description="Web 面板配置")
     auth_enabled: bool = False
+    alert_config: dict[str, Any] = Field(default_factory=dict, description="告警配置")
 
     model_config = {
         "json_schema_extra": {
             "examples": [{
-                "thresholds": {"ddos_threshold": 500, "port_scan_threshold": 100},
-                "ml_config": {"model_type": "xgboost"},
+                "thresholds": {"ddos_threshold": 500, "port_scan_threshold": 50},
+                "ml_config": {"ml_interval_sec": 5.0, "ml_conf_high": 0.7},
+                "web_config": {"web_port": 5000},
                 "auth_enabled": False,
+                "alert_config": {"max_alert_api_return": 20},
             }]
         }
     }
@@ -249,12 +279,22 @@ class TlsAnalysisResponse(BaseModel):
 
 class PayloadAnalysisRequest(BaseModel):
     """载荷分析请求。"""
-    data: str = Field(description="待分析载荷数据（base64 或 hex）")
-    format: str = Field(default="hex", description="数据格式: base64 | hex")
+    payload: str = Field(description="待分析的 HTTP 载荷字符串")
 
 
 class PayloadAnalysisResponse(BaseModel):
     """载荷分析响应。"""
-    findings: list[dict[str, Any]] = Field(default_factory=list)
-    risk_score: float = 0.0
-    summary: str = ""
+    threats: list[str] = Field(default_factory=list, description="检测到的威胁消息列表")
+    is_malicious: bool = Field(default=False, description="是否检测到恶意内容")
+
+
+# ── 环境自检 ──────────────────────────────────────────────────────
+
+class CheckResponse(BaseModel):
+    """环境自检响应 — 对齐旧 Flask /api/check 返回格式。"""
+    ok: bool = True
+    python: dict[str, Any] = Field(default_factory=dict)
+    dependencies: dict[str, Any] = Field(default_factory=dict)
+    capture: dict[str, Any] = Field(default_factory=dict)
+    model_files: list[dict[str, Any]] = Field(default_factory=list)
+    data_files: list[dict[str, Any]] = Field(default_factory=list)

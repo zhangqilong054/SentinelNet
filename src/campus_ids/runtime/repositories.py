@@ -96,6 +96,12 @@ class TrafficRepository:
         )
         return conn.execute(stmt).fetchall()
 
+    @staticmethod
+    def count(conn: Connection) -> int:
+        """统计流量记录总数。"""
+        stmt = select(func.count()).select_from(traffic_history)
+        return conn.execute(stmt).scalar() or 0
+
 
 # ── ConfigRepository ───────────────────────────────────────────────
 
