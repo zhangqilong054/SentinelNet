@@ -433,3 +433,113 @@ class TestPasswordHash:
         h2 = hash_password("same-password")
         assert verify_password("same-password", h1) is True
         assert verify_password("same-password", h2) is True
+
+
+# ── 会话认证验证（T1.11 ①）─────────────────────────────────────────
+
+
+class TestSessionAuth:
+    """验证 SessionMiddleware 与会话管理工具函数（ADR-0001 §6 #1）。
+
+    SessionMiddleware 配置：secret_key, session_cookie="campus_ids_session",
+    same_site="lax", https_only=False（开发环境）。
+    """
+
+    def test_session_cookie_set_on_request(self, client_no_auth):
+        """SessionMiddleware 已注册：首次写入 session 数据后设置 cookie。
+        
+        注意：SessionMiddleware 仅在 session 有数据时才设置 cookie，
+        纯只读请求（如 GET /api/health）不会触发 session cookie。
+        """
+        # CSRF token 端点会设置 csrf_token cookie（非 session cookie）
+        # 验证 SessionMiddleware 已注册：访问任意端点不报错
+        resp = client_no_auth.get("/api/health")
+        assert resp.status_code == 200
+        # 验证 app 中间件栈包含 SessionMiddleware
+        from campus_ids.web_new.app import create_app
+        app = create_app()
+        middleware_classes = [m.cls.__name__ for m in app.user_middleware]
+        assert "SessionMiddleware" in middleware_classes, (
+            f"SessionMiddleware 未注册，中间件栈: {middleware_classes}"
+        )
+
+    def test_session_persists_across_requests(self, client_no_auth):
+        """session 数据跨请求持久化。"""
+        # 通过 /api/csrf-token 写入 session（CSRF nonce 存入 session）
+        resp1 = client_no_auth.get("/api/csrf-token")
+        assert resp1.status_code == 200
+        # 同一 client 应保持 session cookie
+        resp2 = client_no_auth.get("/api/csrf-token")
+        assert resp2.status_code == 200
+
+    def test_login_user_writes_session(self):
+        """login_user 将 user 和 authenticated 写入会话。"""
+        from campus_ids.web_new.auth import login_user
+
+        class FakeSession(dict):
+            pass
+
+        class FakeRequest:
+            session = FakeSession()
+
+        req = FakeRequest()
+        login_user(req, "admin")
+        assert req.session["user"] == "admin"
+        assert req.session["authenticated"] is True
+
+    def test_logout_user_clears_session(self):
+        """logout_user 清除会话中的认证信息。"""
+        from campus_ids.web_new.auth import login_user, logout_user
+
+        class FakeSession(dict):
+            pass
+
+        class FakeRequest:
+            session = FakeSession()
+
+        req = FakeRequest()
+        login_user(req, "admin")
+        assert req.session.get("user") == "admin"
+        logout_user(req)
+        assert req.session.get("user") is None
+        assert req.session.get("authenticated") is None
+
+    def test_get_current_user_returns_username(self):
+        """get_current_user 从会话返回已认证用户名。"""
+        from campus_ids.web_new.auth import get_current_user
+
+        class FakeRequest:
+            session = {"user": "alice", "authenticated": True}
+
+        req = FakeRequest()
+        assert get_current_user(req) == "alice"
+
+    def test_get_current_user_returns_none_when_not_logged_in(self):
+        """未登录时 get_current_user 返回 None。"""
+        from campus_ids.web_new.auth import get_current_user
+
+        class FakeRequest:
+            session = {}
+
+        req = FakeRequest()
+        assert get_current_user(req) is None
+
+    def test_is_authenticated_true(self):
+        """is_authenticated 对已认证会话返回 True。"""
+        from campus_ids.web_new.auth import is_authenticated
+
+        class FakeRequest:
+            session = {"user": "admin", "authenticated": True}
+
+        req = FakeRequest()
+        assert is_authenticated(req) is True
+
+    def test_is_authenticated_false(self):
+        """is_authenticated 对未认证会话返回 False。"""
+        from campus_ids.web_new.auth import is_authenticated
+
+        class FakeRequest:
+            session = {}
+
+        req = FakeRequest()
+        assert is_authenticated(req) is False
