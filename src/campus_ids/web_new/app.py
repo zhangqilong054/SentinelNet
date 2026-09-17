@@ -431,6 +431,13 @@ def create_app() -> FastAPI:
     app.include_router(admin.router, tags=["admin"])
     app.include_router(auth_routes.router, tags=["auth"])
 
+    # ── 旧端点 shim 路由（T4.1）──────────────────────────────────
+    # CAMPUS_IDS_ENABLE_SHIM=1 时注册旧路径转发（带 Deprecation/Sunset 头）
+    if os.environ.get("CAMPUS_IDS_ENABLE_SHIM", "").lower() in ("1", "true", "yes"):
+        from campus_ids.web_new.shim import router as shim_router
+        app.include_router(shim_router)
+        logger.info("旧端点 shim 已启用（Deprecation + Sunset 头 + 命中追踪）")
+
     # ── 页面路由与静态资源（T3.1 新增前端模式切换）────────────────
     # CAMPUS_IDS_FRONTEND=new → Vue3 SPA（frontend/dist/）
     # CAMPUS_IDS_FRONTEND=legacy 或未设置 → 旧 Jinja2 模板（T2.17 pages）

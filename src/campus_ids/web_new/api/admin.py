@@ -106,3 +106,21 @@ async def export_data(request: Request) -> ExportResponse:
     except Exception as exc:
         logger.error("导出数据失败: %s", exc)
         raise ApiError("EXPORT_FAILED", f"导出数据失败: {exc}", status_code=500)
+
+
+# ── GET /api/admin/deprecation-stats ──────────────────────────────
+
+@router.get("/deprecation-stats", summary="查询旧端点命中统计（T4.2）")
+async def deprecation_stats(request: Request) -> dict[str, Any]:
+    """查询旧端点命中统计 — 用于 T4.5 删除判定。
+
+    返回每个旧端点的调用次数、最近来源、最近命中时间。
+    命中数为 0 或超过 30 天未命中的端点可安全删除。
+    """
+    from campus_ids.web_new.deprecation import get_deprecation_tracker
+    tracker = get_deprecation_tracker()
+    return {
+        "sunset_date": "2026-11-01",
+        "endpoints": tracker.get_stats(),
+        "deletable": tracker.get_deletable_endpoints(),
+    }
