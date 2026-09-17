@@ -1,0 +1,730 @@
+[
+  {
+    "run_id": "20260912_212239_7nt5pv",
+    "run_dir": "D:\\18551\\AiC\\SentinelNet\\models\\runs\\20260912_212239_7nt5pv",
+    "created_at": "2026-09-12T13:22:39.330651+00:00",
+    "model_type": "RandomForestClassifier",
+    "n_features": 15,
+    "is_best": false,
+    "metrics": {
+      "accuracy": 0.9998006600367672,
+      "precision": 0.9998007174210892,
+      "recall": 0.9998006600367672,
+      "f1_score": 0.999800664256823
+    }
+  },
+  {
+    "run_id": "20260913_133559_47d96l",
+    "run_dir": "D:\\18551\\AiC\\SentinelNet\\models\\runs\\20260913_133559_47d96l",
+    "created_at": "2026-09-13T05:35:59.691129+00:00",
+    "model_type": "RandomForestClassifier",
+    "n_features": 15,
+    "is_best": false,
+    "metrics": {
+      "accuracy": 0.9978625,
+      "precision": 0.9978743477323253,
+      "recall": 0.9978625,
+      "f1_score": 0.9978658612602398
+    }
+  },
+  {
+    "run_id": "20260913_134229_lbymlt",
+    "run_dir": "D:\\18551\\AiC\\SentinelNet\\models\\runs\\20260913_134229_lbymlt",
+    "created_at": "2026-09-13T05:42:29.975526+00:00",
+    "model_type": "RandomForestClassifier",
+    "n_features": 15,
+    "is_best": false,
+    "metrics": {
+      "accuracy": 0.9978625,
+      "precision": 0.9978743477323253,
+      "recall": 0.9978625,
+      "f1_score": 0.9978658612602398
+    }
+  },
+  {
+    "run_id": "20260913_141455_rw4xe1",
+    "run_dir": "D:\\18551\\AiC\\SentinelNet\\models\\runs\\20260913_141455_rw4xe1",
+    "created_at": "2026-09-13T06:14:55.226809+00:00",
+    "model_type": "RandomForestClassifier",
+    "n_features": 15,
+    "is_best": false,
+    "metrics": {
+      "accuracy": 0.997875,
+      "precision": 0.9978871777241564,
+      "recall": 0.997875,
+      "f1_score": 0.9978784138918072
+    }
+  },
+  {
+    "run_id": "20260913_151016_kolhhz",
+    "run_dir": "D:\\18551\\AiC\\SentinelNet\\models\\runs\\20260913_151016_kolhhz",
+    "created_at": "2026-09-13T07:10:16.312370+00:00",
+    "model_type": "RandomForestClassifier",
+    "n_features": 15,
+    "is_best": false,
+    "metrics": {
+      "accuracy": 0.997875,
+      "precision": 0.9978871777241564,
+      "recall": 0.997875,
+      "f1_score": 0.9978784138918072
+    }
+  },
+  {
+    "run_id": "20260914_123225_6i4cf6",
+    "run_dir": "D:\\18551\\AiC\\SentinelNet\\models\\runs\\20260914_123225_6i4cf6",
+    "created_at": "2026-09-14T04:32:25.521998+00:00",
+    "model_type": "RandomForestClassifier",
+    "n_features": 17,
+    "is_best": true,
+    "metrics": {
+      "accuracy": 1.0,
+      "precision": 1.0,
+      "recall": 1.0,
+      "f1_score": 1.0
+    }
+  },
+  {
+    "run_id": "20260914_123415_lvglwa",
+    "run_dir": "D:\\18551\\AiC\\SentinelNet\\models\\runs\\20260914_123415_lvglwa",
+    "created_at": "2026-09-14T04:34:15.971756+00:00",
+    "model_type": "RandomForestClassifier",
+    "n_features": 15,
+    "is_best": false,
+    "metrics": {
+      "accuracy": 0.9978875,
+      "precision": 0.997903791211823,
+      "recall": 0.9978875,
+      "f1_score": 0.9978916474660933
+    }
+  },
+  {
+    "run_id": "20260914_125548_8w9jok",
+    "run_dir": "D:\\18551\\AiC\\SentinelNet\\models\\runs\\20260914_125548_8w9jok",
+    "created_at": "2026-09-14T04:55:48.256108+00:00",
+    "model_type": "RandomForestClassifier",
+    "n_features": 17,
+    "is_best": false,
+    "metrics": {
+      "accuracy": 1.0,
+      "precision": 1.0,
+      "recall": 1.0,
+      "f1_score": 1.0
+    }
+  },
+  {
+    "run_id": "20260916_003908_cthve5",
+    "run_dir": "D:\\18551\\AiC\\SentinelNet\\models\\runs\\20260916_003908_cthve5",
+    "created_at": "2026-09-15T16:39:08.949359+00:00",
+    "model_type": "RandomForestClassifier",
+    "n_features": 17,
+    "is_best": false,
+    "metrics": {
+      "accuracy": 1.0,
+      "precision": 1.0,
+      "recall": 1.0,
+      "f1_score": 1.0
+    }
+  },
+  {
+    "run_id": "20260916_120015_scsx03",
+    "run_dir": "D:\\18551\\AiC\\SentinelNet\\models\\runs\\20260916_120015_scsx03",
+    "created_at": "2026-09-16T04:00:15.682075+00:00",
+    "model_type": "RandomForestClassifier",
+    "n_features": 17,
+    "is_best": false,
+    "metrics": {
+      "accuracy": 1.0,
+      "precision": 1.0,
+      "recall": 1.0,
+      "f1_score": 1.0
+    }
+  },
+  {
+    "run_id": "20260916_120151_zmhwkt",
+    "run_dir": "D:\\18551\\AiC\\SentinelNet\\models\\runs\\20260916_120151_zmhwkt",
+    "created_at": "2026-09-16T04:01:51.268930+00:00",
+    "model_type": "RandomForestClassifier",
+    "n_features": 17,
+    "is_best": false,
+    "metrics": {
+      "accuracy": 1.0,
+      "precision": 1.0,
+      "recall": 1.0,
+      "f1_score": 1.0
+    }
+  },
+  {
+    "run_id": "20260916_122452_ywav35",
+    "run_dir": "D:\\18551\\AiC\\SentinelNet\\models\\runs\\20260916_122452_ywav35",
+    "created_at": "2026-09-16T04:24:53.139290+00:00",
+    "model_type": "RandomForestClassifier",
+    "n_features": 17,
+    "is_best": false,
+    "metrics": {
+      "accuracy": 1.0,
+      "precision": 1.0,
+      "recall": 1.0,
+      "f1_score": 1.0
+    }
+  },
+  {
+    "run_id": "20260916_123217_696g8n",
+    "run_dir": "D:\\18551\\AiC\\SentinelNet\\models\\runs\\20260916_123217_696g8n",
+    "created_at": "2026-09-16T04:32:17.993668+00:00",
+    "model_type": "RandomForestClassifier",
+    "n_features": 17,
+    "is_best": false,
+    "metrics": {
+      "accuracy": 1.0,
+      "precision": 1.0,
+      "recall": 1.0,
+      "f1_score": 1.0
+    }
+  },
+  {
+    "run_id": "20260916_123407_u1bk3p",
+    "run_dir": "D:\\18551\\AiC\\SentinelNet\\models\\runs\\20260916_123407_u1bk3p",
+    "created_at": "2026-09-16T04:34:08.016179+00:00",
+    "model_type": "RandomForestClassifier",
+    "n_features": 17,
+    "is_best": false,
+    "metrics": {
+      "accuracy": 1.0,
+      "precision": 1.0,
+      "recall": 1.0,
+      "f1_score": 1.0
+    }
+  },
+  {
+    "run_id": "20260916_132647_qsjdy3",
+    "run_dir": "D:\\18551\\AiC\\SentinelNet\\models\\runs\\20260916_132647_qsjdy3",
+    "created_at": "2026-09-16T05:26:47.476190+00:00",
+    "model_type": "RandomForestClassifier",
+    "n_features": 17,
+    "is_best": false,
+    "metrics": {
+      "accuracy": 1.0,
+      "precision": 1.0,
+      "recall": 1.0,
+      "f1_score": 1.0
+    }
+  },
+  {
+    "run_id": "20260916_134227_a7tv46",
+    "run_dir": "D:\\18551\\AiC\\SentinelNet\\models\\runs\\20260916_134227_a7tv46",
+    "created_at": "2026-09-16T05:42:27.836385+00:00",
+    "model_type": "RandomForestClassifier",
+    "n_features": 17,
+    "is_best": false,
+    "metrics": {
+      "accuracy": 1.0,
+      "precision": 1.0,
+      "recall": 1.0,
+      "f1_score": 1.0
+    }
+  },
+  {
+    "run_id": "20260916_135536_n37j2g",
+    "run_dir": "D:\\18551\\AiC\\SentinelNet\\models\\runs\\20260916_135536_n37j2g",
+    "created_at": "2026-09-16T05:55:36.134538+00:00",
+    "model_type": "RandomForestClassifier",
+    "n_features": 17,
+    "is_best": false,
+    "metrics": {
+      "accuracy": 1.0,
+      "precision": 1.0,
+      "recall": 1.0,
+      "f1_score": 1.0
+    }
+  },
+  {
+    "run_id": "20260916_141833_7rqv6g",
+    "run_dir": "D:\\18551\\AiC\\SentinelNet\\models\\runs\\20260916_141833_7rqv6g",
+    "created_at": "2026-09-16T06:18:33.274502+00:00",
+    "model_type": "RandomForestClassifier",
+    "n_features": 17,
+    "is_best": false,
+    "metrics": {
+      "accuracy": 1.0,
+      "precision": 1.0,
+      "recall": 1.0,
+      "f1_score": 1.0
+    }
+  },
+  {
+    "run_id": "20260916_142210_6kr3fx",
+    "run_dir": "D:\\18551\\AiC\\SentinelNet\\models\\runs\\20260916_142210_6kr3fx",
+    "created_at": "2026-09-16T06:22:10.404886+00:00",
+    "model_type": "RandomForestClassifier",
+    "n_features": 17,
+    "is_best": false,
+    "metrics": {
+      "accuracy": 1.0,
+      "precision": 1.0,
+      "recall": 1.0,
+      "f1_score": 1.0
+    }
+  },
+  {
+    "run_id": "20260916_143711_wmo6u8",
+    "run_dir": "D:\\18551\\AiC\\SentinelNet\\models\\runs\\20260916_143711_wmo6u8",
+    "created_at": "2026-09-16T06:37:12.041256+00:00",
+    "model_type": "RandomForestClassifier",
+    "n_features": 17,
+    "is_best": false,
+    "metrics": {
+      "accuracy": 1.0,
+      "precision": 1.0,
+      "recall": 1.0,
+      "f1_score": 1.0
+    }
+  },
+  {
+    "run_id": "20260916_144755_n8jx6y",
+    "run_dir": "D:\\18551\\AiC\\SentinelNet\\models\\runs\\20260916_144755_n8jx6y",
+    "created_at": "2026-09-16T06:47:55.639659+00:00",
+    "model_type": "RandomForestClassifier",
+    "n_features": 17,
+    "is_best": false,
+    "metrics": {
+      "accuracy": 1.0,
+      "precision": 1.0,
+      "recall": 1.0,
+      "f1_score": 1.0
+    }
+  },
+  {
+    "run_id": "20260916_163801_gt87ug",
+    "run_dir": "D:\\18551\\AiC\\SentinelNet\\models\\runs\\20260916_163801_gt87ug",
+    "created_at": "2026-09-16T08:38:01.767079+00:00",
+    "model_type": "RandomForestClassifier",
+    "n_features": 17,
+    "is_best": false,
+    "metrics": {
+      "accuracy": 1.0,
+      "precision": 1.0,
+      "recall": 1.0,
+      "f1_score": 1.0
+    }
+  },
+  {
+    "run_id": "20260916_173336_0jjy1p",
+    "run_dir": "D:\\18551\\AiC\\SentinelNet\\models\\runs\\20260916_173336_0jjy1p",
+    "created_at": "2026-09-16T09:33:36.199520+00:00",
+    "model_type": "RandomForestClassifier",
+    "n_features": 17,
+    "is_best": false,
+    "metrics": {
+      "accuracy": 1.0,
+      "precision": 1.0,
+      "recall": 1.0,
+      "f1_score": 1.0
+    }
+  },
+  {
+    "run_id": "20260916_173515_qx2z82",
+    "run_dir": "D:\\18551\\AiC\\SentinelNet\\models\\runs\\20260916_173515_qx2z82",
+    "created_at": "2026-09-16T09:35:15.918777+00:00",
+    "model_type": "RandomForestClassifier",
+    "n_features": 17,
+    "is_best": false,
+    "metrics": {
+      "accuracy": 1.0,
+      "precision": 1.0,
+      "recall": 1.0,
+      "f1_score": 1.0
+    }
+  },
+  {
+    "run_id": "20260916_180312_b65lte",
+    "run_dir": "D:\\18551\\AiC\\SentinelNet\\models\\runs\\20260916_180312_b65lte",
+    "created_at": "2026-09-16T10:03:12.636958+00:00",
+    "model_type": "RandomForestClassifier",
+    "n_features": 17,
+    "is_best": false,
+    "metrics": {
+      "accuracy": 1.0,
+      "precision": 1.0,
+      "recall": 1.0,
+      "f1_score": 1.0
+    }
+  },
+  {
+    "run_id": "20260916_182450_dztyny",
+    "run_dir": "D:\\18551\\AiC\\SentinelNet\\models\\runs\\20260916_182450_dztyny",
+    "created_at": "2026-09-16T10:24:50.359477+00:00",
+    "model_type": "RandomForestClassifier",
+    "n_features": 17,
+    "is_best": false,
+    "metrics": {
+      "accuracy": 1.0,
+      "precision": 1.0,
+      "recall": 1.0,
+      "f1_score": 1.0
+    }
+  },
+  {
+    "run_id": "20260916_212644_u1fdcu",
+    "run_dir": "D:\\18551\\AiC\\SentinelNet\\models\\runs\\20260916_212644_u1fdcu",
+    "created_at": "2026-09-16T13:26:44.384465+00:00",
+    "model_type": "RandomForestClassifier",
+    "n_features": 17,
+    "is_best": false,
+    "metrics": {
+      "accuracy": 1.0,
+      "precision": 1.0,
+      "recall": 1.0,
+      "f1_score": 1.0
+    }
+  },
+  {
+    "run_id": "20260916_212820_x6mmlf",
+    "run_dir": "D:\\18551\\AiC\\SentinelNet\\models\\runs\\20260916_212820_x6mmlf",
+    "created_at": "2026-09-16T13:28:21.017435+00:00",
+    "model_type": "RandomForestClassifier",
+    "n_features": 17,
+    "is_best": false,
+    "metrics": {
+      "accuracy": 1.0,
+      "precision": 1.0,
+      "recall": 1.0,
+      "f1_score": 1.0
+    }
+  },
+  {
+    "run_id": "20260916_221303_znposb",
+    "run_dir": "D:\\18551\\AiC\\SentinelNet\\models\\runs\\20260916_221303_znposb",
+    "created_at": "2026-09-16T14:13:04.023363+00:00",
+    "model_type": "RandomForestClassifier",
+    "n_features": 17,
+    "is_best": false,
+    "metrics": {
+      "accuracy": 1.0,
+      "precision": 1.0,
+      "recall": 1.0,
+      "f1_score": 1.0
+    }
+  },
+  {
+    "run_id": "20260916_222102_zi62h3",
+    "run_dir": "D:\\18551\\AiC\\SentinelNet\\models\\runs\\20260916_222102_zi62h3",
+    "created_at": "2026-09-16T14:21:02.810914+00:00",
+    "model_type": "RandomForestClassifier",
+    "n_features": 17,
+    "is_best": false,
+    "metrics": {
+      "accuracy": 1.0,
+      "precision": 1.0,
+      "recall": 1.0,
+      "f1_score": 1.0
+    }
+  },
+  {
+    "run_id": "20260916_224624_5zp5vq",
+    "run_dir": "D:\\18551\\AiC\\SentinelNet\\models\\runs\\20260916_224624_5zp5vq",
+    "created_at": "2026-09-16T14:46:25.180565+00:00",
+    "model_type": "RandomForestClassifier",
+    "n_features": 17,
+    "is_best": false,
+    "metrics": {
+      "accuracy": 1.0,
+      "precision": 1.0,
+      "recall": 1.0,
+      "f1_score": 1.0
+    }
+  },
+  {
+    "run_id": "20260916_225918_3xow0x",
+    "run_dir": "D:\\18551\\AiC\\SentinelNet\\models\\runs\\20260916_225918_3xow0x",
+    "created_at": "2026-09-16T14:59:19.123326+00:00",
+    "model_type": "RandomForestClassifier",
+    "n_features": 17,
+    "is_best": false,
+    "metrics": {
+      "accuracy": 1.0,
+      "precision": 1.0,
+      "recall": 1.0,
+      "f1_score": 1.0
+    }
+  },
+  {
+    "run_id": "20260916_232047_gpdiap",
+    "run_dir": "D:\\18551\\AiC\\SentinelNet\\models\\runs\\20260916_232047_gpdiap",
+    "created_at": "2026-09-16T15:20:47.718159+00:00",
+    "model_type": "RandomForestClassifier",
+    "n_features": 17,
+    "is_best": false,
+    "metrics": {
+      "accuracy": 1.0,
+      "precision": 1.0,
+      "recall": 1.0,
+      "f1_score": 1.0
+    }
+  },
+  {
+    "run_id": "20260917_000331_l034h0",
+    "run_dir": "D:\\18551\\AiC\\SentinelNet\\models\\runs\\20260917_000331_l034h0",
+    "created_at": "2026-09-16T16:03:31.208302+00:00",
+    "model_type": "RandomForestClassifier",
+    "n_features": 17,
+    "is_best": false,
+    "metrics": {
+      "accuracy": 1.0,
+      "precision": 1.0,
+      "recall": 1.0,
+      "f1_score": 1.0
+    }
+  },
+  {
+    "run_id": "20260917_000359_sjs3de",
+    "run_dir": "D:\\18551\\AiC\\SentinelNet\\models\\runs\\20260917_000359_sjs3de",
+    "created_at": "2026-09-16T16:03:59.968083+00:00",
+    "model_type": "RandomForestClassifier",
+    "n_features": 17,
+    "is_best": false,
+    "metrics": {
+      "accuracy": 1.0,
+      "precision": 1.0,
+      "recall": 1.0,
+      "f1_score": 1.0
+    }
+  },
+  {
+    "run_id": "20260917_002404_ikt2eh",
+    "run_dir": "D:\\18551\\AiC\\SentinelNet\\models\\runs\\20260917_002404_ikt2eh",
+    "created_at": "2026-09-16T16:24:04.981124+00:00",
+    "model_type": "RandomForestClassifier",
+    "n_features": 17,
+    "is_best": false,
+    "metrics": {
+      "accuracy": 1.0,
+      "precision": 1.0,
+      "recall": 1.0,
+      "f1_score": 1.0
+    }
+  },
+  {
+    "run_id": "20260917_002730_aoiw2k",
+    "run_dir": "D:\\18551\\AiC\\SentinelNet\\models\\runs\\20260917_002730_aoiw2k",
+    "created_at": "2026-09-16T16:27:30.308893+00:00",
+    "model_type": "RandomForestClassifier",
+    "n_features": 17,
+    "is_best": false,
+    "metrics": {
+      "accuracy": 1.0,
+      "precision": 1.0,
+      "recall": 1.0,
+      "f1_score": 1.0
+    }
+  },
+  {
+    "run_id": "20260917_003111_qkv5c9",
+    "run_dir": "D:\\18551\\AiC\\SentinelNet\\models\\runs\\20260917_003111_qkv5c9",
+    "created_at": "2026-09-16T16:31:11.832482+00:00",
+    "model_type": "RandomForestClassifier",
+    "n_features": 17,
+    "is_best": false,
+    "metrics": {
+      "accuracy": 1.0,
+      "precision": 1.0,
+      "recall": 1.0,
+      "f1_score": 1.0
+    }
+  },
+  {
+    "run_id": "20260917_003415_himajc",
+    "run_dir": "D:\\18551\\AiC\\SentinelNet\\models\\runs\\20260917_003415_himajc",
+    "created_at": "2026-09-16T16:34:16.020275+00:00",
+    "model_type": "RandomForestClassifier",
+    "n_features": 17,
+    "is_best": false,
+    "metrics": {
+      "accuracy": 1.0,
+      "precision": 1.0,
+      "recall": 1.0,
+      "f1_score": 1.0
+    }
+  },
+  {
+    "run_id": "20260917_005116_gcdles",
+    "run_dir": "D:\\18551\\AiC\\SentinelNet\\models\\runs\\20260917_005116_gcdles",
+    "created_at": "2026-09-16T16:51:16.808391+00:00",
+    "model_type": "RandomForestClassifier",
+    "n_features": 17,
+    "is_best": false,
+    "metrics": {
+      "accuracy": 1.0,
+      "precision": 1.0,
+      "recall": 1.0,
+      "f1_score": 1.0
+    }
+  },
+  {
+    "run_id": "20260917_005725_b82tph",
+    "run_dir": "D:\\18551\\AiC\\SentinelNet\\models\\runs\\20260917_005725_b82tph",
+    "created_at": "2026-09-16T16:57:25.444644+00:00",
+    "model_type": "RandomForestClassifier",
+    "n_features": 17,
+    "is_best": false,
+    "metrics": {
+      "accuracy": 1.0,
+      "precision": 1.0,
+      "recall": 1.0,
+      "f1_score": 1.0
+    }
+  },
+  {
+    "run_id": "20260917_005752_4mxjz4",
+    "run_dir": "D:\\18551\\AiC\\SentinelNet\\models\\runs\\20260917_005752_4mxjz4",
+    "created_at": "2026-09-16T16:57:52.873882+00:00",
+    "model_type": "RandomForestClassifier",
+    "n_features": 18,
+    "is_best": false,
+    "metrics": {
+      "accuracy": 1.0,
+      "precision": 1.0,
+      "recall": 1.0,
+      "f1_score": 1.0
+    }
+  },
+  {
+    "run_id": "20260917_010227_3y30pa",
+    "run_dir": "D:\\18551\\AiC\\SentinelNet\\models\\runs\\20260917_010227_3y30pa",
+    "created_at": "2026-09-16T17:02:27.866924+00:00",
+    "model_type": "RandomForestClassifier",
+    "n_features": 17,
+    "is_best": false,
+    "metrics": {
+      "accuracy": 1.0,
+      "precision": 1.0,
+      "recall": 1.0,
+      "f1_score": 1.0
+    }
+  },
+  {
+    "run_id": "20260917_010255_ckfl32",
+    "run_dir": "D:\\18551\\AiC\\SentinelNet\\models\\runs\\20260917_010255_ckfl32",
+    "created_at": "2026-09-16T17:02:55.615100+00:00",
+    "model_type": "RandomForestClassifier",
+    "n_features": 17,
+    "is_best": false,
+    "metrics": {
+      "accuracy": 1.0,
+      "precision": 1.0,
+      "recall": 1.0,
+      "f1_score": 1.0
+    }
+  },
+  {
+    "run_id": "20260917_010844_08vpmk",
+    "run_dir": "D:\\18551\\AiC\\SentinelNet\\models\\runs\\20260917_010844_08vpmk",
+    "created_at": "2026-09-16T17:08:44.802549+00:00",
+    "model_type": "RandomForestClassifier",
+    "n_features": 17,
+    "is_best": false,
+    "metrics": {
+      "accuracy": 1.0,
+      "precision": 1.0,
+      "recall": 1.0,
+      "f1_score": 1.0
+    }
+  },
+  {
+    "run_id": "20260917_010913_2fz9jl",
+    "run_dir": "D:\\18551\\AiC\\SentinelNet\\models\\runs\\20260917_010913_2fz9jl",
+    "created_at": "2026-09-16T17:09:13.496095+00:00",
+    "model_type": "RandomForestClassifier",
+    "n_features": 17,
+    "is_best": false,
+    "metrics": {
+      "accuracy": 1.0,
+      "precision": 1.0,
+      "recall": 1.0,
+      "f1_score": 1.0
+    }
+  },
+  {
+    "run_id": "20260917_014540_7evo3a",
+    "run_dir": "D:\\18551\\AiC\\SentinelNet\\models\\runs\\20260917_014540_7evo3a",
+    "created_at": "2026-09-16T17:45:40.176632+00:00",
+    "model_type": "RandomForestClassifier",
+    "n_features": 17,
+    "is_best": false,
+    "metrics": {
+      "accuracy": 1.0,
+      "precision": 1.0,
+      "recall": 1.0,
+      "f1_score": 1.0
+    }
+  },
+  {
+    "run_id": "20260917_014609_uhksyl",
+    "run_dir": "D:\\18551\\AiC\\SentinelNet\\models\\runs\\20260917_014609_uhksyl",
+    "created_at": "2026-09-16T17:46:09.687970+00:00",
+    "model_type": "RandomForestClassifier",
+    "n_features": 17,
+    "is_best": false,
+    "metrics": {
+      "accuracy": 1.0,
+      "precision": 1.0,
+      "recall": 1.0,
+      "f1_score": 1.0
+    }
+  },
+  {
+    "run_id": "20260917_014640_7fair0",
+    "run_dir": "D:\\18551\\AiC\\SentinelNet\\models\\runs\\20260917_014640_7fair0",
+    "created_at": "2026-09-16T17:46:40.755742+00:00",
+    "model_type": "RandomForestClassifier",
+    "n_features": 15,
+    "is_best": false,
+    "metrics": {
+      "accuracy": 0.9978875,
+      "precision": 0.997903791211823,
+      "recall": 0.9978875,
+      "f1_score": 0.9978916474660933
+    }
+  },
+  {
+    "run_id": "20260917_015202_ij8gp1",
+    "run_dir": "D:\\18551\\AiC\\SentinelNet\\models\\runs\\20260917_015202_ij8gp1",
+    "created_at": "2026-09-16T17:52:02.063874+00:00",
+    "model_type": "RandomForestClassifier",
+    "n_features": 17,
+    "is_best": false,
+    "metrics": {
+      "accuracy": 1.0,
+      "precision": 1.0,
+      "recall": 1.0,
+      "f1_score": 1.0
+    }
+  },
+  {
+    "run_id": "20260917_015230_761e3q",
+    "run_dir": "D:\\18551\\AiC\\SentinelNet\\models\\runs\\20260917_015230_761e3q",
+    "created_at": "2026-09-16T17:52:30.585727+00:00",
+    "model_type": "RandomForestClassifier",
+    "n_features": 17,
+    "is_best": false,
+    "metrics": {
+      "accuracy": 1.0,
+      "precision": 1.0,
+      "recall": 1.0,
+      "f1_score": 1.0
+    }
+  },
+  {
+    "run_id": "20260917_101659_bvlvr3",
+    "run_dir": "D:\\18551\\AiC\\SentinelNet\\models\\runs\\20260917_101659_bvlvr3",
+    "created_at": "2026-09-17T02:16:59.648380+00:00",
+    "model_type": "RandomForestClassifier",
+    "n_features": 17,
+    "is_best": false,
+    "metrics": {
+      "accuracy": 1.0,
+      "precision": 1.0,
+      "recall": 1.0,
+      "f1_score": 1.0
+    }
+  }
+]

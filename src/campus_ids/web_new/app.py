@@ -10,6 +10,7 @@ from __future__ import annotations
 import logging
 import os
 from contextlib import asynccontextmanager
+from pathlib import Path
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -17,6 +18,7 @@ from slowapi.errors import RateLimitExceeded
 from slowapi import _rate_limit_exceeded_handler
 from slowapi.middleware import SlowAPIMiddleware
 from starlette.middleware.sessions import SessionMiddleware
+from starlette.responses import FileResponse
 from starlette.types import ASGIApp, Receive, Scope, Send
 
 from campus_ids.runtime.db import init_db, get_connection
@@ -429,14 +431,43 @@ def create_app() -> FastAPI:
     app.include_router(admin.router, tags=["admin"])
     app.include_router(auth_routes.router, tags=["auth"])
 
-    # ── 页面路由与静态资源（T2.17）────────────────────────────────
-    # 新应用此前不提供任何界面（GET / 等全 404）。页面路由用同步 def，
-    # 表单通过双提交 cookie + 表单域 csrf_token 走新安全层。
+    # ── 页面路由与静态资源（T3.1 新增前端模式切换）────────────────
+    # CAMPUS_IDS_FRONTEND=new → Vue3 SPA（frontend/dist/）
+    # CAMPUS_IDS_FRONTEND=legacy 或未设置 → 旧 Jinja2 模板（T2.17 pages）
     from fastapi.staticfiles import StaticFiles
     from campus_ids.web_new import pages
 
-    app.mount("/static", StaticFiles(directory=str(pages.STATIC_DIR)), name="static")
-    app.include_router(pages.router)
+    frontend_mode = os.environ.get("CAMPUS_IDS_FRONTEND", "legacy").lower()
+
+    if frontend_mode == "new":
+        # ── Vue3 SPA 模式 ──────────────────────────────────────
+        # 查找前端构建产物：优先项目根目录 frontend/dist/，其次 /app/frontend/dist/
+        _frontend_dist = Path(__file__).resolve().parents[2] / "frontend" / "dist"
+        if not _frontend_dist.exists():
+            _frontend_dist = Path("/app/frontend/dist")
+        if _frontend_dist.exists():
+            app.mount(
+                "/assets",
+                StaticFiles(directory=str(_frontend_dist / "assets")),
+                name="frontend-assets",
+            )
+            # SPA 回退：所有非 API/非静态路由返回 index.html
+            _index_html = _frontend_dist / "index.html"
+
+            @app.get("/{path:path}", include_in_schema=False)
+            def spa_fallback(path: str) -> FileResponse:
+                """SPA 回退路由 — Vue Router 使用 HTML5 History 模式。"""
+                return FileResponse(str(_index_html), media_type="text/html")
+
+            logger.info("前端 SPA 模式：从 %s 提供静态资源", _frontend_dist)
+        else:
+            logger.warning("前端 SPA 模式但未找到构建产物，回退到 legacy 模式")
+            frontend_mode = "legacy"
+
+    if frontend_mode != "new":
+        # ── Legacy 模式（T2.17 原始页面路由）────────────────────
+        app.mount("/static", StaticFiles(directory=str(pages.STATIC_DIR)), name="static")
+        app.include_router(pages.router)
 
     # ── 注册全局异常处理器 ──────────────────────────────────────
     register_exception_handlers(app)

@@ -1,0 +1,10 @@
+{
+  "run_id": "20260914_123225_6i4cf6",
+  "run_dir": "D:\\18551\\AiC\\SentinelNet\\models\\runs\\20260914_123225_6i4cf6",
+  "metrics": {
+    "accuracy": 1.0,
+    "precision": 1.0,
+    "recall": 1.0,
+    "f1_score": 1.0
+  }
+}
