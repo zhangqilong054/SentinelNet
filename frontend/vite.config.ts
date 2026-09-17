@@ -22,27 +22,13 @@ export default defineConfig({
     },
   },
 
-  // 开发模式：代理 API 和 SSE 请求到后端
+  // 开发模式：代理 API（含 SSE /api/stream）请求到后端
+  // T3 审计清理：移除旧前端遗留的 /stream /login /logout /change-password 代理，
+  // 新 SPA 全部走 /api 前缀（认证为 /api/auth/*）
   server: {
     port: 5173,
     proxy: {
       '/api': {
-        target: 'http://localhost:5000',
-        changeOrigin: true,
-      },
-      '/stream': {
-        target: 'http://localhost:5000',
-        changeOrigin: true,
-      },
-      '/login': {
-        target: 'http://localhost:5000',
-        changeOrigin: true,
-      },
-      '/logout': {
-        target: 'http://localhost:5000',
-        changeOrigin: true,
-      },
-      '/change-password': {
         target: 'http://localhost:5000',
         changeOrigin: true,
       },

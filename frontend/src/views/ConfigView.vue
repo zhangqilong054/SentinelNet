@@ -29,7 +29,7 @@ async function fetchSettings() {
   try {
     const data = await getSettings()
     if (data) {
-      thresholds.value = data.thresholds ?? {}
+      thresholds.value = (data.thresholds as Record<string, number>) ?? {}
       authEnabled.value = data.auth_enabled ?? false
       mlConfig.value = (data.ml_config as Record<string, unknown>) ?? {}
     }
@@ -58,13 +58,13 @@ async function handleThresholdChange(key: string, value: number) {
 // ── 载荷分析 ──────────────────────────────────────────
 const payloadForm = reactive({
   data: '',
-  format: 'hex' as 'hex' | 'base64',
 })
 const analyzing = ref(false)
+// 后端契约 PayloadAnalysisResponse：{ alerts, is_anomaly, payload_length }
 const analysisResult = ref<{
-  risk_score: number
-  summary: string
-  findings: Record<string, unknown>[]
+  alerts: string[]
+  is_anomaly: boolean
+  payload_length: number
 } | null>(null)
 
 async function handleAnalyze() {
@@ -75,15 +75,15 @@ async function handleAnalyze() {
   analyzing.value = true
   analysisResult.value = null
   try {
+    // 后端契约 PayloadAnalysisRequest：仅接受 { payload: string }
     const result = await analyzePayload({
-      data: payloadForm.data.trim(),
-      format: payloadForm.format,
+      payload: payloadForm.data.trim(),
     })
     if (result) {
       analysisResult.value = {
-        risk_score: result.risk_score ?? 0,
-        summary: result.summary ?? '',
-        findings: (result.findings as Record<string, unknown>[]) ?? [],
+        alerts: result.alerts ?? [],
+        is_anomaly: result.is_anomaly ?? false,
+        payload_length: result.payload_length ?? 0,
       }
     }
   } catch (e) {
@@ -91,13 +91,6 @@ async function handleAnalyze() {
   } finally {
     analyzing.value = false
   }
-}
-
-function riskLevel(score: number): 'success' | 'warning' | 'danger' | 'info' {
-  if (score >= 80) return 'danger'
-  if (score >= 50) return 'warning'
-  if (score >= 20) return 'info'
-  return 'success'
 }
 
 onMounted(fetchSettings)
@@ -144,20 +137,12 @@ onMounted(fetchSettings)
       </template>
 
       <el-form label-width="80px">
-        <el-form-item label="数据格式">
-          <el-radio-group v-model="payloadForm.format">
-            <el-radio value="hex">Hex</el-radio>
-            <el-radio value="base64">Base64</el-radio>
-          </el-radio-group>
-        </el-form-item>
         <el-form-item label="载荷数据">
           <el-input
             v-model="payloadForm.data"
             type="textarea"
             :rows="4"
-            :placeholder="payloadForm.format === 'hex'
-              ? '输入十六进制载荷，如: 48454c4c4f'
-              : '输入Base64编码载荷'"
+            placeholder="输入待检测的载荷字符串"
             style="font-family: 'Courier New', monospace"
           />
         </el-form-item>
@@ -173,26 +158,21 @@ onMounted(fetchSettings)
         <el-divider>分析结果</el-divider>
 
         <el-descriptions :column="2" border>
-          <el-descriptions-item label="风险评分">
-            <el-tag :type="riskLevel(analysisResult.risk_score)" size="large">
-              {{ analysisResult.risk_score }}/100
+          <el-descriptions-item label="异常判定">
+            <el-tag :type="analysisResult.is_anomaly ? 'danger' : 'success'" size="large">
+              {{ analysisResult.is_anomaly ? '异常' : '正常' }}
             </el-tag>
           </el-descriptions-item>
-          <el-descriptions-item label="摘要" :span="2">
-            {{ analysisResult.summary }}
+          <el-descriptions-item label="载荷长度">
+            {{ analysisResult.payload_length }}
           </el-descriptions-item>
         </el-descriptions>
 
-        <div v-if="analysisResult.findings.length > 0" class="findings">
-          <h4>发现</h4>
-          <el-table :data="analysisResult.findings" stripe size="small" max-height="200">
-            <el-table-column
-              v-for="(_, key) in analysisResult.findings[0]"
-              :key="key"
-              :prop="String(key)"
-              :label="String(key)"
-              show-overflow-tooltip
-            />
+        <div v-if="analysisResult.alerts.length > 0" class="findings">
+          <h4>告警 ({{ analysisResult.alerts.length }})</h4>
+          <el-table :data="analysisResult.alerts.map((msg, i) => ({ i, msg }))" stripe size="small" max-height="200">
+            <el-table-column prop="i" label="#" width="60" />
+            <el-table-column prop="msg" label="告警内容" show-overflow-tooltip />
           </el-table>
         </div>
       </div>

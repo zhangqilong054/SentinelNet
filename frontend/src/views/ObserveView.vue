@@ -104,15 +104,15 @@ function severityLabel(severity: string): string {
 }
 
 onMounted(() => {
-  // 初始加载 — getTraffic 返回格式与 SSE traffic 事件不同，仅用于初始化展示
+  // 初始加载 — REST 契约 TrafficStatsResponse：{ qps, connections, ... }，与 SSE traffic 帧字段不同
   getTraffic().then(data => {
-    if (data && typeof data === 'object' && 'packets_per_second' in data) {
-      // REST API 返回格式适配到 TrafficPoint
+    if (data && typeof data === 'object' && 'qps' in data) {
+      const stats = data as { qps: number; connections: number }
       trafficStore.updateTraffic({
         timestamp: new Date().toISOString(),
-        packets_per_sec: (data as { packets_per_second: number }).packets_per_second,
-        bytes_per_sec: (data as { avg_packet_size: number }).avg_packet_size * (data as { packets_per_second: number }).packets_per_second,
-        active_flows: 0,
+        packets_per_sec: stats.qps,
+        bytes_per_sec: 0,
+        active_flows: stats.connections,
       })
     }
   }).catch(() => {})

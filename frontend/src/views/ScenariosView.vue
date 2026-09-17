@@ -6,7 +6,7 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 interface ScenarioInfo {
   name: string
   description: string
-  tasks: string[]
+  steps: string[]
 }
 
 const scenarios = ref<ScenarioInfo[]>([])
@@ -32,7 +32,7 @@ async function fetchScenarios() {
 async function handleStart(name: string) {
   try {
     await ElMessageBox.confirm(
-      `确定启动剧本 "${name}"？该剧本将依次启动以下任务：${scenarios.value.find(s => s.name === name)?.tasks.join(', ')}`,
+      `确定启动剧本 "${name}"？该剧本将依次启动以下任务：${scenarios.value.find(s => s.name === name)?.steps.join(', ')}`,
       '启动确认',
       { type: 'info', confirmButtonText: '启动', cancelButtonText: '取消' },
     )
@@ -115,13 +115,13 @@ onMounted(fetchScenarios)
 
             <div class="scenario-tasks">
               <el-tag
-                v-for="task in s.tasks"
-                :key="task"
+                v-for="step in s.steps"
+                :key="step"
                 size="small"
                 type="info"
                 class="task-tag"
               >
-                {{ task }}
+                {{ step }}
               </el-tag>
             </div>
 

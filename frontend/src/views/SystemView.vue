@@ -5,7 +5,8 @@ import { usePolling } from '@/composables/usePolling'
 import { ElMessage, ElMessageBox } from 'element-plus'
 
 // ── 健康状态 ──────────────────────────────────────────
-const health = ref<{ status: string; version: string; uptime_seconds: number } | null>(null)
+// 后端契约 HealthResponse：{ status, timestamp, uptime_seconds, components? }（无 version 字段）
+const health = ref<{ status: string; timestamp: string; uptime_seconds: number } | null>(null)
 
 async function fetchHealth() {
   try {
@@ -78,7 +79,8 @@ async function handleTrain() {
   }
   training.value = true
   try {
-    await trainModel({ dataset: trainForm.value.dataset.trim(), epochs: trainForm.value.epochs })
+    // confirm 为后端必填确认位（训练会覆盖模型产物）
+    await trainModel({ dataset: trainForm.value.dataset.trim(), epochs: trainForm.value.epochs, confirm: true })
     ElMessage.success('训练已启动')
     resumeTrainPolling()
   } catch {
@@ -135,11 +137,11 @@ onUnmounted(() => {
       <div v-if="health" class="health-info">
         <el-descriptions :column="3" border>
           <el-descriptions-item label="状态">
-            <el-tag :type="health.status === 'ok' ? 'success' : 'danger'">
-              {{ health.status === 'ok' ? '正常' : health.status }}
+            <el-tag :type="health.status === 'ok' || health.status === 'healthy' ? 'success' : 'danger'">
+              {{ health.status === 'ok' || health.status === 'healthy' ? '正常' : health.status }}
             </el-tag>
           </el-descriptions-item>
-          <el-descriptions-item label="版本">{{ health.version }}</el-descriptions-item>
+          <el-descriptions-item label="时间戳">{{ health.timestamp }}</el-descriptions-item>
           <el-descriptions-item label="运行时间">{{ formatUptime(health.uptime_seconds) }}</el-descriptions-item>
         </el-descriptions>
       </div>

@@ -442,10 +442,14 @@ def create_app() -> FastAPI:
     if frontend_mode == "new":
         # ── Vue3 SPA 模式 ──────────────────────────────────────
         # 查找前端构建产物：优先项目根目录 frontend/dist/，其次 /app/frontend/dist/
-        _frontend_dist = Path(__file__).resolve().parents[2] / "frontend" / "dist"
-        if not _frontend_dist.exists():
-            _frontend_dist = Path("/app/frontend/dist")
-        if _frontend_dist.exists():
+        # 注意：app.py 位于 src/campus_ids/web_new/，parents[3] 才是项目根
+        # （parents[2] 是 src/，曾导致拼出 src/frontend/dist 静默回退 legacy）
+        _candidates = [
+            Path(__file__).resolve().parents[3] / "frontend" / "dist",
+            Path("/app/frontend/dist"),
+        ]
+        _frontend_dist = next((p for p in _candidates if p.exists()), None)
+        if _frontend_dist is not None:
             app.mount(
                 "/assets",
                 StaticFiles(directory=str(_frontend_dist / "assets")),
@@ -461,8 +465,12 @@ def create_app() -> FastAPI:
 
             logger.info("前端 SPA 模式：从 %s 提供静态资源", _frontend_dist)
         else:
-            logger.warning("前端 SPA 模式但未找到构建产物，回退到 legacy 模式")
-            frontend_mode = "legacy"
+            # 显式失败：静默回退 legacy 会掩盖配置/构建错误（T3 审计 P0-1）
+            _attempted = ", ".join(str(p) for p in _candidates)
+            raise RuntimeError(
+                "CAMPUS_IDS_FRONTEND=new 但未找到前端构建产物（尝试过: %s）。"
+                "请先在 frontend/ 下执行 npm run build，或改回 legacy 模式。" % _attempted
+            )
 
     if frontend_mode != "new":
         # ── Legacy 模式（T2.17 原始页面路由）────────────────────

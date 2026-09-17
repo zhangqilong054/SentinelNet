@@ -4,8 +4,15 @@
  * T3.4 核心实现，替代旧前端 2 条 EventSource + 8 个 setInterval。
  * 使用 @vueuse/core 的 useEventSource（内置断线重连+状态机）。
  *
- * SSE endpoint: /stream?topics=alert,traffic
+ * SSE endpoint: /api/stream?topics=alert,traffic（注意：后端唯一端点带 /api 前缀）
+ * 帧契约（唯一真相源 runtime/events.py + api/stream.py）：
+ *   event: alert     data = 载荷本身（无 {topic,data} 包装）
+ *   event: traffic   data = 载荷本身
+ *   event: connected data = { topics: [...] }
+ *   event: error     data = { error: ... }
  * 注意：topic 用单数（alert/traffic），非复数，这是 T2.9 修复后的契约。
+ * T3 审计修复（P0-2）：原实现连 /stream 且只监听默认 message 事件，
+ * 后端命名帧一条都收不到。
  */
 
 import { useEventSource } from '@vueuse/core'
@@ -14,12 +21,11 @@ import { useAlertStore } from '@/stores/alert'
 import { useTrafficStore } from '@/stores/traffic'
 import { useSseStore } from '@/stores/sse'
 
-/** SSE 事件数据格式 — 后端 event 字段名即 topic */
-interface SseEventData {
-  topic?: string
-  data?: unknown
-  [key: string]: unknown
-}
+/** SSE 帧事件名 — 与后端 TOPIC_* 契约一致（含连接/错误帧） */
+type SseEventName = 'alert' | 'traffic' | 'connected' | 'error'
+
+const SSE_URL = '/api/stream?topics=alert,traffic'
+const SSE_EVENTS: SseEventName[] = ['alert', 'traffic', 'connected', 'error']
 
 /**
  * 使用 SSE 连接。
@@ -30,11 +36,11 @@ export function useSSE(enabled: Ref<boolean>) {
   const alertStore = useAlertStore()
   const trafficStore = useTrafficStore()
 
-  // 单条 SSE 连接：/stream?topics=alert,traffic
-  // useEventSource 内置断线重连
-  const { status, data, error, close, open } = useEventSource(
-    '/stream?topics=alert,traffic',
-    [],  // 无自定义事件名，使用默认 message
+  // 单条 SSE 连接，监听后端全部命名帧（默认 message 事件收不到命名帧）
+  // useEventSource 内置断线重连；event ref 携带最新帧的事件名
+  const { status, event, data, error, close, open } = useEventSource(
+    SSE_URL,
+    SSE_EVENTS,
     { autoReconnect: { retries: 10, delay: 3000 } },
   )
 
@@ -57,37 +63,28 @@ export function useSSE(enabled: Ref<boolean>) {
     }
   })
 
-  // 分发 SSE 事件到对应 store
-  watch(data, (rawData) => {
-    if (!rawData) return
-    try {
-      const event: SseEventData = JSON.parse(rawData)
-      sseStore.incrementEventCount()
-      dispatchEvent(event)
-    } catch {
-      // 非JSON数据（如connected帧），忽略
-      console.debug('[SSE] 非JSON事件:', rawData)
-    }
+  // 分发 SSE 命名帧到对应 store（帧名即 topic）
+  watch([event, data], ([eventName, rawData]) => {
+    if (!eventName || rawData === null || rawData === undefined) return
+    sseStore.incrementEventCount()
+    dispatchEvent(eventName as SseEventName, rawData)
   })
 
-  /** 事件分发 — 根据 topic 路由到对应 store */
-  function dispatchEvent(event: SseEventData) {
-    // 后端 SSE 格式: event 字段名即 topic
-    // 支持两种格式:
-    // 1. { topic: "alert", data: {...} }
-    // 2. 直接就是数据（topic 从 event name 推导）
-    const topic = event.topic
-    const payload = event.data ?? event
-
-    switch (topic) {
+  /** 事件分发 — 根据帧名路由到对应 store，data 即载荷本身 */
+  function dispatchEvent(eventName: SseEventName, rawData: unknown) {
+    switch (eventName) {
       case 'alert':
-        alertStore.addAlert(payload as Parameters<typeof alertStore.addAlert>[0])
+        alertStore.addAlert(rawData as Parameters<typeof alertStore.addAlert>[0])
         break
       case 'traffic':
-        trafficStore.updateTraffic(payload as Parameters<typeof trafficStore.updateTraffic>[0])
+        trafficStore.updateTraffic(rawData as Parameters<typeof trafficStore.updateTraffic>[0])
         break
-      default:
-        console.debug('[SSE] 未知 topic:', topic)
+      case 'connected':
+        sseStore.setConnected(true)
+        break
+      case 'error':
+        console.error('[SSE] 服务端错误帧:', rawData)
+        break
     }
   }
 

@@ -13,9 +13,34 @@ export interface paths {
         };
         /**
          * 系统健康检查
-         * @description 健康检查。
+         * @description 系统健康检查 — 对齐旧 Flask /api/health 返回格式。
+         *
+         *     组件：database / capture / ml_model / memory / sse / threads
          */
         get: operations["health_check_api_health_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/check": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * 环境自检
+         * @description 环境自检：Python 版本、依赖包、Npcap、模型文件、数据文件。
+         *
+         *     数据目录取自 `Settings.data_dir`（而非硬算项目根），这样
+         *     `CAMPUS_IDS_DATA_DIR` 指向别处时自检结果与实际运行目录一致。
+         */
+        get: operations["environment_check_api_check_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -33,12 +58,12 @@ export interface paths {
         };
         /**
          * 获取当前配置
-         * @description 获取当前配置。
+         * @description 获取当前配置 — 从 Settings 单例读取。
          */
-        get: operations["get_settings_api_settings_get"];
+        get: operations["get_settings_endpoint_api_settings_get"];
         /**
          * 更新阈值配置
-         * @description 更新阈值配置。
+         * @description 更新阈值配置 — 运行期覆盖 + DB 持久化 + 检测器热重建。
          */
         put: operations["update_settings_api_settings_put"];
         post?: never;
@@ -80,7 +105,7 @@ export interface paths {
         };
         /**
          * 获取实时流量统计
-         * @description 获取实时流量统计。
+         * @description 获取实时流量统计数据（从 RuntimeState 读取内存中的当前值）。
          */
         get: operations["get_traffic_api_traffic_get"];
         put?: never;
@@ -100,7 +125,7 @@ export interface paths {
         };
         /**
          * 获取流量历史数据
-         * @description 获取流量历史数据。
+         * @description 获取流量历史数据（从 SQLite traffic_history 表查询）。
          */
         get: operations["get_traffic_history_api_traffic_history_get"];
         put?: never;
@@ -120,7 +145,7 @@ export interface paths {
         };
         /**
          * 查询告警列表（支持分页和级别筛选）
-         * @description 获取告警列表。
+         * @description 获取告警列表（从 SQLite alerts 表查询）。
          */
         get: operations["get_alerts_api_alerts_get"];
         put?: never;
@@ -140,7 +165,7 @@ export interface paths {
         };
         /**
          * 获取告警统计
-         * @description 获取告警统计。
+         * @description 获取告警统计（总数、类型分布、级别分布）。
          */
         get: operations["get_alert_stats_api_alerts_stats_get"];
         put?: never;
@@ -161,6 +186,15 @@ export interface paths {
         /**
          * 获取所有任务状态
          * @description 获取所有任务状态。
+         *
+         *     取代旧端点：
+         *     - GET /api/capture/status
+         *     - GET /api/capture/enhanced-status
+         *     - GET /api/detector/status
+         *     - GET /api/attack/status
+         *     - GET /api/auto/status
+         *     - GET /api/dual/stats
+         *     - GET /api/model/train-status
          */
         get: operations["list_tasks_api_tasks_get"];
         put?: never;
@@ -183,6 +217,19 @@ export interface paths {
         /**
          * 启动指定任务
          * @description 启动指定任务。
+         *
+         *     限时任务可指定 duration（秒），未指定则使用任务默认时长。
+         *     连续任务忽略 duration 参数。
+         *
+         *     取代旧端点：
+         *     - POST /api/capture/start
+         *     - POST /api/capture/start-enhanced
+         *     - POST /api/detector/start
+         *     - POST /api/attack/start
+         *     - POST /api/auto/start
+         *     - POST /api/demo/start
+         *     - POST /api/dual/load
+         *     - POST /api/model/train
          */
         post: operations["start_task_api_tasks__name__start_post"];
         delete?: never;
@@ -202,7 +249,16 @@ export interface paths {
         put?: never;
         /**
          * 停止指定任务
-         * @description 停止指定任务。
+         * @description 停止指定任务（幂等）。
+         *
+         *     即使任务未在运行也返回成功，与旧端点行为一致。
+         *
+         *     取代旧端点：
+         *     - POST /api/capture/stop
+         *     - POST /api/capture/stop-enhanced
+         *     - POST /api/detector/stop
+         *     - POST /api/attack/stop
+         *     - POST /api/dual/stop
          */
         post: operations["stop_task_api_tasks__name__stop_post"];
         delete?: never;
@@ -220,7 +276,7 @@ export interface paths {
         };
         /**
          * 获取可用模型列表
-         * @description 获取可用模型列表。
+         * @description 获取可用模型列表 — 从 registry.json 读取。
          */
         get: operations["list_models_api_models_get"];
         put?: never;
@@ -242,7 +298,15 @@ export interface paths {
         put?: never;
         /**
          * 启动模型训练
-         * @description 启动模型训练。
+         * @description 启动模型训练 —— 委托 `TaskRegistry` 的 `train` 任务（T2.13）。
+         *
+         *     三步保护：
+         *     1. `confirm=true` 必填，否则 400 且不启动；
+         *     2. 已在运行时返回 409（判据来自 TaskRegistry，不是本地状态机）；
+         *     3. 启动前备份三个产物到 `<data_dir>/training_backup/<时间戳>/`。
+         *
+         *     `epochs` 仅用于判定 quick 模式（≤3），不直接等于训练轮数 ——
+         *     训练链路的轮数由数据集配置决定（D4：不重构训练链路内部）。
          */
         post: operations["start_training_api_models_train_post"];
         delete?: never;
@@ -260,7 +324,15 @@ export interface paths {
         };
         /**
          * 获取训练状态
-         * @description 获取训练状态。
+         * @description 获取训练状态 —— 真相源是 `TaskRegistry`（T2.13）。
+         *
+         *     状态映射（TaskRegistry → 本响应）：
+         *     `idle`→`idle`、`running`→`training`、`finished`→`completed`、`failed`→`failed`。
+         *
+         *     `progress` 由任务窗口 elapsed/duration 算出而非硬编码：
+         *     训练任务在本架构里是 TIMED 任务（窗口时长 = `default_duration`，默认 120s），
+         *     所以它是"任务窗口进度"而不是"训练收敛进度" —— 训练链路内部进度需要
+         *     改 `model/train.py` 才能拿到，属 D4 范围外。
          */
         get: operations["get_train_status_api_models_train_status_get"];
         put?: never;
@@ -283,7 +355,7 @@ export interface paths {
         post?: never;
         /**
          * 删除指定模型
-         * @description 删除指定模型。
+         * @description 删除指定模型 — 从 registry.json 移除并删除 run 目录。
          */
         delete: operations["delete_model_api_models__name__delete"];
         options?: never;
@@ -300,7 +372,7 @@ export interface paths {
         };
         /**
          * 获取可用剧本列表
-         * @description 获取可用剧本列表。
+         * @description 获取可用剧本列表（供前端抽屉渲染，替代硬编码按钮）。
          */
         get: operations["list_scenarios_api_scenarios_get"];
         put?: never;
@@ -322,7 +394,7 @@ export interface paths {
         put?: never;
         /**
          * 启动指定剧本
-         * @description 启动指定剧本。
+         * @description 启动指定剧本（按序执行子任务，任一失败则整体失败并回滚）。
          */
         post: operations["start_scenario_api_scenarios_start_post"];
         delete?: never;
@@ -341,8 +413,8 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * 停止当前剧本
-         * @description 停止当前剧本。
+         * 停止指定剧本
+         * @description 停止指定剧本（停止所有子任务，幂等）。
          */
         post: operations["stop_scenario_api_scenarios_stop_post"];
         delete?: never;
@@ -360,11 +432,73 @@ export interface paths {
         };
         /**
          * TLS异常分析
-         * @description TLS 异常分析。
+         * @description TLS 异常分析（聚合统计 + 可疑记录摘要）。
          */
         get: operations["analyze_tls_api_tls_analyze_get"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/tls/stats": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * TLS加密流量统计
+         * @description 获取 TLS 加密流量统计。
+         */
+        get: operations["get_tls_stats_api_tls_stats_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/tls/suspicious": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * 获取可疑TLS记录
+         * @description 获取可疑 TLS 记录列表。
+         */
+        get: operations["get_tls_suspicious_api_tls_suspicious_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/payload/check": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * 载荷送检（旧路径）
+         * @description 对 HTTP 载荷执行应用层检测（SQL 注入 + XSS）。
+         *
+         *     保留旧路径 /api/payload/check 以兼容现有客户端。
+         */
+        post: operations["check_payload_api_payload_check_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -382,9 +516,135 @@ export interface paths {
         put?: never;
         /**
          * 载荷分析
-         * @description 载荷分析。
+         * @description 对 HTTP 载荷执行应用层检测（SQL 注入 + XSS）。
          */
         post: operations["analyze_payload_api_payload_analyze_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/stream": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * SSE 实时事件流
+         * @description 单条 SSE 事件流。
+         *
+         *     通过 ?topics= 参数选择订阅主题。**帧的 `event:` 名与 topic 名相同。**
+         */
+        get: operations["event_stream_api_stream_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/admin/cleanup": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * 清理过期历史数据
+         * @description 清理过期历史数据 — 删除超过指定天数的告警和流量记录。
+         *
+         *     对齐旧 /api/cleanup 端点行为。
+         */
+        post: operations["cleanup_data_api_admin_cleanup_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/admin/export": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * 导出流量数据到CSV
+         * @description 导出流量数据到 CSV — 从 SQLite 查询写入 traffic_stats.csv。
+         *
+         *     对齐旧 /api/save 端点行为。
+         */
+        post: operations["export_data_api_admin_export_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/login": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * 会话登录
+         * @description 用户名+密码登录，成功后写入会话。
+         */
+        post: operations["login_api_login_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/logout": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * 会话登出
+         * @description 清除会话认证信息。
+         */
+        post: operations["logout_api_logout_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/change-password": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * 修改密码
+         * @description 修改当前用户密码。需提供旧密码验证。
+         */
+        post: operations["change_password_api_change_password_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -400,6 +660,8 @@ export interface components {
          * @description 告警列表响应。
          * @example {
          *       "alerts": [],
+         *       "limit": 50,
+         *       "offset": 0,
          *       "total": 0
          *     }
          */
@@ -408,43 +670,45 @@ export interface components {
             alerts: components["schemas"]["AlertResponse"][];
             /** Total */
             total: number;
+            /**
+             * Limit
+             * @default 50
+             */
+            limit: number;
+            /**
+             * Offset
+             * @default 0
+             */
+            offset: number;
         };
         /**
          * AlertResponse
          * @description 单条告警响应。
          * @example {
          *       "attack_type": "ddos",
-         *       "confidence": 0.95,
-         *       "detail": {},
-         *       "dst_ip": "10.0.0.1",
-         *       "id": "1",
-         *       "severity": "high",
-         *       "src_ip": "192.168.1.100",
-         *       "timestamp": "2026-01-01T00:00:00"
+         *       "id": 1,
+         *       "level": "high",
+         *       "message": "DDoS attack detected",
+         *       "ml_confidence": 0.95,
+         *       "time": "2026-01-01 00:00:00"
          *     }
          */
         AlertResponse: {
             /** Id */
-            id: string;
-            /** Timestamp */
-            timestamp: string;
-            /** Src Ip */
-            src_ip: string;
-            /** Dst Ip */
-            dst_ip: string;
+            id: number;
+            /** Time */
+            time: string;
+            /** Level */
+            level: string;
             /** Attack Type */
             attack_type: string;
-            /** Confidence */
-            confidence: number;
+            /** Message */
+            message: string;
             /**
-             * Severity
-             * @default medium
+             * Ml Confidence
+             * @default 0
              */
-            severity: string;
-            /** Detail */
-            detail?: {
-                [key: string]: unknown;
-            };
+            ml_confidence: number;
         };
         /**
          * AlertStatsResponse
@@ -464,8 +728,117 @@ export interface components {
             alerts_by_severity?: {
                 [key: string]: number;
             };
-            /** Recent Alerts */
-            recent_alerts?: components["schemas"]["AlertResponse"][];
+        };
+        /**
+         * ChangePasswordRequest
+         * @description 修改密码请求。
+         */
+        ChangePasswordRequest: {
+            /** Old Password */
+            old_password: string;
+            /** New Password */
+            new_password: string;
+        };
+        /**
+         * ChangePasswordResponse
+         * @description 修改密码响应。
+         */
+        ChangePasswordResponse: {
+            /**
+             * Status
+             * @default success
+             */
+            status: string;
+            /**
+             * Message
+             * @default
+             */
+            message: string;
+        };
+        /**
+         * CheckResponse
+         * @description 环境自检响应 — 对齐旧 Flask /api/check 返回格式。
+         */
+        CheckResponse: {
+            /**
+             * Ok
+             * @default true
+             */
+            ok: boolean;
+            /** Python */
+            python?: {
+                [key: string]: unknown;
+            };
+            /** Dependencies */
+            dependencies?: {
+                [key: string]: unknown;
+            };
+            /** Capture */
+            capture?: {
+                [key: string]: unknown;
+            };
+            /** Model Files */
+            model_files?: {
+                [key: string]: unknown;
+            }[];
+            /** Data Files */
+            data_files?: {
+                [key: string]: unknown;
+            }[];
+        };
+        /**
+         * CleanupRequest
+         * @description 清理请求。
+         */
+        CleanupRequest: {
+            /**
+             * Days
+             * @description 保留最近N天的数据
+             * @default 7
+             */
+            days: number;
+        };
+        /**
+         * CleanupResponse
+         * @description 清理响应。
+         */
+        CleanupResponse: {
+            /**
+             * Status
+             * @default success
+             */
+            status: string;
+            /**
+             * Alerts Deleted
+             * @default 0
+             */
+            alerts_deleted: number;
+            /**
+             * Traffic Deleted
+             * @default 0
+             */
+            traffic_deleted: number;
+        };
+        /**
+         * ExportResponse
+         * @description 导出响应。
+         */
+        ExportResponse: {
+            /**
+             * Status
+             * @default success
+             */
+            status: string;
+            /**
+             * Message
+             * @default
+             */
+            message: string;
+            /**
+             * Rows
+             * @default 0
+             */
+            rows: number;
         };
         /** HTTPValidationError */
         HTTPValidationError: {
@@ -474,29 +847,91 @@ export interface components {
         };
         /**
          * HealthResponse
-         * @description 健康检查响应。
+         * @description 健康检查响应 — 对齐旧 Flask /api/health 返回格式。
          * @example {
-         *       "status": "ok",
-         *       "uptime_seconds": 3600,
-         *       "version": "0.2.0"
+         *       "components": {
+         *         "capture": {
+         *           "status": "stopped"
+         *         },
+         *         "database": {
+         *           "status": "ok"
+         *         },
+         *         "ml_model": {
+         *           "model_loaded": false
+         *         }
+         *       },
+         *       "status": "healthy",
+         *       "timestamp": "2026-01-01 12:00:00",
+         *       "uptime_seconds": 3600
          *     }
          */
         HealthResponse: {
             /**
              * Status
-             * @default ok
+             * @default healthy
              */
             status: string;
             /**
-             * Version
-             * @default 0.2.0
+             * Timestamp
+             * @default
              */
-            version: string;
+            timestamp: string;
             /**
              * Uptime Seconds
              * @default 0
              */
             uptime_seconds: number;
+            /** Components */
+            components?: {
+                [key: string]: unknown;
+            };
+        };
+        /**
+         * LoginRequest
+         * @description 登录请求。
+         */
+        LoginRequest: {
+            /** Username */
+            username: string;
+            /** Password */
+            password: string;
+        };
+        /**
+         * LoginResponse
+         * @description 登录响应。
+         */
+        LoginResponse: {
+            /**
+             * Status
+             * @default success
+             */
+            status: string;
+            /**
+             * Message
+             * @default
+             */
+            message: string;
+            /**
+             * Username
+             * @default
+             */
+            username: string;
+        };
+        /**
+         * LogoutResponse
+         * @description 登出响应。
+         */
+        LogoutResponse: {
+            /**
+             * Status
+             * @default success
+             */
+            status: string;
+            /**
+             * Message
+             * @default 已登出
+             */
+            message: string;
         };
         /**
          * MessageResponse
@@ -545,36 +980,41 @@ export interface components {
          */
         PayloadAnalysisRequest: {
             /**
-             * Data
-             * @description 待分析载荷数据（base64 或 hex）
+             * Payload
+             * @description 待分析的 HTTP 载荷字符串
              */
-            data: string;
-            /**
-             * Format
-             * @description 数据格式: base64 | hex
-             * @default hex
-             */
-            format: string;
+            payload: string;
         };
         /**
          * PayloadAnalysisResponse
          * @description 载荷分析响应。
+         *
+         *     ⚠️ 字段名必须与**旧实现**一致：`web/bp_capture.py:368-373` 返回
+         *     `{'alerts': [...], 'is_anomaly': bool, 'payload_length': len(payload)}`。
+         *
+         *     2026-09-17 参数级契约门禁（`tests/contract/specdiff.py`）抓到本类此前用了
+         *     `threats` / `is_malicious` 两个**新名字**，并把 `payload_length` 整个丢掉 ——
+         *     旧客户端的 `addEventListener` 式取值会全部拿到 `undefined`。这正是
+         *     "路径保住了、响应契约没保住"的典型：路径级门禁完全看不见。
          */
         PayloadAnalysisResponse: {
-            /** Findings */
-            findings?: {
-                [key: string]: unknown;
-            }[];
             /**
-             * Risk Score
+             * Alerts
+             * @description 告警列表
+             */
+            alerts?: string[];
+            /**
+             * Is Anomaly
+             * @description 是否异常
+             * @default false
+             */
+            is_anomaly: boolean;
+            /**
+             * Payload Length
+             * @description 载荷长度
              * @default 0
              */
-            risk_score: number;
-            /**
-             * Summary
-             * @default
-             */
-            summary: string;
+            payload_length: number;
         };
         /**
          * ScenarioInfoResponse
@@ -585,8 +1025,11 @@ export interface components {
             name: string;
             /** Description */
             description: string;
-            /** Tasks */
-            tasks: string[];
+            /**
+             * Steps
+             * @description 剧本子任务序列
+             */
+            steps: string[];
         };
         /**
          * ScenarioListResponse
@@ -606,28 +1049,64 @@ export interface components {
              * @description 剧本名称: demo | full | attack
              */
             scenario: string;
+            /**
+             * Duration
+             * @description 限时子任务运行秒数（仅影响 TIMED 类型子任务）
+             */
+            duration?: number | null;
+        };
+        /**
+         * ScenarioStopRequest
+         * @description 剧本停止请求。
+         */
+        ScenarioStopRequest: {
+            /**
+             * Scenario
+             * @description 剧本名称: demo | full | attack
+             */
+            scenario: string;
         };
         /**
          * SettingsResponse
-         * @description 配置响应。
+         * @description 配置响应 — 对齐 Settings 类字段。
          * @example {
+         *       "alert_config": {
+         *         "max_alert_api_return": 20
+         *       },
          *       "auth_enabled": false,
          *       "ml_config": {
-         *         "model_type": "xgboost"
+         *         "ml_conf_high": 0.7,
+         *         "ml_interval_sec": 5
          *       },
          *       "thresholds": {
          *         "ddos_threshold": 500,
-         *         "port_scan_threshold": 100
+         *         "port_scan_threshold": 50
+         *       },
+         *       "web_config": {
+         *         "web_port": 5000
          *       }
          *     }
          */
         SettingsResponse: {
-            /** Thresholds */
+            /**
+             * Thresholds
+             * @description 规则检测阈值
+             */
             thresholds?: {
-                [key: string]: number;
+                [key: string]: unknown;
             };
-            /** Ml Config */
+            /**
+             * Ml Config
+             * @description ML 检测配置
+             */
             ml_config?: {
+                [key: string]: unknown;
+            };
+            /**
+             * Web Config
+             * @description Web 面板配置
+             */
+            web_config?: {
                 [key: string]: unknown;
             };
             /**
@@ -635,6 +1114,13 @@ export interface components {
              * @default false
              */
             auth_enabled: boolean;
+            /**
+             * Alert Config
+             * @description 告警配置
+             */
+            alert_config?: {
+                [key: string]: unknown;
+            };
         };
         /**
          * TaskActionRequest
@@ -679,6 +1165,16 @@ export interface components {
             elapsed: number;
             /** Error */
             error?: string | null;
+            /**
+             * Description
+             * @default
+             */
+            description: string;
+            /**
+             * Default Duration
+             * @description 限时任务默认时长(秒)
+             */
+            default_duration?: number | null;
         };
         /**
          * ThresholdUpdateRequest
@@ -711,80 +1207,148 @@ export interface components {
             };
         };
         /**
+         * TrafficHistoryRecord
+         * @description 单条流量历史记录。
+         */
+        TrafficHistoryRecord: {
+            /** Id */
+            id: number;
+            /** Time */
+            time: string;
+            /** Qps */
+            qps?: number | null;
+            /** Connections */
+            connections?: number | null;
+            /** Packet Count */
+            packet_count?: number | null;
+            /** Port Count */
+            port_count?: number | null;
+            /** Src Ip Count */
+            src_ip_count?: number | null;
+            /** Alert */
+            alert?: string | null;
+        };
+        /**
          * TrafficHistoryResponse
          * @description 流量历史响应。
          */
         TrafficHistoryResponse: {
-            /** Timestamps */
-            timestamps?: string[];
-            /** Packets Per Second */
-            packets_per_second?: number[];
+            /** History */
+            history?: components["schemas"]["TrafficHistoryRecord"][];
+            /**
+             * Total
+             * @default 0
+             */
+            total: number;
+            /**
+             * Limit
+             * @default 60
+             */
+            limit: number;
+            /**
+             * Offset
+             * @default 0
+             */
+            offset: number;
         };
         /**
          * TrafficStatsResponse
          * @description 流量统计响应。
          * @example {
-         *       "avg_packet_size": 512,
-         *       "packets_per_second": 150.5,
-         *       "protocol_distribution": {
-         *         "ICMP": 500,
-         *         "TCP": 8000,
-         *         "UDP": 1500
-         *       },
-         *       "top_destinations": [],
-         *       "top_sources": [],
-         *       "total_packets": 10000
+         *       "alert": "",
+         *       "connections": 42,
+         *       "dns_packets": 50,
+         *       "packet_count": 10000,
+         *       "port_count": 15,
+         *       "qps": 150.5,
+         *       "src_ip_count": 8,
+         *       "syn_packets": 500,
+         *       "timestamp": "2026-01-01T00:00:00",
+         *       "udp_packets": 200
          *     }
          */
         TrafficStatsResponse: {
             /**
-             * Total Packets
+             * Qps
              * @default 0
              */
-            total_packets: number;
+            qps: number;
             /**
-             * Packets Per Second
+             * Connections
              * @default 0
              */
-            packets_per_second: number;
+            connections: number;
             /**
-             * Avg Packet Size
+             * Alert
+             * @default
+             */
+            alert: string;
+            /**
+             * Timestamp
+             * @default
+             */
+            timestamp: string;
+            /**
+             * Packet Count
              * @default 0
              */
-            avg_packet_size: number;
-            /** Protocol Distribution */
-            protocol_distribution?: {
-                [key: string]: number;
-            };
-            /** Top Sources */
-            top_sources?: {
-                [key: string]: unknown;
-            }[];
-            /** Top Destinations */
-            top_destinations?: {
-                [key: string]: unknown;
-            }[];
+            packet_count: number;
+            /**
+             * Port Count
+             * @default 0
+             */
+            port_count: number;
+            /**
+             * Src Ip Count
+             * @default 0
+             */
+            src_ip_count: number;
+            /**
+             * Syn Packets
+             * @default 0
+             */
+            syn_packets: number;
+            /**
+             * Udp Packets
+             * @default 0
+             */
+            udp_packets: number;
+            /**
+             * Dns Packets
+             * @default 0
+             */
+            dns_packets: number;
         };
         /**
          * TrainRequest
-         * @description 训练请求。
+         * @description 训练请求（T2.13 起带破坏性操作保护）。
          */
         TrainRequest: {
             /**
              * Dataset
-             * @description 训练数据集路径
+             * @description 训练数据集标识（透传给训练链路 dataset_type）
+             * @default auto
              */
             dataset: string;
             /**
              * Epochs
-             * @description 训练轮数
+             * @description 训练轮数；≤3 视为 quick 模式
              * @default 10
              */
             epochs: number;
+            /**
+             * Confirm
+             * @description **必填确认位**。训练会覆盖 model.pkl / evaluation_report.txt / confusion_matrix.png，未传 `confirm=true` 时请求被拒绝（400），不会启动训练。启动前会自动备份这三个产物到 `<data_dir>/training_backup/<时间戳>/`。
+             * @default false
+             */
+            confirm: boolean;
         };
         /**
          * TrainStatusResponse
          * @description 训练状态响应。
+         *
+         *     `status` 的真相源是 `TaskRegistry` 里 `train` 任务的状态
+         *     （T2.13 收敛；此前是 `api/models.py` 的模块级状态机，与任务编排互不感知）。
          * @example {
          *       "epoch": 5,
          *       "progress": 0.5,
@@ -800,6 +1364,7 @@ export interface components {
             status: string;
             /**
              * Progress
+             * @description 进度 0.0–1.0，由任务窗口已耗时/总时长算出（非硬编码）
              * @default 0
              */
             progress: number;
@@ -815,6 +1380,16 @@ export interface components {
             total_epochs: number;
             /** Error */
             error?: string | null;
+            /**
+             * Elapsed Seconds
+             * @description 任务已运行秒数（来自 TaskRegistry）
+             */
+            elapsed_seconds?: number | null;
+            /**
+             * Duration Seconds
+             * @description 任务窗口时长（来自 TaskRegistry）
+             */
+            duration_seconds?: number | null;
         };
         /** ValidationError */
         ValidationError: {
@@ -858,7 +1433,27 @@ export interface operations {
             };
         };
     };
-    get_settings_api_settings_get: {
+    environment_check_api_check_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CheckResponse"];
+                };
+            };
+        };
+    };
+    get_settings_endpoint_api_settings_get: {
         parameters: {
             query?: never;
             header?: never;
@@ -953,7 +1548,10 @@ export interface operations {
     };
     get_traffic_history_api_traffic_history_get: {
         parameters: {
-            query?: never;
+            query?: {
+                limit?: number;
+                offset?: number;
+            };
             header?: never;
             path?: never;
             cookie?: never;
@@ -969,6 +1567,15 @@ export interface operations {
                     "application/json": components["schemas"]["TrafficHistoryResponse"];
                 };
             };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
         };
     };
     get_alerts_api_alerts_get: {
@@ -976,6 +1583,8 @@ export interface operations {
             query?: {
                 limit?: number;
                 offset?: number;
+                /** @description 级别筛选: high/medium/low/all */
+                level?: string;
             };
             header?: never;
             path?: never;
@@ -1273,7 +1882,11 @@ export interface operations {
             path?: never;
             cookie?: never;
         };
-        requestBody?: never;
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ScenarioStopRequest"];
+            };
+        };
         responses: {
             /** @description Successful Response */
             200: {
@@ -1282,6 +1895,15 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["MessageResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };
@@ -1306,6 +1928,94 @@ export interface operations {
             };
         };
     };
+    get_tls_stats_api_tls_stats_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+        };
+    };
+    get_tls_suspicious_api_tls_suspicious_get: {
+        parameters: {
+            query?: {
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    check_payload_api_payload_check_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PayloadAnalysisRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PayloadAnalysisResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     analyze_payload_api_payload_analyze_post: {
         parameters: {
             query?: never;
@@ -1326,6 +2036,177 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["PayloadAnalysisResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    event_stream_api_stream_get: {
+        parameters: {
+            query?: {
+                /** @description 订阅主题（逗号分隔） */
+                topics?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    cleanup_data_api_admin_cleanup_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CleanupRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CleanupResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    export_data_api_admin_export_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ExportResponse"];
+                };
+            };
+        };
+    };
+    login_api_login_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["LoginRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LoginResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    logout_api_logout_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LogoutResponse"];
+                };
+            };
+        };
+    };
+    change_password_api_change_password_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ChangePasswordRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ChangePasswordResponse"];
                 };
             };
             /** @description Validation Error */
