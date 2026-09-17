@@ -2,7 +2,180 @@
 from __future__ import annotations
 
 import os
+import sys
+import tempfile
+from pathlib import Path
+
 import pytest
+
+
+# ══ 会话级兜底重定向 ══════════════════════════════════════════════
+# 必须在**任何 campus_ids 模块被 import 之前**执行：`config.py` 在 import 期就用
+# `CAMPUS_IDS_DATA_DIR` 算出 `DATA_DIR`，此后所有 `from campus_ids.config import X`
+# 都绑定到这个值。
+#
+# 为什么不能只靠下面的 per-test fixture：
+#   编排端点会启动**后台训练线程**（`/api/auto/start` → `helpers._auto_worker` →
+#   `train()` → `_save_evaluation_report`）。该线程可能**活过测试 teardown**，
+#   那时 per-test 的 monkeypatch 已撤销、绑定回落到项目根 → 线程改写真实产物。
+#   2026-09-17 实测：正是这条路径改写了 `evaluation_report.txt`。
+#
+# 会话级重定向让"回落的落点"也变成临时目录，从而堵死该路径。
+_SESSION_TMP = Path(tempfile.mkdtemp(prefix="sn_pytest_session_"))
+os.environ["CAMPUS_IDS_DATA_DIR"] = str(_SESSION_TMP)
+os.environ["CAMPUS_IDS_LOG_DIR"] = str(_SESSION_TMP / "logs")
+
+
+# ── 产物路径重定向表 ──────────────────────────────────────────────
+# key = campus_ids.config 模块属性名；value = 目标目录下的相对路径（"" 表示目录本身）
+_ARTIFACT_PATHS: dict[str, str] = {
+    "DATA_DIR": "",
+    "MODEL_PATH": "model.pkl",
+    "TRAFFIC_CSV": "traffic_data.csv",
+    "TRAFFIC_STATS_CSV": "traffic_stats.csv",
+    "CONFUSION_MATRIX_PATH": "confusion_matrix.png",
+    "EVALUATION_PATH": "evaluation_report.txt",
+    "MODELS_DIR": "models",
+    "RUNS_DIR": "models/runs",
+    "LATEST_JSON": "models/latest.json",
+    "BEST_JSON": "models/best.json",
+    "REGISTRY_JSON": "models/registry.json",
+    "LOG_DIR": "logs",
+}
+
+# 除 config 常量外还需重定向的名字：
+#   _DEFAULT_LOG_DIR —— logging_config.py 对 config.LOG_DIR 的按值绑定（重命名后的别名）
+#   DB_PATH          —— web/database.py 由 DATA_DIR 在 import 期**派生**出的常量
+_EXTRA_NAMES: tuple[str, ...] = ("_DEFAULT_LOG_DIR", "DB_PATH")
+
+# 项目根目录 —— 生产产物所在位置，测试绝不应写它
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
+
+# 隔离专用环境变量：个别测试的环境清理 fixture 不得连带删除
+# （test_settings.py 的 _clean_env 会清空所有 CAMPUS_IDS_*，需显式豁免这些）
+ISOLATION_ENV_VARS = frozenset({
+    "CAMPUS_IDS_DATA_DIR",
+    "CAMPUS_IDS_LOG_DIR",
+    "CAMPUS_IDS_DEBUG",
+})
+
+
+def artifact_targets(tmp_path: Path) -> dict[str, Path]:
+    """返回产物常量的目标路径（全部位于 tmp_path 下）。"""
+    return {
+        name: (tmp_path / rel if rel else tmp_path)
+        for name, rel in _ARTIFACT_PATHS.items()
+    }
+
+
+def is_under(path: Path, root: Path) -> bool:
+    """判断 path 是否位于 root 之下（跨盘符返回 False）。"""
+    try:
+        Path(path).resolve().relative_to(Path(root).resolve())
+    except (ValueError, OSError):
+        return False
+    return True
+
+
+def iter_artifact_bindings() -> list[tuple[str, Path]]:
+    """列出当前所有 campus_ids 模块持有的产物路径。
+
+    供 `tests/test_artifact_isolation.py` 断言"没有一个绑定点指向项目根"。
+    """
+    bindings: list[tuple[str, Path]] = []
+    for mod_name, module in list(sys.modules.items()):
+        if module is None or not _is_campus_module(mod_name):
+            continue
+        if mod_name == "campus_ids.config":
+            continue
+        for attr in list(_ARTIFACT_PATHS) + list(_EXTRA_NAMES):
+            value = getattr(module, attr, None)
+            if isinstance(value, Path):
+                bindings.append((f"{mod_name}.{attr}", value))
+    return bindings
+
+
+def _is_campus_module(mod_name: str) -> bool:
+    return mod_name == "campus_ids" or mod_name.startswith("campus_ids.")
+
+
+def _redirect_config_bindings(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> int:
+    """把产物常量同步到所有**按值绑定**它们的模块。
+
+    根因：`from campus_ids.config import MODEL_PATH` 在 import 期就把值绑进消费
+    模块的命名空间，因此只 patch `config.MODEL_PATH` 对消费方无效
+    （2026-09-17 实测：12 个消费路径 0 个生效，`pytest` 仍改写生产产物）。
+
+    做法：遍历已加载的 campus_ids.* 模块，凡是持有 Path 类型产物常量的，
+    一并改写到 tmp 路径。返回改写的绑定数。
+    """
+    import campus_ids.config as config
+
+    targets = artifact_targets(tmp_path)
+    patched = 0
+
+    for mod_name, module in list(sys.modules.items()):
+        if module is None or module is config or not _is_campus_module(mod_name):
+            continue
+        for attr, new_value in targets.items():
+            current = getattr(module, attr, None)
+            if not isinstance(current, Path) or current == new_value:
+                continue  # 未绑定该常量，或已指向目标
+            monkeypatch.setattr(module, attr, new_value, raising=False)
+            patched += 1
+        for attr in _EXTRA_NAMES:
+            current = getattr(module, attr, None)
+            if not isinstance(current, Path):
+                continue
+            new_value = targets["LOG_DIR"] if attr == "_DEFAULT_LOG_DIR" else targets["DATA_DIR"]
+            if attr == "DB_PATH":
+                new_value = tmp_path / "sentinelnet.db"
+            if current == new_value:
+                continue
+            monkeypatch.setattr(module, attr, new_value, raising=False)
+            patched += 1
+
+    # config 自身也要改，使此后新 import 的模块直接拿到 tmp 路径
+    for attr, new_value in targets.items():
+        monkeypatch.setattr(config, attr, new_value, raising=False)
+        patched += 1
+
+    return patched
+
+
+def _isolate_legacy_db(tmp_path: Path) -> None:
+    """把旧 web/database.py 的 sqlite 连接切到 tmp，并在空库上建好表结构。
+
+    三步（缺一不可）：
+    1. 丢弃 `_local` 里按旧 DB_PATH 打开的线程局部连接 —— 不关的话改常量无效；
+    2. **安全断言**：确认 DB_PATH 已指向 tmp，否则拒绝建表（防止污染生产库）；
+    3. 调 `init_db()` 建表 —— 不建的话 `/api/alerts`、`/api/save`、`/api/cleanup`
+       等旧端点会 `no such table`。这些测试原先之所以能过，是因为它们**搭了真实
+       `sentinelnet.db` 已有表结构的便车**（隐式耦合，隔离后立刻暴露）。
+    """
+    try:
+        import campus_ids.web.database as legacy_db
+    except ImportError:
+        return
+
+    # 1. 丢弃缓存的线程局部连接
+    conn = getattr(legacy_db._local, "conn", None)
+    if conn is not None:
+        try:
+            conn.close()
+        except Exception:  # noqa: BLE001 — 关闭失败不应影响测试
+            pass
+        legacy_db._local.conn = None
+
+    # 2. 安全断言：DB_PATH 必须已被重定向
+    if not is_under(legacy_db.DB_PATH, tmp_path):
+        raise RuntimeError(
+            f"web.database.DB_PATH = {legacy_db.DB_PATH} 未重定向到 {tmp_path}，"
+            "拒绝在其上建表（可能污染生产库）"
+        )
+
+    # 3. 在 tmp 空库上建表（CREATE TABLE IF NOT EXISTS，幂等）
+    legacy_db.init_db()
 
 
 @pytest.fixture(autouse=True)
@@ -27,38 +200,118 @@ def _test_debug_mode():
 
 @pytest.fixture(autouse=True)
 def _isolate_artifacts(tmp_path, monkeypatch):
-    """将产物路径重定向到 tmp_path，防止测试改写生产文件。
+    """将所有产物路径重定向到 tmp_path，防止测试改写生产文件。
 
-    P0-4 修复：测试套件通过旧 Flask 端点（/api/auto/start、/api/save 等）
-    会覆盖 model.pkl、evaluation_report.txt、traffic_stats.csv、sentinelnet.db
-    等生产产物。本 fixture 将所有路径重定向到临时目录。
+    保护范围（三层，缺一不可）：
+    1. **config 常量的按值绑定**（`from campus_ids.config import MODEL_PATH`）
+       —— 必须逐个消费模块改写，只 patch config 无效；
+    2. **由 DATA_DIR 派生的常量**（`web/database.py: DB_PATH`）及其缓存的连接；
+    3. **新应用的 Settings.data_dir**（经 `CAMPUS_IDS_DATA_DIR` 环境变量 + 重置单例）。
 
-    保护范围：
-    - config.py 模块级常量（MODEL_PATH、EVALUATION_PATH 等）
-    - runtime/settings.py 的 data_dir（通过 CAMPUS_IDS_DATA_DIR 环境变量）
-    - runtime/db.py 的引擎单例（reset_engine 确保新路径生效）
+    被保护的产物：model.pkl / evaluation_report.txt / confusion_matrix.png /
+    traffic_data.csv / traffic_stats.csv / sentinelnet.db / models/ / logs/。
+
+    回归防线：`tests/test_artifact_isolation.py` 断言隔离后没有任何绑定点
+    指向项目根目录。改动本 fixture 时该测试必须仍然通过。
     """
-    # 1. 设置 CAMPUS_IDS_DATA_DIR 环境变量 → 影响 Settings.data_dir
+    # 1. 环境变量 → 影响 Settings.data_dir（新应用路径）
     monkeypatch.setenv("CAMPUS_IDS_DATA_DIR", str(tmp_path))
+    monkeypatch.setenv("CAMPUS_IDS_LOG_DIR", str(tmp_path / "logs"))
 
-    # 2. 重置 Settings 和 DB 引擎单例，使新 data_dir 生效
+    # 2. 重置单例，使新 data_dir 生效
     from campus_ids.runtime.settings import reset_settings
     from campus_ids.runtime.db import reset_engine
+
     reset_settings()
     reset_engine()
 
-    # 3. monkeypatch config.py 模块级常量（旧 Flask 代码路径）
-    import campus_ids.config as config
-    monkeypatch.setattr(config, "DATA_DIR", tmp_path)
-    monkeypatch.setattr(config, "MODEL_PATH", tmp_path / "model.pkl")
-    monkeypatch.setattr(config, "TRAFFIC_CSV", tmp_path / "traffic_data.csv")
-    monkeypatch.setattr(config, "TRAFFIC_STATS_CSV", tmp_path / "traffic_stats.csv")
-    monkeypatch.setattr(config, "CONFUSION_MATRIX_PATH", tmp_path / "confusion_matrix.png")
-    monkeypatch.setattr(config, "EVALUATION_PATH", tmp_path / "evaluation_report.txt")
-    monkeypatch.setattr(config, "MODELS_DIR", tmp_path / "models")
-    monkeypatch.setattr(config, "RUNS_DIR", tmp_path / "models" / "runs")
-    monkeypatch.setattr(config, "LATEST_JSON", tmp_path / "models" / "latest.json")
-    monkeypatch.setattr(config, "BEST_JSON", tmp_path / "models" / "best.json")
-    monkeypatch.setattr(config, "REGISTRY_JSON", tmp_path / "models" / "registry.json")
+    # 3. 改写所有按值绑定的产物常量（旧 Flask 代码路径）
+    _redirect_config_bindings(monkeypatch, tmp_path)
+    _isolate_legacy_db(tmp_path)
 
     yield
+
+    # 4. 收敛单例，避免把 tmp 路径的实例留给下一个测试
+    reset_engine()
+    reset_settings()
+
+
+# ── 供隔离回归测试使用的 fixture ──────────────────────────────────
+
+
+@pytest.fixture
+def artifact_bindings() -> list[tuple[str, Path]]:
+    """当前所有 campus_ids 模块持有的产物路径（名称, 路径）。
+
+    见 `tests/test_artifact_isolation.py`。
+    """
+    return iter_artifact_bindings()
+
+
+@pytest.fixture
+def project_root() -> Path:
+    """项目根目录（生产产物所在处）。"""
+    return PROJECT_ROOT
+
+
+def _pin_session_bindings() -> None:
+    """把**已加载**的 campus_ids 模块的产物绑定永久指向会话临时目录。
+
+    处理两种情况：
+    1. config 尚未 import —— 环境变量已就位，它自然会算成会话 tmp；
+    2. config 已被更早的插件/导入链加载（拿到项目根路径）—— 这里强制改写。
+
+    与 per-test fixture 的区别：这里是**永久**改写（不撤销），因此后台线程
+    在测试结束后仍只会写临时目录，不会回落到项目根。
+    """
+    targets = artifact_targets(_SESSION_TMP)
+    session_db = _SESSION_TMP / "sentinelnet.db"
+
+    for mod_name, module in list(sys.modules.items()):
+        if module is None or not _is_campus_module(mod_name):
+            continue
+        for attr, new_value in targets.items():
+            if isinstance(getattr(module, attr, None), Path):
+                setattr(module, attr, new_value)
+        # 派生常量 / 别名
+        if isinstance(getattr(module, "DB_PATH", None), Path):
+            module.DB_PATH = session_db
+        if isinstance(getattr(module, "_DEFAULT_LOG_DIR", None), Path):
+            module._DEFAULT_LOG_DIR = targets["LOG_DIR"]
+
+
+# 立即执行：确保此后任何后台线程都不会写到项目根
+_pin_session_bindings()
+
+
+def pytest_sessionfinish(session, exitstatus):  # noqa: ARG001
+    """会话结束断言：没有任何产物绑定回落到项目根。
+
+    专门针对"后台线程活过 teardown"这条路径 —— per-test monkeypatch 撤销后，
+    绑定若回落到项目根，滞后的训练线程（auto / demo）就会改写真实产物。
+    会话级的 `_pin_session_bindings()` 应保证回落点是临时目录；这里做兜底断言，
+    违反时让整个测试会话以非零状态退出。
+    """
+    import campus_ids.config as config
+
+    leaked = [
+        (name, path)
+        for name, path in iter_artifact_bindings()
+        if is_under(path, PROJECT_ROOT)
+    ]
+    for attr in _ARTIFACT_PATHS:
+        value = getattr(config, attr, None)
+        if isinstance(value, Path) and is_under(value, PROJECT_ROOT):
+            leaked.append((f"campus_ids.config.{attr}", value))
+
+    if not leaked:
+        return
+
+    session.exitstatus = 1
+    print("\n" + "=" * 78)
+    print("🔴 产物隔离失败：会话结束时以下绑定仍指向项目根")
+    for name, path in leaked:
+        print(f"     {name} = {path}")
+    print("   后果：滞后的后台线程会改写真实产物（无版本控制兜底）。")
+    print("   修法：见 tests/conftest.py::_pin_session_bindings")
+    print("=" * 78)

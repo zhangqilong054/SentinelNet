@@ -1,22 +1,26 @@
 # -*- coding: utf-8 -*-
-"""新骨架（web_new）验收探针：启动 / 安全头 / 限流 / CSRF / 契约规模。
+"""新骨架（web_new）验收探针：契约规模 / 安全头 / 限流 / CSRF。
 
-用途：T1.7、T1.11、T1.12 的**可复现证据**。对应 2026-09-16 GitHub 调研报告
-`docs/GitHub成熟项目调研-2026-09-16.md` §2.1 / §2.3 / §6 的实测结论。
-
-用法（不触发 lifespan，因此**不建库、不写 DB**）：
+用法：
     C:/Users/18551/anaconda3/python.exe scripts/probe_web_new.py
 
-预期（当前实现下会暴露的问题，见调研报告 §6）：
-    - security headers 缺 strict-transport-security / permissions-policy /
-      cross-origin-opener-policy
-    - rate-limit probe 全部 200、无 429（限流未生效）
-    - POST 写端点无 CSRF -> 403（这一项是正确的）
+安全：不进入 `with TestClient(...)`，因此 lifespan 不执行 → 不建库、不写 DB。
+      另外 `_probe_safety.bootstrap()` 把 data_dir 指向临时目录兜底。
+      只发 `GET` 与一个**无 CSRF 的** POST（必被 403 拦下，不会真的启动任务）。
+
+📌 2026-09-17 更新：本脚本原先的"预期"文档写的是
+   「缺 HSTS / 限流全部 200」—— 这两条**已修复**，旧文案会误导。
+   现在不再预测结论，一律看输出。T2 及以后的验收请以
+   `scripts/probe_t2_acceptance.py` 为准（它带 `verdict()` 自判定）。
 """
 import collections
 import sys
 
-sys.path.insert(0, "src")
+from _probe_safety import bootstrap, guard_no_real_training
+
+TMP = bootstrap()                    # 必须在 import 项目模块之前
+guard_no_real_training()             # 兜底哨兵
+print("data_dir 已隔离到:", TMP)
 
 from fastapi.testclient import TestClient  # noqa: E402
 

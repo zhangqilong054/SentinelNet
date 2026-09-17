@@ -1,9 +1,15 @@
 # -*- coding: utf-8 -*-
 """T1 阶段（新骨架）验收探针 —— 一次跑出结论摘要里全部实测证据。
 
-对应 `docs/T1阶段检查报告-2026-09-16.md`。只读：不建库、不写 DB、不改任何文件。
-
     C:/Users/18551/anaconda3/python.exe scripts/probe_t1_acceptance.py
+
+⚠️ **安全前提**：本脚本会反复 `POST /api/tasks/capture/start`（限流探针要连发 40 次）。
+T1 时期任务未接线（一律 503）所以无害；**T2 接线完成后同样的调用会真的启动抓包**。
+因此脚本开头必须先用 `_probe_safety` 做两件事：
+  ① `bootstrap()` 把 data_dir 指向临时目录（在 import 项目模块之前！）
+  ② `install_service_stubs()` 把业务 service 换成 stub
+  ③ `guard_no_real_training()` 给 `train()` 加哨兵
+这三步之后本脚本才是只读的。
 
 覆盖：
   A. import 副作用（T1.1/T1.2）            —— 新建文件 / 线程数 / 有无模块级 app
@@ -13,7 +19,7 @@
   E. 安全响应头（T1.11 ③）                 —— BALANCED 预设逐项
   F. Settings 实例隔离 + 旧键名兼容（T1.3）
   G. 多标签页 CSRF 并发（T1.7 缺口）+ token 是否有过期/会话绑定
-  H. 空壳端点对非法输入的响应（T2 风险提示）
+  H. 非法输入的任务名响应
 """
 import base64
 import hashlib
@@ -23,9 +29,14 @@ import os
 import sys
 import threading
 
-sys.path.insert(0, "src")
+from _probe_safety import bootstrap, guard_no_real_training, install_service_stubs
+
+TMP = bootstrap()                    # ← 必须在 import 项目模块之前
+guard_no_real_training()             # 兜底哨兵：真有 train() 调用则报错而非覆盖产物
+print("data_dir 已隔离到:", TMP)
+
 ROOT = os.getcwd()
-PUBLIC_DEFAULT_SECRET = "change-me-in-production"  # settings.py 的默认值
+PUBLIC_DEFAULT_SECRET = "change-me-in-production"  # settings.py 的默认值（探针要验证它不安全）
 
 print("=" * 74)
 print("A. import 副作用（T1.1 / T1.2）")
@@ -45,10 +56,26 @@ from fastapi.testclient import TestClient  # noqa: E402
 from campus_ids.runtime.settings import Settings, get_settings, reset_settings  # noqa: E402
 from campus_ids.web_new.app import create_app  # noqa: E402
 
+# 业务 service 换 stub（仍然走真实 create_app()，接线事实不动）
+REC = install_service_stubs()
+
+
+def new_client() -> "TestClient":
+    """建 TestClient **并进入上下文**，让 lifespan 真正执行。
+
+    ⚠️ 不进入上下文时 lifespan 不跑 → `app.state.task_registry` 未初始化 →
+    所有 `/api/tasks/*` 返回 503「任务注册表未初始化」。
+    这会让限流/CSRF 段落测到 503 而不是真实语义（旧版探针就踩了这个坑）。
+    """
+    c = TestClient(create_app())
+    c.__enter__()
+    return c
+
+
 print("=" * 74)
 print("B. CSRF HMAC 签名强度（T1.11 ②）")
 reset_settings()
-client = TestClient(create_app())
+client = new_client()
 print("  当前 secret_key :", repr(get_settings().secret_key))
 nonce = "a" * 64
 forged = nonce + ":" + hmac.new(PUBLIC_DEFAULT_SECRET.encode(), nonce.encode(), hashlib.sha256).hexdigest()
@@ -61,21 +88,24 @@ print("C. 会话认证可达性（T1.11 ①）")
 os.environ["CAMPUS_IDS_AUTH_ENABLED"] = "1"
 os.environ["CAMPUS_IDS_API_TOKEN"] = "real-token"
 reset_settings()
-c2 = TestClient(create_app())
+c2 = new_client()
 from itsdangerous import TimestampSigner  # noqa: E402
 
 blob = base64.b64encode(json.dumps({"user": "admin", "authenticated": True}).encode())
 c2.cookies.set("campus_ids_session", TimestampSigner(PUBLIC_DEFAULT_SECRET).sign(blob).decode())
-print("  auth=1 + session cookie ->", c2.get("/api/alerts").status_code, "（401 = 会话认证不生效）")
-print("  auth=1 + Bearer         ->",
-      c2.get("/api/alerts", headers={"Authorization": "Bearer real-token"}).status_code)
+sess_code = c2.get("/api/alerts").status_code
+bearer_code = c2.get("/api/alerts", headers={"Authorization": "Bearer real-token"}).status_code
+print("  auth=1 + 合法 session cookie ->", sess_code)
+print("  auth=1 + Bearer              ->", bearer_code)
+print("  判定:", "✅ 会话认证可达" if sess_code == 200 else
+      f"🔴 会话认证不可达（{sess_code}）—— 回退分支仍是死代码")
 os.environ.pop("CAMPUS_IDS_AUTH_ENABLED")
 os.environ.pop("CAMPUS_IDS_API_TOKEN")
 reset_settings()
 
 print("=" * 74)
 print("D. 写端点限流（T1.7）")
-c3 = TestClient(create_app())
+c3 = new_client()
 from campus_ids.web_new.security import limiter  # noqa: E402
 
 limiter.reset()
@@ -108,7 +138,7 @@ os.environ.pop("CAMPUS_IDS_BF_WINDOW")
 print("=" * 74)
 print("G. 多标签页 CSRF 并发 + token 生命周期（T1.7 缺口）")
 limiter.reset()
-c4 = TestClient(create_app())
+c4 = new_client()
 t_a = c4.get("/api/csrf-token").json()["csrf_token"]
 t_b = c4.get("/api/csrf-token").json()["csrf_token"]      # 第二个标签页覆盖 cookie
 r = c4.post("/api/tasks/capture/start", json={"duration": 5}, headers={"X-CSRFToken": t_a})
@@ -116,19 +146,19 @@ print("  标签页A 用旧 token ->", r.status_code, r.json().get("detail", ""),
 print("  同一 token 连用 3 次:",
       [c4.post("/api/tasks/capture/start", json={"duration": 5},
                headers={"X-CSRFToken": t_b}).status_code for _ in range(3)])
-c5 = TestClient(create_app())
+c5 = new_client()
 c5.cookies.set("csrf_token", t_b)
 print("  换新会话复用旧 token ->",
       c5.post("/api/tasks/capture/start", json={"duration": 5}, headers={"X-CSRFToken": t_b}).status_code,
       "（200 = 无会话绑定、无过期）")
 
 print("=" * 74)
-print("H. 空壳端点对非法输入（T2 风险提示）")
-c6 = TestClient(create_app())
+print("H. 任务名非法/未知输入（T2 接线后的行为）")
+c6 = new_client()
 tok6 = c6.get("/api/csrf-token").json()["csrf_token"]
 c6.cookies.set("csrf_token", tok6)
 for name in ("capture", "不存在的任务", "__bad__"):
     rr = c6.post(f"/api/tasks/{name}/start", json={"duration": 5}, headers={"X-CSRFToken": tok6})
-    print("  start %-14s -> %s %s" % (name, rr.status_code, rr.json().get("message", "")))
-print("  GET /api/settings ->", c6.get("/api/settings").json(),
-      "（空壳默认值，auth_enabled=False 与 Settings 默认 True 不一致）")
+    print("  start %-14s -> %s %s" % (name, rr.status_code, rr.json().get("detail", "") or rr.json().get("message", "")))
+print("  （服务已 stub，start 不会有真实副作用）")
+print("  GET /api/settings ->", str(c6.get("/api/settings").json())[:120])

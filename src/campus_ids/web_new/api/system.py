@@ -13,7 +13,6 @@ import importlib
 import logging
 import sys
 import time
-from pathlib import Path
 
 from fastapi import APIRouter, Request
 from fastapi.responses import JSONResponse
@@ -39,9 +38,6 @@ router = APIRouter(prefix="/api", tags=["system"])
 
 # 应用启动时间（模块加载时记录）
 _app_start_time = time.time()
-
-# 数据目录（与旧 Flask config.py DATA_DIR 一致）
-_DATA_DIR = Path(__file__).resolve().parent.parent.parent.parent.parent
 
 
 # ── GET /api/health ────────────────────────────────────────────────
@@ -135,7 +131,12 @@ async def health_check(request: Request) -> HealthResponse:
 
 @router.get("/check", dependencies=[Public], summary="环境自检")
 async def environment_check() -> CheckResponse:
-    """环境自检：Python 版本、依赖包、Npcap、模型文件、数据文件。"""
+    """环境自检：Python 版本、依赖包、Npcap、模型文件、数据文件。
+
+    数据目录取自 `Settings.data_dir`（而非硬算项目根），这样
+    `CAMPUS_IDS_DATA_DIR` 指向别处时自检结果与实际运行目录一致。
+    """
+    data_dir = get_settings().data_dir
     result: dict = {"ok": True}
 
     # 1. Python 版本
@@ -192,7 +193,7 @@ async def environment_check() -> CheckResponse:
         ("model.pkl", "model.pkl"),
         ("evaluation_report.txt", "evaluation_report.txt"),
     ]:
-        path = _DATA_DIR / rel_path
+        path = data_dir / rel_path
         exists = path.exists()
         size_kb = round(path.stat().st_size / 1024, 1) if exists else 0
         model_results.append({"name": name, "exists": exists, "size_kb": size_kb})
@@ -204,7 +205,7 @@ async def environment_check() -> CheckResponse:
         ("traffic_data.csv", "traffic_data.csv"),
         ("traffic_stats.csv", "traffic_stats.csv"),
     ]:
-        path = _DATA_DIR / rel_path
+        path = data_dir / rel_path
         exists = path.exists()
         size_kb = round(path.stat().st_size / 1024, 1) if exists else 0
         data_results.append({"name": name, "exists": exists, "size_kb": size_kb})

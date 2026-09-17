@@ -1,26 +1,36 @@
-"""T2 阶段验收探针 —— 一条命令复现全部结论。
+# -*- coding: utf-8 -*-
+"""T2 阶段验收探针 —— 一条命令复现全部结论（**安全版**）。
 
-安全约束（务必保持）：
-- **绝不调用**会改写产物或数据的端点：`/api/models/train`（触发真实训练，覆盖
-  model.pkl / evaluation_report.txt / confusion_matrix.png）、`/api/admin/export`
-  （覆盖 traffic_stats.csv）。
-- `cleanup_old_data` 的行为验证**只在 DB 副本上**进行，真实库以只读方式打开。
-- 不触发 `lifespan` 之外的写操作；不建表、不删数据。
+    C:/Users/18551/anaconda3/python.exe scripts/probe_t2_acceptance.py
 
-用法：
-    /c/Users/18551/anaconda3/python.exe scripts/probe_t2_acceptance.py
+⚠️ **为什么必须走 `_probe_safety`**：
+本脚本的前一版（`b55a118` 提交）在任务未接线时无害；T2 接线完成后，
+它的 `POST /api/tasks/train/start` 会**真的触发训练**，覆盖
+`model.pkl` / `evaluation_report.txt` / `confusion_matrix.png`（三者都在 .gitignore，无副本）。
+现在改为：① data_dir 隔离到临时目录；② 业务 service 换 stub；③ 训练函数加哨兵。
+→ 本脚本现在是**只读**的，可反复运行。
+
+判定一律由实测算出（`verdict()`），不再把结论写死在文案里 ——
+上一版的文案在缺陷修复后全部变成误导。
 """
 from __future__ import annotations
 
-import os
-import shutil
-import sys
-import tempfile
-from pathlib import Path
+from _probe_safety import (  # noqa: E402
+    ROOT,
+    assert_targets_wired,
+    bootstrap,
+    guard_no_real_training,
+    install_service_stubs,
+    summary,
+    verdict,
+)
 
-os.environ.setdefault("CAMPUS_IDS_DEBUG", "1")  # 允许默认 SECRET_KEY（仅本机开发）
-ROOT = Path(__file__).resolve().parent.parent
-sys.path.insert(0, str(ROOT / "src"))
+TMP = bootstrap()                      # ← 必须最先执行（import 项目模块之前）
+guard_no_real_training()               # 兜底哨兵：真有 train() 调用则报错而非覆盖产物
+
+from fastapi.testclient import TestClient  # noqa: E402
+
+from campus_ids.web_new.app import create_app  # noqa: E402
 
 
 def hr(title: str) -> None:
@@ -30,162 +40,234 @@ def hr(title: str) -> None:
     print("=" * 78)
 
 
-# ── ① 端点清单（新旧对比）────────────────────────────────────────────
-hr("① 端点清单：旧 Flask 34 个业务端点 → 新 FastAPI")
+print("data_dir 已隔离到:", TMP)
 
-from campus_ids.web_new.app import create_app  # noqa: E402
+# ── ① 端点清单与编排面计数 ───────────────────────────────────────────
+hr("① 端点清单（必须用 app.openapi()['paths'] —— app.routes 在 FastAPI 0.141 下数不到）")
 
-app = create_app()
-spec = app.openapi()
-new_paths = {p: sorted(m.keys()) for p, m in spec["paths"].items()}
-print(f"  新规格: openapi={spec['openapi']}  路径数={len(new_paths)}")
-print("  注意：FastAPI 0.141 的 app.routes 里 include_router 是 _IncludedRouter 占位，")
-print("        遍历 app.routes 会数到 0 个 /api 路由 —— 必须用 app.openapi()['paths']。")
-for p in sorted(new_paths):
-    print(f"     {p:<34} {','.join(new_paths[p])}")
+spec = create_app().openapi()
+paths = {p: sorted(m.keys()) for p, m in spec["paths"].items()}
+print(f"  openapi={spec['openapi']}  路径数={len(paths)}")
+orchestration = sorted(p for p in paths if p.startswith(("/api/tasks", "/api/scenarios")))
+print(f"  编排面端点 {len(orchestration)} 条：")
+for p in orchestration:
+    print(f"     {p:<34} {','.join(paths[p])}")
+verdict("编排面 ≤ 3 条（清单 T2 核心收益「20 → 3」）",
+        len(orchestration) <= 3, f"实际 {len(orchestration)} 条")
 
-# ── ② 任务族与剧本（T2.1-T2.5）真实接线 ──────────────────────────────
-hr("② T2.1-T2.5 任务族与剧本 —— 真实接线（不注入假 target）")
+# ── ② 接线断言（T2.1-T2.4）──────────────────────────────────────────
+hr("② 接线断言：create_app() 注册的任务 target 是否非 None（只读，不启动任何任务）")
 
-from fastapi.testclient import TestClient  # noqa: E402
+with TestClient(create_app()) as c:
+    registry = c.app.state.task_registry
+    names = sorted(registry.registered_names)
+    print(f"  注册任务 {len(names)} 个")
+    for n in names:
+        t = registry._tasks[n]
+        tgt = getattr(t, "target", None)
+        print(f"     {n:<14} kind={t.kind:<11} target={getattr(tgt, '__name__', 'None')}")
+    unwired = assert_targets_wired(c.app)
+    verdict("T2.2/T2.4 编排域已接入工作函数（target 非 None）",
+            not unwired, f"未接线: {unwired}" if unwired else "8/8 已接线")
 
+# ── ③ 任务族与剧本端点契约（stub 版，无副作用）──────────────────────
+hr("③ T2.1-T2.5 端点契约（业务 service 已换 stub —— 可安全 start/stop）")
 
-def new_client() -> TestClient:
-    return TestClient(create_app())
+rec = install_service_stubs()
 
-
-with new_client() as c:
+with TestClient(create_app()) as c:
     tok = c.get("/api/csrf-token").json()["csrf_token"]
     c.cookies.set("csrf_token", tok)
     H = {"X-CSRFToken": tok}
 
     r = c.get("/api/tasks")
-    print(f"  T2.1 GET /api/tasks -> {r.status_code}，注册任务 {len(r.json()['tasks'])} 个:")
-    for t in r.json()["tasks"]:
-        print(f"       {t['name']:<14} {t['status']:<8} kind={t['kind']:<10} target 未接线")
+    verdict("T2.1 GET /api/tasks 可用", r.status_code == 200,
+            f"{r.status_code}，{len(r.json().get('tasks', []))} 个任务")
 
-    print("  T2.2 POST /api/tasks/{name}/start:")
-    for n in ["capture", "capture_full", "detection", "ml", "train", "attack", "auto", "demo"]:
-        r = c.post(f"/api/tasks/{n}/start", json={"duration": 5}, headers=H)
-        print(f"       {n:<14} -> {r.status_code}  {r.json().get('detail', '')}")
+    started = []
+    for n in ["capture", "capture_full", "detection", "ml", "attack", "train"]:
+        r = c.post(f"/api/tasks/{n}/start", json={"duration": 3}, headers=H)
+        print(f"     start {n:<14} -> {r.status_code} {str(r.json())[:70]}")
+        if r.status_code < 300:
+            started.append(n)
+    verdict("T2.2 启动端点可用（6/6 返回 2xx）", len(started) == 6, f"{len(started)}/6")
 
-    print("  T2.3 POST /api/tasks/{name}/stop:")
-    for n in ["capture", "nope"]:
-        r = c.post(f"/api/tasks/{n}/stop", headers=H)
-        print(f"       {n:<14} -> {r.status_code}  {r.json()}")
+    rec.clear()
+    r = c.post("/api/tasks/capture/start", json={"duration": 3}, headers=H)
+    verdict("T2.2 重复启动返回 409（冲突语义）", r.status_code == 409, f"{r.status_code}")
 
-    print("  T2.4/T2.5 剧本:")
-    r = c.get("/api/scenarios")
-    print(f"       GET /api/scenarios -> {r.status_code} "
-          f"{[s['name'] for s in r.json()['scenarios']]}")
-    for s in ["demo", "full", "attack", "nope"]:
-        r = c.post("/api/scenarios/start", json={"scenario": s, "duration": 5}, headers=H)
-        print(f"       start {s:<8} -> {r.status_code}  {r.json().get('detail', '')}")
+    r = c.post("/api/tasks/nope/start", json={"duration": 3}, headers=H)
+    verdict("T2.2 未知任务返回 404", r.status_code == 404, f"{r.status_code}")
 
-# ── ③ 各域端点实测（T2.6-T2.17）─────────────────────────────────────
-hr("③ T2.6-T2.17 各域端点实测")
+    r = c.post("/api/tasks/capture/stop", headers=H)
+    print(f"     stop capture -> {r.status_code} {str(r.json())[:70]}")
+    r2 = c.post("/api/tasks/capture/stop", headers=H)
+    verdict("T2.3 停止端点幂等（重复停止仍 2xx）", r2.status_code < 300, f"{r2.status_code}")
 
-with new_client() as c:
+with TestClient(create_app()) as c:
     tok = c.get("/api/csrf-token").json()["csrf_token"]
     c.cookies.set("csrf_token", tok)
     H = {"X-CSRFToken": tok}
+    r = c.get("/api/scenarios")
+    scen = [s["name"] for s in r.json().get("scenarios", [])]
+    verdict("T2.5 GET /api/scenarios 列出剧本", r.status_code == 200 and set(scen) >= {"demo", "full", "attack"},
+            f"{r.status_code} {scen}")
+    rec.clear()
+    r = c.post("/api/scenarios/start", json={"scenario": "demo", "duration": 3}, headers=H)
+    print(f"     start demo -> {r.status_code} {str(r.json())[:80]}")
+    print(f"     子任务实际调用: {rec.calls}")
+    verdict("T2.4 剧本冷启动成功且真的启动了子任务",
+            r.status_code < 300 and (rec.has("capture.start") or rec.has("detection.load_ml")),
+            f"{r.status_code}, 子任务调用={rec.calls}")
+    r = c.post("/api/scenarios/start", json={"scenario": "demo", "duration": 3}, headers=H)
+    verdict("T2.4 重复启动剧本返回 409", r.status_code == 409, f"{r.status_code}")
+    r = c.post("/api/scenarios/start", json={"scenario": "nope", "duration": 3}, headers=H)
+    verdict("T2.4 未知剧本返回 404", r.status_code == 404, f"{r.status_code}")
+    r = c.post("/api/scenarios/stop", json={"scenario": "demo"}, headers=H)
+    verdict("T2.4 剧本可停止", r.status_code < 300, f"{r.status_code}")
 
-    reads = [
-        ("T2.6", "/api/traffic"), ("T2.6", "/api/traffic/history?limit=3"),
-        ("T2.7", "/api/alerts"), ("T2.8", "/api/tls/stats"),
-        ("T2.8", "/api/tls/suspicious"), ("T2.10", "/api/health"),
-        ("T2.11", "/api/check"), ("T2.12", "/api/settings"), ("T2.13", "/api/models"),
-    ]
-    for task, path in reads:
-        r = c.get(path)
-        print(f"  {task:<6} GET {path:<30} -> {r.status_code}  {r.text[:90]}")
+# ── ④ 各域端点 ──────────────────────────────────────────────────────
+hr("④ T2.6-T2.16 各域端点实测")
 
-    # SSE 是无限流，TestClient 会一直读下去 → 只查规格不实际连接
-    print(f"  T2.9  GET /api/stream                        -> "
-          f"{'在规格中' if '/api/stream' in new_paths else '缺失'}（SSE 为无限流，不实际连接）")
-    print(f"  T2.17 GET /  （页面路由）                    -> {c.get('/').status_code}")
-    for p in ["/login", "/logout", "/change-password"]:
-        print(f"  T2.17 GET {p:<24} -> {c.get(p).status_code}")
-    for p in ["/api/login", "/api/logout", "/api/change-password"]:
-        print(f"  T2.17 POST {p:<23} -> {c.post(p, json={}).status_code}")
-
-    print("  T2.16 载荷送检：")
-    for p in ["/api/payload/check", "/api/payload/analyze"]:
-        r = c.post(p, json={"payload": "' OR 1=1 --"}, headers=H)
-        print(f"       POST {p:<26} -> {r.status_code}  {r.text[:90]}")
-
-# ── ④ cleanup_old_data 语义（只在副本上）────────────────────────────
-hr("④ T2.14 /api/admin/cleanup 底层语义 —— 在 DB 副本上验证，不碰真实库")
-
-from sqlalchemy import create_engine, func, select  # noqa: E402
-
-from campus_ids.runtime.db import alerts, traffic_history  # noqa: E402
-from campus_ids.runtime.repositories import UserRepository  # noqa: E402
-
-real_db = ROOT / "sentinelnet.db"
-for days in (7, 9999, 36500):
-    tmp = Path(tempfile.mkdtemp()) / "copy.db"
-    shutil.copy2(real_db, tmp)
-    eng = create_engine(f"sqlite:///{tmp.as_posix()}")
-    with eng.connect() as conn:
-        a0 = conn.execute(select(func.count()).select_from(alerts)).scalar()
-        t0 = conn.execute(select(func.count()).select_from(traffic_history)).scalar()
-        deleted = UserRepository.cleanup_old_data(conn, days=days)
-        a1 = conn.execute(select(func.count()).select_from(alerts)).scalar()
-        t1 = conn.execute(select(func.count()).select_from(traffic_history)).scalar()
-    print(f"  days={days:<6} 删除 {deleted:<5} 条，剩余 alerts={a1}/{a0} traffic={t1}/{t0}")
-    eng.dispose()
-print("  → 三个 days 值删除数完全相同 = days 参数被完全忽略")
-print("  → 旧实现 cutoff = now - timedelta(days=days)；新实现 cutoff = utcnow()")
-
-# ── ⑤ SQLAlchemy 2.0 raw SQL 写法 ──────────────────────────────────
-hr("⑤ /api/health 的 DB 探针写法（SQLAlchemy 2.0 Core 要求 text()）")
-
-from sqlalchemy import text as sql_text  # noqa: E402
-
-eng = create_engine(f"sqlite:///{real_db.as_posix()}")
-with eng.connect() as conn:
-    for label, stmt in [("裸字符串 \"SELECT 1\"", "SELECT 1"), ("text(\"SELECT 1\")", sql_text("SELECT 1"))]:
-        try:
-            conn.execute(stmt)
-            print(f"  {label:<26} -> 通过")
-        except Exception as exc:  # noqa: BLE001
-            print(f"  {label:<26} -> {type(exc).__name__}: {exc}")
-eng.dispose()
-print("  → web_new/api/system.py:61 用的是裸字符串 → /api/health 永远 degraded")
-
-# ── ⑥ CSRF / 限流 / 安全头 ──────────────────────────────────────────
-hr("⑥ CSRF / 限流 / 安全头")
-
-with new_client() as c:
-    r = c.post("/api/tasks/capture/start", json={"duration": 5})
-    print(f"  无 CSRF 写操作            -> {r.status_code} {r.json()}")
-
-    codes: dict[int, int] = {}
-    for _ in range(50):
-        s = c.post("/api/tasks/capture/start", json={"duration": 5}).status_code
-        codes[s] = codes.get(s, 0) + 1
-    print(f"  写端点（无 token）x50     -> {codes}")
-
+with TestClient(create_app()) as c:
     tok = c.get("/api/csrf-token").json()["csrf_token"]
     c.cookies.set("csrf_token", tok)
-    codes = {}
+    H = {"X-CSRFToken": tok}
+    for task, path in [
+        ("T2.6", "/api/traffic"), ("T2.6", "/api/traffic/history?limit=3"),
+        ("T2.7", "/api/alerts"), ("T2.7", "/api/alerts/stats"),
+        ("T2.8", "/api/tls/stats"), ("T2.8", "/api/tls/suspicious"),
+        ("T2.11", "/api/check"), ("T2.12", "/api/settings"), ("T2.13", "/api/models"),
+    ]:
+        try:
+            r = c.get(path)
+            verdict(f"{task} GET {path}", r.status_code == 200, f"{r.status_code}")
+        except Exception as exc:  # noqa: BLE001
+            verdict(f"{task} GET {path}", False, f"{type(exc).__name__}: {exc}")
+
+    r = c.get("/api/health")
+    body = r.json()
+    verdict("T2.10 /api/health 状态非 degraded", body.get("status") == "healthy",
+            f"status={body.get('status')} db={body.get('components', {}).get('database')}")
+
+    for p in ["/api/payload/check", "/api/payload/analyze"]:
+        r = c.post(p, json={"payload": "' OR 1=1 --"}, headers=H)
+        verdict(f"T2.16 POST {p}", r.status_code == 200, f"{r.status_code}")
+
+    print("     /api/stream 在规格中:", "/api/stream" in paths, "（SSE 无限流，不实际连接）")
+
+# ── ⑤ 页面路由（T2.17）───────────────────────────────────────────────
+hr("⑤ T2.17 认证页面路由")
+
+with TestClient(create_app()) as c:
+    for p in ["/", "/login", "/logout", "/change-password"]:
+        r = c.get(p)
+        verdict(f"T2.17 页面路由 {p} 可访问", r.status_code == 200, f"{r.status_code}")
+    for p in ["/api/login", "/api/logout", "/api/change-password"]:
+        r = c.post(p, json={})
+        print(f"     POST {p:<24} -> {r.status_code}（API 版存在，但路径/方法已与旧契约不同）")
+    import pathlib
+    has_tpl = (ROOT / "src" / "campus_ids" / "web_new" / "templates").exists()
+    has_static = (ROOT / "src" / "campus_ids" / "web_new" / "static").exists()
+    verdict("T2.17 web_new 具备页面渲染能力（templates/static）", has_tpl or has_static,
+            f"templates={has_tpl} static={has_static}")
+
+# ── ⑥ cleanup days 语义（T2.14）──────────────────────────────────────
+hr("⑥ T2.14 POST /api/admin/cleanup —— days 是否真的生效（造对照数据，不碰真实库）")
+
+import tempfile  # noqa: E402
+from datetime import datetime, timedelta  # noqa: E402
+
+from sqlalchemy import create_engine, insert, select  # noqa: E402
+
+from campus_ids.runtime.db import alerts, metadata as _meta, traffic_history  # noqa: E402
+from campus_ids.runtime.repositories import UserRepository  # noqa: E402
+
+old_ts = (datetime.utcnow() - timedelta(days=30)).strftime("%Y-%m-%d %H:%M:%S")
+new_ts = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")
+results: dict[int, tuple[int, int, list[str]]] = {}
+for days in (7, 9999):
+    db_file = ROOT / "_probe_cleanup.db"
+    db_file.unlink(missing_ok=True)
+    eng = create_engine(f"sqlite:///{db_file.as_posix()}")
+    _meta.create_all(eng)
+    with eng.connect() as conn:
+        conn.execute(insert(alerts), [
+            {"time": old_ts, "level": "low", "attack_type": "probe", "message": "30天前"},
+            {"time": new_ts, "level": "low", "attack_type": "probe", "message": "刚刚"},
+        ])
+        conn.execute(insert(traffic_history), [{"time": old_ts, "qps": 1}, {"time": new_ts, "qps": 2}])
+        conn.commit()
+    with eng.connect() as conn:
+        da, dt = UserRepository.cleanup_old_data(conn, days=days)
+        left = [row[0] for row in conn.execute(select(alerts.c.message)).all()]
+    results[days] = (da, dt, left)
+    eng.dispose()
+    db_file.unlink(missing_ok=True)
+    print(f"     days={days:<6} 删除 (alerts={da}, traffic={dt})，剩余 {left}")
+
+verdict("T2.14 cleanup 的 days 参数真的生效（7 与 9999 结果不同）",
+        results[7] != results[9999],
+        f"days=7 → {results[7]}, days=9999 → {results[9999]}")
+verdict("T2.14 days=7 删「30天前」保留「刚刚」",
+        "刚刚" in results[7][2] and "30天前" not in results[7][2], f"剩余 {results[7][2]}")
+verdict("T2.14 days=9999 一条不删",
+        results[9999][0] == 0 and results[9999][1] == 0, f"{results[9999][:2]}")
+
+# ── ⑦ 契约 golden 可用性（T2.18）────────────────────────────────────
+hr("⑦ T2.18 契约回放：golden 是否可用作期望值 / 是否有回放 harness")
+
+import json  # noqa: E402
+
+base = ROOT / "tests" / "contract" / "baseline"
+goldens = sorted(base.glob("*.json"))
+suspect = []
+for p in goldens:
+    try:
+        d = json.loads(p.read_text(encoding="utf-8"))
+    except Exception:  # noqa: BLE001
+        continue
+    sc = d.get("status_code")
+    if sc is not None and sc >= 400:
+        suspect.append((p.name, sc))
+print(f"     基线 {len(goldens)} 个 json；其中 {len(suspect)} 个录的是**拒绝响应**：")
+for n, sc in suspect[:12]:
+    print(f"       {n:<34} status_code={sc}")
+verdict("T2.18 基线期望值可用（无 4xx 录制）", not suspect,
+        f"{len(suspect)}/{len(goldens)} 个是 4xx（录制时未带 CSRF token）")
+
+replay_hits = []
+for p in (ROOT / "tests").glob("*.py"):
+    text = p.read_text(encoding="utf-8", errors="ignore")
+    if "contract" in text or "baseline" in text:
+        replay_hits.append(p.name)
+verdict("T2.18 存在契约回放 harness（测试读取 baseline）", bool(replay_hits),
+        f"命中: {replay_hits}" if replay_hits else f"{len(goldens)} 个 golden 录了从不回放")
+
+# ── ⑧ CSRF / 限流 / 安全头 ─────────────────────────────────────────
+hr("⑧ CSRF / 限流 / 安全头")
+
+from campus_ids.web_new.security import limiter  # noqa: E402
+
+with TestClient(create_app()) as c:
+    r = c.post("/api/tasks/capture/start", json={"duration": 3})
+    verdict("无 CSRF 的写操作被拒", r.status_code == 403, f"{r.status_code}")
+
+    limiter.reset()
+    tok = c.get("/api/csrf-token").json()["csrf_token"]
+    c.cookies.set("csrf_token", tok)
+    codes: dict[int, int] = {}
     for _ in range(50):
-        s = c.post("/api/tasks/capture/start", json={"duration": 5},
+        s = c.post("/api/tasks/capture/start", json={"duration": 3},
                    headers={"X-CSRFToken": tok}).status_code
         codes[s] = codes.get(s, 0) + 1
-    print(f"  写端点（带 token）x50     -> {codes}   ← 期望出现 429")
-
-    codes = {}
-    for _ in range(80):
-        s = c.get("/api/tasks").status_code
-        codes[s] = codes.get(s, 0) + 1
-    print(f"  GET /api/tasks x80        -> {codes}   ← default_limits 60/min 未生效")
+    print(f"     写端点 50 连发 -> {codes}")
+    verdict("写端点限流生效（出现 429）", 429 in codes, f"{codes}")
 
     h = c.get("/api/health").headers
-    for name in ["strict-transport-security", "permissions-policy",
+    for name in ("strict-transport-security", "permissions-policy",
                  "cross-origin-opener-policy", "content-security-policy",
-                 "x-content-type-options", "x-frame-options"]:
-        print(f"     {name:<32} {h.get(name, '<absent>')[:64]}")
+                 "x-content-type-options", "x-frame-options"):
+        print(f"       {name:<32} {(h.get(name) or '<absent>')[:60]}")
 
-hr("完成 —— 以上全部结论均可用本脚本复现")
+raise SystemExit(summary())
