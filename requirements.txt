@@ -45,6 +45,12 @@ psutil>=5.9
 tqdm>=4.60
 
 # ── 开发期工具（ADR-0001 §1.1，pip install -r requirements.txt 不含，需 -e .[dev]）──
-# pytest-regressions>=0.1    # T0.2/T0.3: golden file 录制与比对
-# pytest-alembic>=0.1        # T1.10: 迁移链自动化测试
+# T2.18 (2026-09-17) 状态说明：T1.10 的迁移门禁已由 tests/test_migrations.py
+# 自行实现（双库 create_all × alembic 逐列逐索引比对），**不依赖**下面这个包；
+# 两行在此声明只是为与 pyproject.toml 的 [project.optional-dependencies].dev
+# 保持双份一致（此前 pyproject 已声明、requirements 却注释掉 —— 属报告点名的"双份漂移"）。
+# pytest-regressions>=0.1    # T0.2/T0.3: golden file 录制与比对（T2.18 改为自实现回放，见 tests/contract/replay.py）
+pytest-alembic>=0.1          # T1.10: 迁移链自动化测试（可选，门禁不依赖）
 # oasdiff 为 Go 单二进制，不在此处管理
+# T2.18 备注：oasdiff 已由 scripts/replay_contract.py 的 Python schema 门禁部分替代
+# （路径级三分类账 + 保留端点键集比对；参数级/类型级破坏性判定仍是能力缺口，未假装等价）

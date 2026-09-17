@@ -27,8 +27,19 @@ def verify_password(password: str, password_hash: str) -> bool:
     """验证密码与哈希是否匹配。
 
     兼容 werkzeug 生成的所有哈希格式（pbkdf2、argon2 等）。
+
+    ⚠️ 对**非哈希值**（空串、裸 token 字符串等）返回 False 而不是抛异常：
+    `UserRepository.ensure_default()` 在 `CAMPUS_IDS_API_TOKEN` 未配置时会把
+    `password_hash` 写成空串，此时 werkzeug 的 `check_password_hash` 会因为
+    `pwhash.split("$", 2)` 解包失败抛 `ValueError` → 端点 500。
+    认证失败应当是 401，不是 500。
     """
-    return check_password_hash(password_hash, password)
+    if not password_hash:
+        return False
+    try:
+        return check_password_hash(password_hash, password)
+    except (ValueError, TypeError):
+        return False
 
 
 # ── 会话管理 ──────────────────────────────────────────────────────

@@ -54,30 +54,34 @@ def generate_csrf_token() -> str:
     return f"{nonce}:{signature}"
 
 
-def validate_csrf(request: Request) -> None:
-    """验证 CSRF 双提交 cookie（ADR-0001 §6.1 #2，路线 B）。
+def verify_csrf_pair(cookie_token: str | None, submitted_token: str | None) -> None:
+    """校验一对 CSRF 值（cookie 侧 + 提交侧），通过则静默返回。
 
-    验证步骤：
-    1. cookie 与 header 必须同时存在
-    2. cookie 与 header 必须匹配（双提交）
-    3. token 格式必须为 nonce:signature
-    4. HMAC 签名必须有效
+    抽出成独立函数的原因：API 端点从 `X-CSRFToken` **头**提交，而
+    服务端渲染的 HTML 表单从**表单域** `csrf_token` 提交（T2.17 页面路由）。
+    两者的校验规则完全相同（双提交 + HMAC 签名），只是取值位置不同，
+    因此共用本函数，避免两处实现漂移。
+
+    Args:
+        cookie_token: `csrf_token` cookie 的值
+        submitted_token: 请求头或表单域提交的值
+
+    Raises:
+        HTTPException: 403，缺失 / 不匹配 / 格式非法 / 签名无效
     """
-    cookie_token = request.cookies.get(CSRF_COOKIE_NAME)
-    header_token = request.headers.get(CSRF_HEADER_NAME)
-    if not cookie_token or not header_token:
+    if not cookie_token or not submitted_token:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="CSRF token 缺失",
         )
     # 双提交比对
-    if not hmac.compare_digest(cookie_token, header_token):
+    if not hmac.compare_digest(cookie_token, submitted_token):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="CSRF token 验证失败",
         )
     # HMAC 签名验证
-    parts = header_token.split(":", 1)
+    parts = submitted_token.split(":", 1)
     if len(parts) != 2:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
@@ -95,6 +99,23 @@ def validate_csrf(request: Request) -> None:
             status_code=status.HTTP_403_FORBIDDEN,
             detail="CSRF token 签名无效",
         )
+
+
+def validate_csrf(request: Request) -> None:
+    """验证 CSRF 双提交 cookie（ADR-0001 §6.1 #2，路线 B）。
+
+    取值位置：cookie `csrf_token` + 请求头 `X-CSRFToken`（API 端点用）。
+
+    验证步骤：
+    1. cookie 与 header 必须同时存在
+    2. cookie 与 header 必须匹配（双提交）
+    3. token 格式必须为 nonce:signature
+    4. HMAC 签名必须有效
+    """
+    verify_csrf_pair(
+        request.cookies.get(CSRF_COOKIE_NAME),
+        request.headers.get(CSRF_HEADER_NAME),
+    )
 
 
 # ── API Token 认证 ────────────────────────────────────────────────

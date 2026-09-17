@@ -1,0 +1,14 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="csrf-token" content="{{ csrf_token }}">
+    <title>{% block title %}SentinelNet{% endblock %}</title>
+    <link rel="stylesheet" href="/static/css/app.css">
+</head>
+<body class="{% block body_class %}{% endblock %}">
+{% block content %}{% endblock %}
+{% block scripts %}{% endblock %}
+</body>
+</html>

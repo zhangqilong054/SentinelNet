@@ -9,6 +9,12 @@
     "Content-Security-Policy": "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'",
     "Referrer-Policy": "strict-origin-when-cross-origin"
   },
+  "request": {
+    "method": "GET",
+    "url": "/login",
+    "json": null,
+    "form": null
+  },
   "json": null,
   "body": "<!doctype html>\n<html lang=en>\n<title>404 Not Found</title>\n<h1>Not Found</h1>\n<p>The requested URL was not found on the server. If you entered the URL manually please check your spelling and try again.</p>\n"
 }

@@ -1,0 +1,44 @@
+{
+  "recorded_at": "2026-09-17T12:11:16",
+  "recorder": "scripts/record_golden.py",
+  "target": "旧 Flask 应用 campus_ids.web.app（基线对照）",
+  "config": {
+    "CAMPUS_IDS_DATA_DIR": "C:\\Users\\18551\\AppData\\Local\\Temp\\sn_record_j1vap9gy",
+    "auth": "默认（api_token 为空 → 认证关闭，CSRF 强制生效）"
+  },
+  "csrf_token_sent": true,
+  "csrf_missing_samples": 0,
+  "stubbed_bindings": [
+    "  - campus_ids.web.helpers.start_capture_thread",
+    "  - campus_ids.web.bp_capture.start_capture_thread",
+    "  - campus_ids.web.bp_model.start_capture_thread",
+    "  - campus_ids.web.helpers.stop_capture_thread",
+    "  - campus_ids.web.bp_capture.stop_capture_thread",
+    "  - campus_ids.web.app.stop_capture_thread",
+    "  - campus_ids.web.helpers.start_enhanced_capture_thread",
+    "  - campus_ids.web.bp_capture.start_enhanced_capture_thread",
+    "  - campus_ids.web.helpers.stop_enhanced_capture_thread",
+    "  - campus_ids.web.bp_capture.stop_enhanced_capture_thread",
+    "  - campus_ids.web.helpers.start_detector_tick",
+    "  - campus_ids.web.bp_capture.start_detector_tick",
+    "  - campus_ids.web.app.start_detector_tick",
+    "  - campus_ids.web.helpers.stop_detector_tick",
+    "  - campus_ids.web.bp_capture.stop_detector_tick",
+    "  - campus_ids.web.app.stop_detector_tick",
+    "  - campus_ids.web.helpers.start_auto_thread",
+    "  - campus_ids.web.bp_model.start_auto_thread",
+    "  - campus_ids.web.helpers._auto_worker",
+    "  - campus_ids.web.attack_sim_state.start_attack_sim",
+    "  - campus_ids.web.bp_model.start_attack_sim",
+    "  - campus_ids.web.bp_admin.start_attack_sim",
+    "  - campus_ids.model.train.train"
+  ],
+  "fidelity_note": "被 stub 的入口在 golden 里呈现成功分支而非真实副作用（如 /api/model/train 返回 200 但未真训练）。data_dir 已隔离到临时目录，录制前后 6 个真实产物 md5 一致。",
+  "samples": 41,
+  "status_breakdown": {
+    "2xx": 34,
+    "3xx": 0,
+    "4xx": 5,
+    "5xx": 0
+  }
+}

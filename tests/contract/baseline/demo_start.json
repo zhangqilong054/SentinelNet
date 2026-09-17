@@ -1,14 +1,27 @@
 {
-  "status_code": 400,
+  "status_code": 200,
   "headers": {
-    "Content-Type": "text/html; charset=utf-8",
-    "Content-Length": "117",
+    "Content-Type": "application/json",
+    "Content-Length": "82",
     "Permissions-Policy": "browsing-topics=()",
     "X-Frame-Options": "DENY",
     "X-Content-Type-Options": "nosniff",
     "Content-Security-Policy": "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'",
-    "Referrer-Policy": "strict-origin-when-cross-origin"
+    "Referrer-Policy": "strict-origin-when-cross-origin",
+    "Vary": "Cookie"
   },
-  "json": null,
-  "body": "<!doctype html>\n<html lang=en>\n<title>400 Bad Request</title>\n<h1>Bad Request</h1>\n<p>The CSRF token is missing.</p>\n"
+  "request": {
+    "method": "POST",
+    "url": "/api/demo/start",
+    "json": {},
+    "form": null
+  },
+  "json": {
+    "attack": true,
+    "capture": true,
+    "duration": 30,
+    "ml_loaded": false,
+    "status": "success"
+  },
+  "note": "无 Content-Type 时该端点返回 415，与文档 'required: false' 不符"
 }

@@ -2,12 +2,18 @@
   "status_code": 200,
   "headers": {
     "Content-Type": "application/json",
-    "Content-Length": "743",
+    "Content-Length": "736",
     "Permissions-Policy": "browsing-topics=()",
     "X-Frame-Options": "DENY",
     "X-Content-Type-Options": "nosniff",
     "Content-Security-Policy": "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'",
     "Referrer-Policy": "strict-origin-when-cross-origin"
+  },
+  "request": {
+    "method": "GET",
+    "url": "/api/check",
+    "json": null,
+    "form": null
   },
   "json": {
     "capture": {
@@ -16,14 +22,14 @@
     },
     "data_files": [
       {
-        "exists": true,
+        "exists": false,
         "name": "traffic_data.csv",
-        "size_kb": 0.4
+        "size_kb": 0
       },
       {
-        "exists": true,
+        "exists": false,
         "name": "traffic_stats.csv",
-        "size_kb": 100.3
+        "size_kb": 0
       }
     ],
     "dependencies": {
@@ -66,14 +72,14 @@
     },
     "model_files": [
       {
-        "exists": true,
+        "exists": false,
         "name": "model.pkl",
-        "size_kb": 70.8
+        "size_kb": 0
       },
       {
-        "exists": true,
+        "exists": false,
         "name": "evaluation_report.txt",
-        "size_kb": 4.7
+        "size_kb": 0
       }
     ],
     "ok": true,

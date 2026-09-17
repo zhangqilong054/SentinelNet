@@ -9,6 +9,12 @@
     "Content-Security-Policy": "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'",
     "Referrer-Policy": "strict-origin-when-cross-origin"
   },
+  "request": {
+    "method": "GET",
+    "url": "/api/traffic",
+    "json": null,
+    "form": null
+  },
   "json": {
     "alert": null,
     "connections": 80,
@@ -18,7 +24,7 @@
     "qps": 200,
     "src_ip_count": 0,
     "syn_packets": 0,
-    "timestamp": "2026-09-16 00:25:21",
+    "timestamp": "2026-09-17 12:11:11",
     "udp_packets": 0
   }
 }

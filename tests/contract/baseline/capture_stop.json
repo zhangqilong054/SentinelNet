@@ -1,14 +1,23 @@
 {
-  "status_code": 400,
+  "status_code": 200,
   "headers": {
-    "Content-Type": "text/html; charset=utf-8",
-    "Content-Length": "117",
+    "Content-Type": "application/json",
+    "Content-Length": "37",
     "Permissions-Policy": "browsing-topics=()",
     "X-Frame-Options": "DENY",
     "X-Content-Type-Options": "nosniff",
     "Content-Security-Policy": "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'",
-    "Referrer-Policy": "strict-origin-when-cross-origin"
+    "Referrer-Policy": "strict-origin-when-cross-origin",
+    "Vary": "Cookie"
   },
-  "json": null,
-  "body": "<!doctype html>\n<html lang=en>\n<title>400 Bad Request</title>\n<h1>Bad Request</h1>\n<p>The CSRF token is missing.</p>\n"
+  "request": {
+    "method": "POST",
+    "url": "/api/capture/stop",
+    "json": null,
+    "form": null
+  },
+  "json": {
+    "running": false,
+    "status": "success"
+  }
 }

@@ -1,25 +1,42 @@
 """web_new/api/models.py — 模型管理 API 路由。
 
 端点：
-- GET   /api/models           模型列表（从 registry.json 读取）
-- POST  /api/models/train     启动训练
-- GET   /api/models/train/status  训练状态
-- DELETE /api/models/{name}   删除模型
+- GET   /api/models                模型列表（从 registry.json 读取）
+- POST  /api/models/train          启动训练（委托 TaskRegistry 的 train 任务）
+- GET   /api/models/train/status   训练状态（读 TaskRegistry，单一真相源）
+- DELETE /api/models/{name}        删除模型
 
 范围边界（D4）：只读注册表与产物列表，不重构训练链路内部。
+
+## T2.13 收敛记录（2026-09-17）
+
+**问题**：本模块原先自建 `_train_status` 模块级状态机 + 独立 daemon 线程，
+与 `TaskRegistry` 的 `train` 任务**互不感知** —— 从
+`POST /api/tasks/train/start` 起训练，`GET /api/models/train/status` 仍报 `idle`。
+训练状态有两份真相，且 `/api/models/train` 会覆盖三个产物却
+**无确认、无 dry-run、无备份**。
+
+**现在**：
+1. 状态单一真相源 = `TaskRegistry.status("train")`；
+   `progress` 由任务窗口 elapsed/duration **算出**，不是硬编码 0.0。
+2. `POST /api/models/train` 不再自己起线程，而是 `registry.start("train", ...)`，
+   并透传 dataset/quick（`app.py` 的 `train_target` 已支持）。
+3. 破坏性保护：必须 `confirm=true`；启动前自动把
+   `model.pkl` / `evaluation_report.txt` / `confusion_matrix.png`
+   备份到 `<data_dir>/training_backup/<时间戳>/`。
 """
 from __future__ import annotations
 
 import json
 import logging
-import threading
+import shutil
+from datetime import datetime
 from pathlib import Path
-from typing import Any
 
 from fastapi import APIRouter, Request
 
 from campus_ids.runtime.settings import get_settings
-from campus_ids.web_new.errors import ConflictError, NotFoundError
+from campus_ids.web_new.errors import ApiError, ConflictError, NotFoundError, ValidationError
 from campus_ids.web_new.security import Readonly, Write, limiter
 from campus_ids.web_new.schemas import (
     MessageResponse,
@@ -33,15 +50,18 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api", tags=["models"])
 
-# 训练状态（进程内单例，线程安全）
-_train_lock = threading.Lock()
-_train_status: dict[str, Any] = {
-    "running": False,
-    "progress": "",
-    "result": None,
-    "error": None,
-}
-_train_thread: threading.Thread | None = None
+# 训练会覆盖的产物（相对 data_dir）
+TRAINING_PRODUCTS: tuple[str, ...] = (
+    "model.pkl",
+    "evaluation_report.txt",
+    "confusion_matrix.png",
+)
+
+# 训练任务在 TaskRegistry 里的名字
+TRAIN_TASK = "train"
+
+# `epochs <= QUICK_EPOCH_THRESHOLD` 时按 quick 模式训练（沿用旧端点语义）
+QUICK_EPOCH_THRESHOLD = 3
 
 
 def _get_models_dir() -> Path:
@@ -60,6 +80,41 @@ def _read_registry() -> list[dict]:
     except Exception as exc:
         logger.error("读取模型注册表失败: %s", exc)
         return []
+
+
+def _task_registry(request: Request):
+    """取应用级任务注册表；未初始化时抛 503（lifespan 未跑）。"""
+    registry = getattr(request.app.state, "task_registry", None)
+    if registry is None:
+        raise ApiError(
+            error_code="TASK_REGISTRY_UNAVAILABLE",
+            detail="任务注册表未初始化（应用 lifespan 未执行）",
+            status_code=503,
+        )
+    return registry
+
+
+def backup_training_products() -> Path | None:
+    """训练前备份会被覆盖的产物。
+
+    Returns:
+        备份目录；若三个产物都不存在则返回 None（首次训练，无物可备）。
+
+    ⚠️ 只备份**存在**的文件，且不删除任何旧备份 —— 备份目录按时间戳分层，
+    多次训练不会互相覆盖。
+    """
+    data_dir = get_settings().data_dir
+    existing = [data_dir / name for name in TRAINING_PRODUCTS if (data_dir / name).exists()]
+    if not existing:
+        logger.info("训练产物均不存在，跳过备份（首次训练）")
+        return None
+
+    target = data_dir / "training_backup" / datetime.now().strftime("%Y%m%d-%H%M%S")
+    target.mkdir(parents=True, exist_ok=True)
+    for src in existing:
+        shutil.copy2(src, target / src.name)
+    logger.info("训练前已备份 %d 个产物到 %s", len(existing), target)
+    return target
 
 
 # ── GET /api/models ────────────────────────────────────────────────
@@ -84,76 +139,101 @@ async def list_models(request: Request) -> ModelListResponse:
 @router.post("/models/train", dependencies=[Write], summary="启动模型训练")
 @limiter.limit("30/minute")
 async def start_training(body: TrainRequest, request: Request) -> MessageResponse:
-    """启动模型训练 — 后台线程异步执行。
+    """启动模型训练 —— 委托 `TaskRegistry` 的 `train` 任务（T2.13）。
 
-    训练参数通过 TaskRegistry 的 train 任务管理，此处为便捷入口。
+    三步保护：
+    1. `confirm=true` 必填，否则 400 且不启动；
+    2. 已在运行时返回 409（判据来自 TaskRegistry，不是本地状态机）；
+    3. 启动前备份三个产物到 `<data_dir>/training_backup/<时间戳>/`。
+
+    `epochs` 仅用于判定 quick 模式（≤3），不直接等于训练轮数 ——
+    训练链路的轮数由数据集配置决定（D4：不重构训练链路内部）。
     """
-    global _train_thread
+    registry = _task_registry(request)
 
-    with _train_lock:
-        if _train_status["running"]:
-            raise ConflictError("模型训练正在进行中")
+    if not body.confirm:
+        raise ValidationError(
+            "训练会覆盖 model.pkl / evaluation_report.txt / confusion_matrix.png，"
+            "需显式确认：请在请求体传 confirm=true"
+        )
 
-        _train_status["running"] = True
-        _train_status["progress"] = "初始化训练..."
-        _train_status["result"] = None
-        _train_status["error"] = None
+    try:
+        current = registry.status(TRAIN_TASK)
+    except KeyError as exc:
+        raise NotFoundError("训练任务", TRAIN_TASK) from exc
 
-        # 从 TrainRequest 提取参数
-        # 旧端点支持 dataset_type/balance_method/quick，
-        # 新 schema 用 dataset/epochs，做兼容映射
-        dataset_type = body.dataset if body.dataset else "auto"
-        quick = body.epochs <= 3 if body.epochs else False
+    if current.get("status") == "running":
+        raise ConflictError("模型训练正在进行中")
 
-        def _train_worker():
-            """后台训练线程。"""
-            try:
-                from campus_ids.model.train import train
-                _train_status["progress"] = "加载数据集..."
-                result = train(dataset_type=dataset_type, quick=quick)
-                _train_status["result"] = result
-                _train_status["progress"] = "训练完成"
-            except Exception as exc:
-                logger.error("模型训练失败: %s", exc)
-                _train_status["error"] = str(exc)
-                _train_status["progress"] = f"训练失败: {exc}"
-            finally:
-                _train_status["running"] = False
+    backup_dir = backup_training_products()
+    quick = body.epochs <= QUICK_EPOCH_THRESHOLD
 
-        _train_thread = threading.Thread(target=_train_worker, daemon=True)
-        _train_thread.start()
+    result = registry.start(TRAIN_TASK, dataset=body.dataset, quick=quick)
+    state = result.get("status")
+    if state == "error":
+        raise ApiError(
+            error_code="TRAIN_START_FAILED",
+            detail=result.get("message", "训练任务启动失败"),
+            status_code=503,
+        )
+    if state == "already_running":
+        raise ConflictError("模型训练正在进行中")
 
-    logger.info("模型训练已启动: dataset_type=%s", dataset_type)
-    return MessageResponse(message=f"训练已启动: dataset={dataset_type}")
+    message = f"训练已启动: dataset={body.dataset}, quick={quick}"
+    if backup_dir is not None:
+        message += f"；产物已备份至 {backup_dir}"
+    logger.info("模型训练已启动: dataset=%s quick=%s backup=%s", body.dataset, quick, backup_dir)
+    return MessageResponse(message=message)
 
 
 # ── GET /api/models/train/status ───────────────────────────────────
 
 @router.get("/models/train/status", dependencies=[Readonly], summary="获取训练状态")
 async def get_train_status(request: Request) -> TrainStatusResponse:
-    """获取训练状态 — 对齐旧 /api/model/train-status 返回格式。"""
-    with _train_lock:
-        running = _train_status["running"]
-        progress = _train_status["progress"]
-        result = _train_status["result"]
-        error = _train_status["error"]
+    """获取训练状态 —— 真相源是 `TaskRegistry`（T2.13）。
 
-    # 映射到 TrainStatusResponse
-    if running:
-        status = "training"
-    elif error:
-        status = "failed"
-    elif result:
-        status = "completed"
-    else:
-        status = "idle"
+    状态映射（TaskRegistry → 本响应）：
+    `idle`→`idle`、`running`→`training`、`finished`→`completed`、`failed`→`failed`。
+
+    `progress` 由任务窗口 elapsed/duration 算出而非硬编码：
+    训练任务在本架构里是 TIMED 任务（窗口时长 = `default_duration`，默认 120s），
+    所以它是"任务窗口进度"而不是"训练收敛进度" —— 训练链路内部进度需要
+    改 `model/train.py` 才能拿到，属 D4 范围外。
+    """
+    registry = _task_registry(request)
+
+    try:
+        info = registry.status(TRAIN_TASK)
+    except KeyError as exc:
+        raise NotFoundError("训练任务", TRAIN_TASK) from exc
+
+    raw_status = info.get("status", "idle")
+    mapping = {
+        "idle": "idle",
+        "running": "training",
+        "stopping": "training",
+        "finished": "completed",
+        "failed": "failed",
+    }
+    status = mapping.get(raw_status, "idle")
+
+    elapsed = info.get("elapsed")
+    # 优先用实际窗口时长（`duration`），回退到 default_duration 兼容旧返回
+    duration = info.get("duration") or info.get("default_duration")
+    progress = 0.0
+    if status == "training" and elapsed is not None and duration:
+        progress = min(round(float(elapsed) / float(duration), 4), 1.0)
+    elif status == "completed":
+        progress = 1.0
 
     return TrainStatusResponse(
         status=status,
-        progress=0.0,
+        progress=progress,
         epoch=0,
         total_epochs=0,
-        error=error,
+        error=info.get("error"),
+        elapsed_seconds=float(elapsed) if elapsed is not None else None,
+        duration_seconds=int(duration) if duration is not None else None,
     )
 
 

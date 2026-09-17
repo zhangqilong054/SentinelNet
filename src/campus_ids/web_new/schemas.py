@@ -178,18 +178,40 @@ class AlertStatsResponse(BaseModel):
 # ── 模型 (Models) ─────────────────────────────────────────────────
 
 class TrainRequest(BaseModel):
-    """训练请求。"""
-    dataset: str = Field(description="训练数据集路径")
-    epochs: int = Field(default=10, ge=1, description="训练轮数")
+    """训练请求（T2.13 起带破坏性操作保护）。"""
+    dataset: str = Field(default="auto", description="训练数据集标识（透传给训练链路 dataset_type）")
+    epochs: int = Field(default=10, ge=1, description="训练轮数；≤3 视为 quick 模式")
+    confirm: bool = Field(
+        default=False,
+        description=(
+            "**必填确认位**。训练会覆盖 model.pkl / evaluation_report.txt / "
+            "confusion_matrix.png，未传 `confirm=true` 时请求被拒绝（400），"
+            "不会启动训练。启动前会自动备份这三个产物到 "
+            "`<data_dir>/training_backup/<时间戳>/`。"
+        ),
+    )
 
 
 class TrainStatusResponse(BaseModel):
-    """训练状态响应。"""
+    """训练状态响应。
+
+    `status` 的真相源是 `TaskRegistry` 里 `train` 任务的状态
+    （T2.13 收敛；此前是 `api/models.py` 的模块级状态机，与任务编排互不感知）。
+    """
     status: str = Field(description="idle | training | completed | failed")
-    progress: float = 0.0
+    progress: float = Field(
+        default=0.0,
+        description="进度 0.0–1.0，由任务窗口已耗时/总时长算出（非硬编码）",
+    )
     epoch: int = 0
     total_epochs: int = 0
     error: str | None = None
+    elapsed_seconds: float | None = Field(
+        default=None, description="任务已运行秒数（来自 TaskRegistry）"
+    )
+    duration_seconds: int | None = Field(
+        default=None, description="任务窗口时长（来自 TaskRegistry）"
+    )
 
     model_config = {
         "json_schema_extra": {

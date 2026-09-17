@@ -2,12 +2,18 @@
   "status_code": 200,
   "headers": {
     "Content-Type": "application/json",
-    "Content-Length": "570",
+    "Content-Length": "571",
     "Permissions-Policy": "browsing-topics=()",
     "X-Frame-Options": "DENY",
     "X-Content-Type-Options": "nosniff",
     "Content-Security-Policy": "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'",
     "Referrer-Policy": "strict-origin-when-cross-origin"
+  },
+  "request": {
+    "method": "GET",
+    "url": "/api/health",
+    "json": null,
+    "form": null
   },
   "json": {
     "components": {
@@ -25,8 +31,8 @@
         "tick_count": 0
       },
       "memory": {
-        "rss_mb": 112.9,
-        "vms_mb": 90.4
+        "rss_mb": 183.9,
+        "vms_mb": 147.4
       },
       "ml_model": {
         "attack_count": 0,
@@ -47,7 +53,7 @@
       }
     },
     "status": "healthy",
-    "timestamp": "2026-09-16 00:25:22",
-    "uptime_seconds": 0.1
+    "timestamp": "2026-09-17 12:11:15",
+    "uptime_seconds": 2.6
   }
 }

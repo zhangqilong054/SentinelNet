@@ -67,7 +67,10 @@ def _register_default_tasks(registry: TaskRegistry, *, capture_service, detectio
 
     # ── train: 模型训练（TIMED） ──────────────────────────────────
     def train_target(stop_event: threading.Event, duration: int = 120, **kwargs) -> None:
-        model_service.train()
+        # T2.13：透传 dataset / quick，否则 `POST /api/models/train` 的入参
+        # 会被静默丢弃（旧端点收 dataset_type/quick，新 schema 是 dataset/epochs）。
+        forwarded = {k: v for k, v in kwargs.items() if k in ("dataset", "quick")}
+        model_service.train(**forwarded)
         stop_event.wait()
 
     # ── auto: 一键全流程（TIMED）— 委托 ScenarioService("full") ──
@@ -160,9 +163,16 @@ async def lifespan(app: FastAPI):
                         logger.warning("忽略无效配置 %s=%s", key, value)
             logger.info("DB 配置覆盖加载完成 (%d 项)", len(db_config))
 
-        # 确保默认管理员用户
+        # 确保默认管理员用户。
+        # bootstrap 密码取 CAMPUS_IDS_API_TOKEN 的值（首次部署由部署方设定），
+        # **必须哈希后写入** —— 直接写裸 token 会让 verify_password 拿到非哈希串，
+        # werkzeug 解析失败抛 ValueError → 登录端点 500（认证失败应当是 401）。
+        # api_token 未配置时写空哈希：verify_password 对空哈希恒为 False，
+        # 即"没有任何密码可登录"，与"认证关闭"的语义一致。
+        from campus_ids.web_new.auth import hash_password
+        bootstrap_hash = hash_password(settings.api_token) if settings.api_token else ""
         UserRepository.ensure_default(
-            conn, username="admin", password_hash=settings.api_token or ""
+            conn, username="admin", password_hash=bootstrap_hash
         )
 
     # 初始化运行时状态
@@ -418,6 +428,15 @@ def create_app() -> FastAPI:
     app.include_router(stream.router, tags=["stream"])
     app.include_router(admin.router, tags=["admin"])
     app.include_router(auth_routes.router, tags=["auth"])
+
+    # ── 页面路由与静态资源（T2.17）────────────────────────────────
+    # 新应用此前不提供任何界面（GET / 等全 404）。页面路由用同步 def，
+    # 表单通过双提交 cookie + 表单域 csrf_token 走新安全层。
+    from fastapi.staticfiles import StaticFiles
+    from campus_ids.web_new import pages
+
+    app.mount("/static", StaticFiles(directory=str(pages.STATIC_DIR)), name="static")
+    app.include_router(pages.router)
 
     # ── 注册全局异常处理器 ──────────────────────────────────────
     register_exception_handlers(app)

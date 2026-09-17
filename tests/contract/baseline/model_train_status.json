@@ -2,17 +2,23 @@
   "status_code": 200,
   "headers": {
     "Content-Type": "application/json",
-    "Content-Length": "59",
+    "Content-Length": "83",
     "Permissions-Policy": "browsing-topics=()",
     "X-Frame-Options": "DENY",
     "X-Content-Type-Options": "nosniff",
     "Content-Security-Policy": "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'",
     "Referrer-Policy": "strict-origin-when-cross-origin"
   },
+  "request": {
+    "method": "GET",
+    "url": "/api/model/train-status",
+    "json": null,
+    "form": null
+  },
   "json": {
     "error": null,
-    "progress": "",
-    "result": null,
+    "progress": "训练完成",
+    "result": true,
     "running": false
   }
 }

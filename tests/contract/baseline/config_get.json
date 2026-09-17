@@ -9,6 +9,12 @@
     "Content-Security-Policy": "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'",
     "Referrer-Policy": "strict-origin-when-cross-origin"
   },
+  "request": {
+    "method": "GET",
+    "url": "/api/config",
+    "json": null,
+    "form": null
+  },
   "json": {
     "brute_force_threshold": 10,
     "brute_force_window": 60,

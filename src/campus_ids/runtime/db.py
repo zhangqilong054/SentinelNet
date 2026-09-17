@@ -13,7 +13,9 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import Generator
 
-from sqlalchemy import Column, Integer, REAL, Text, MetaData, Table, create_engine, Index
+from sqlalchemy import (
+    Column, Integer, REAL, Text, MetaData, Table, create_engine, Index, text,
+)
 from sqlalchemy.engine import Connection, Engine
 
 from campus_ids.runtime.settings import get_settings
@@ -21,6 +23,16 @@ from campus_ids.runtime.settings import get_settings
 logger = logging.getLogger(__name__)
 
 # ── 元数据 ────────────────────────────────────────────────────────
+#
+# ⚠️ `created_at` 的默认值必须写成 `text("CURRENT_TIMESTAMP")`，**不能**写裸字符串
+# `"CURRENT_TIMESTAMP"` —— 裸字符串会被 SQLAlchemy 当作**字面量**并在 DDL 里加引号，
+# 生成 `DEFAULT 'CURRENT_TIMESTAMP'`，于是不传该字段时存进去的是**文本**
+# `'CURRENT_TIMESTAMP'` 而不是时间戳。
+# 本项目 2026-09-17 由 `tests/test_migrations.py` 的
+# create_all × alembic 双库比对发现并修正（此前 `alerts` / `traffic_history` /
+# `users` 三张表的该列全是废值）。
+# ⚠️ **既有数据库的历史行仍是那串文本**，修正只对新库与新增行生效；
+# 既有数据需要单独的数据修复迁移（涉及改写用户数据，未擅自执行）。
 metadata = MetaData()
 
 # ── 表定义 ────────────────────────────────────────────────────────
@@ -34,7 +46,7 @@ alerts = Table(
     Column("attack_type", Text, nullable=False),
     Column("message", Text, nullable=False),
     Column("ml_confidence", REAL, default=0.0),
-    Column("created_at", Text, server_default="CURRENT_TIMESTAMP"),
+    Column("created_at", Text, server_default=text("CURRENT_TIMESTAMP")),
 )
 
 traffic_history = Table(
@@ -48,7 +60,7 @@ traffic_history = Table(
     Column("port_count", Integer),
     Column("src_ip_count", Integer),
     Column("alert", Text),
-    Column("created_at", Text, server_default="CURRENT_TIMESTAMP"),
+    Column("created_at", Text, server_default=text("CURRENT_TIMESTAMP")),
 )
 
 config = Table(
@@ -65,7 +77,7 @@ users = Table(
     Column("username", Text, unique=True, nullable=False),
     Column("password_hash", Text, nullable=False),
     Column("is_active", Integer, default=1),
-    Column("created_at", Text, server_default="CURRENT_TIMESTAMP"),
+    Column("created_at", Text, server_default=text("CURRENT_TIMESTAMP")),
 )
 
 # ── 索引 ──────────────────────────────────────────────────────────

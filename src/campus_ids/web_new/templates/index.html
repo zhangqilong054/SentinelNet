@@ -1,0 +1,58 @@
+{% extends "base.html" %}
+{% block title %}SentinelNet — 控制台{% endblock %}
+{% block body_class %}page-app{% endblock %}
+
+{% block content %}
+<header class="topbar">
+    <div class="topbar__brand">🛡️ <strong>SentinelNet</strong>
+        <span class="topbar__sub">哨兵网络入侵检测系统</span>
+    </div>
+    <nav class="topbar__nav">
+        <span class="topbar__user">用户：<code>{{ username or '未登录（认证已关闭）' }}</code></span>
+        {% if auth_required and username %}
+        <a href="/change-password">修改密码</a>
+        <form method="POST" action="/logout" class="inline-form">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+            <button type="submit" class="btn btn--ghost">登出</button>
+        </form>
+        {% endif %}
+        <a href="/docs" target="_blank" rel="noopener">API 文档</a>
+    </nav>
+</header>
+
+<main class="layout">
+    {% if message %}
+    <div class="flash flash--success">{{ message }}</div>
+    {% endif %}
+
+    <section class="panel" id="panel-health">
+        <h2 class="panel-title">系统健康</h2>
+        <div class="panel-body" id="health-body">
+            <p class="muted">加载中…</p>
+        </div>
+    </section>
+
+    <section class="panel" id="panel-tasks">
+        <h2 class="panel-title">任务编排</h2>
+        <div class="panel-body">
+            <table class="table" id="tasks-table">
+                <thead>
+                <tr><th>任务</th><th>类型</th><th>状态</th><th>说明</th></tr>
+                </thead>
+                <tbody>
+                <tr><td colspan="4" class="muted">加载中…</td></tr>
+                </tbody>
+            </table>
+            <p class="muted note">
+                本页为阶段 2 的最小可用壳，<strong>只读展示</strong>，不提供启停按钮 ——
+                避免在页面上暴露会真实抓包 / 训练 / 删库的操作入口。
+                交互式控制台在阶段 3 的前端重写中提供。
+            </p>
+        </div>
+    </section>
+</main>
+{% endblock %}
+
+{% block scripts %}
+<script src="/static/js/app.js"></script>
+{% endblock %}

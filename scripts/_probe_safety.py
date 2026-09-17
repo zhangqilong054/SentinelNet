@@ -11,7 +11,7 @@ T2 阶段 `_register_default_tasks()` 接上真实 target 之后，**同样的�
 `POST /api/scenarios/start {"scenario":"full"}` 同样会走到训练。
 而这三个产物**都在 `.gitignore` 里，没有可回滚副本**。
 
-**本模块提供的两道保险**：
+**本模块提供的三道保险**：
 
 1. `bootstrap()` —— 把 `CAMPUS_IDS_DATA_DIR` 指向临时目录。
    必须在 import 任何 `campus_ids` 模块**之前**调用：`config.py` 在 import 期读环境变量
@@ -26,6 +26,11 @@ T2 阶段 `_register_default_tasks()` 接上真实 target 之后，**同样的�
    只替换**类**，不替换 target —— 避免"注入假 target 掩盖未接线"的老问题。
    想验证接线，用 `assert_targets_wired()`（只读断言 `target is not None`）。
 
+3. **不留痕** —— `bootstrap()` 在 `atexit` 里 `rmtree` 临时目录；
+   探针自己的临时文件（如对照用的 SQLite 库）**一律放进该临时目录，不放进项目根**。
+   2026-09-17 教训：对照库曾建在 `ROOT / "_probe_cleanup.db"`，末尾 `unlink()` 被宿主的
+   批量删除保护拦下 → 工作区残留，且污染下一轮 `git status` 检查。
+
 用法：
 
     from _probe_safety import bootstrap, install_service_stubs, assert_targets_wired, verdict
@@ -36,7 +41,9 @@ T2 阶段 `_register_default_tasks()` 接上真实 target 之后，**同样的�
 """
 from __future__ import annotations
 
+import atexit
 import os
+import shutil
 import sys
 import tempfile
 from pathlib import Path
@@ -53,8 +60,14 @@ def bootstrap() -> Path:
 
     **必须在 import 任何 campus_ids 模块之前调用。**
     返回临时目录路径。
+
+    临时目录在进程退出时**尽力删除**（`atexit` + `ignore_errors=True`）。
+    2026-09-17 补：此前只 `mkdtemp` 不清理，反复跑探针会在 `%TEMP%` 下堆积
+    `sn_probe_*` 目录；且 Windows 下 SQLite 连接未释放时删除会失败，
+    故删除失败不算错误 —— 探针的契约是"不污染工作区"，而不是"保证回收临时目录"。
     """
     tmp = Path(tempfile.mkdtemp(prefix="sn_probe_"))
+    atexit.register(shutil.rmtree, tmp, ignore_errors=True)
     os.environ["CAMPUS_IDS_DATA_DIR"] = str(tmp)
     os.environ.setdefault("CAMPUS_IDS_DEBUG", "1")
     return tmp

@@ -4,5 +4,9 @@
     "Content-Type": "text/event-stream"
   },
   "json": null,
-  "note": "SSE endpoint - connection only, events not recorded"
+  "request": {
+    "method": "GET",
+    "url": "/api/stream/alerts"
+  },
+  "note": "SSE 端点：只记录连接契约，不录事件流（test_client 下会阻塞）"
 }

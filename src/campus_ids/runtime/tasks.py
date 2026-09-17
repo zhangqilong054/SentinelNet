@@ -212,6 +212,11 @@ class TaskRegistry:
                 "error": handle.error,
                 "description": task.description,
                 "default_duration": task.default_duration,
+                # 启动时**实际**使用的窗口时长。看门狗判超时用的是它
+                # （见 test_watchdog_uses_actual_duration），但此前状态上报只给
+                # default_duration —— 于是 `start(duration=30)` 之后读回来是 120，
+                # 拿它算进度会算错。两个都暴露，语义各自明确。
+                "duration": handle.actual_duration,
             }
 
     def status_all(self) -> list[dict]:
@@ -237,6 +242,7 @@ class TaskRegistry:
                         "error": handle.error,
                         "description": task.description,
                         "default_duration": task.default_duration,
+                        "duration": handle.actual_duration,
                     })
             return result
 

@@ -9,6 +9,12 @@
     "Content-Security-Policy": "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'",
     "Referrer-Policy": "strict-origin-when-cross-origin"
   },
+  "request": {
+    "method": "GET",
+    "url": "/apidocs/",
+    "json": null,
+    "form": null
+  },
   "json": null,
   "body": "<!-- HTML for static distribution bundle build -->\n<!DOCTYPE html>\n<html lang=\"en\">\n  <head>\n    <meta charset=\"UTF-8\">\n<title>Flasgger</title>\n<link href=\"https://fonts.googleapis.com/css?family=Open+Sans:400,700|Source+Code+Pro:300,600|Titillium+Web:400,600,700\" rel=\"stylesheet\">\n<link rel=\"stylesheet\" type=\"text/css\" href=\"/flasgger_static/swagger-ui.css\">\n<!-- Customize the app.config['SWAGGER']['favicon'] -->\n<link rel=\"icon\" type=\"image/png\" href=\"/flasgger_static/favicon-32x32.png\" sizes=\"64x64 32x32 16x16\" />\n<style>\n    html\n    {\n    box-sizing: border-box;\n    overflow: -moz-scrollbars-vertical;\n    overflow-y: scroll;\n    }\n\n    *,\n    *:before,\n    *:after\n    {\n    box-sizing: inherit;\n    }\n\n    body\n    {\n    margin:0;\n    background: #fafafa;\n    }\n</style>\n    <!-- To add custom code here override the template templates/flasgger/custom_head.html -->\n    <!-- Include custom css and top js in templates/flasgger/head.html -->\n\n  </head>\n\n  <body>\n      <div class='swagger-ui'>\n    <div class=\"wrapper\">\n        <section class=\"clear\">\n            \n        </section>\n    </div>\n</div>\n\n      <div id=\"swagger-ui\">\n          <div data-reactroot=\"\" class=\"swagger-ui\">\n              <div>\n              <div class=\"information-container wrapper\">\n                  <section class=\"block col-12\">\n                      <!-- ADDS THE LOADER SPINNER -->\n                      <div class=\"loading-container\"><div class=\"loading\"></div></div>\n                  </section>\n              </div>\n          </div>\n          </div>\n      </div>\n\n    <div id=\"swagger-ui\"></div>\n\n    <script src=\"/flasgger_static/swagger-ui-bundle.js\"></script>\n<script src=\"/flasgger_static/swagger-ui-standalone-preset.js\"></script>\n<script src=\"/flasgger_static/lib/jquery.min.js\" type='text/javascript'></script>\n\n  <!-- To customize the script that loads swagger, override templates/flasgger/swagger.html -->\n  <script>\nwindow.onload = function() {\n\n    \n\n    // Build a system\n    const ui = S"
 }

@@ -49,11 +49,21 @@ spec = create_app().openapi()
 paths = {p: sorted(m.keys()) for p, m in spec["paths"].items()}
 print(f"  openapi={spec['openapi']}  路径数={len(paths)}")
 orchestration = sorted(p for p in paths if p.startswith(("/api/tasks", "/api/scenarios")))
-print(f"  编排面端点 {len(orchestration)} 条：")
+tasks_family = sorted(p for p in paths if p.startswith("/api/tasks"))
+scenarios_family = sorted(p for p in paths if p.startswith("/api/scenarios"))
+print(f"  编排面端点 {len(orchestration)} 条（tasks 族 {len(tasks_family)} + scenarios 族 {len(scenarios_family)}）：")
 for p in orchestration:
     print(f"     {p:<34} {','.join(paths[p])}")
-verdict("编排面 ≤ 3 条（清单 T2 核心收益「20 → 3」）",
-        len(orchestration) <= 3, f"实际 {len(orchestration)} 条")
+
+# 口径说明（2026-09-17）：清单原文的目标是「20 → 3」，但那个 3 只覆盖 tasks 族。
+# D3「三合一剧本」是**并列新增**的独立族（T2.4/T2.5 单独列为任务），
+# 因此把 scenarios 算进来要求 ≤3 从一开始就不可能成立。
+# 这里拆成两个判定，各自的判据都写清楚，不含糊过去。
+verdict("编排面 tasks 族 ≤ 3 条（「20 → 3」的字面目标）",
+        len(tasks_family) <= 3, f"实际 {len(tasks_family)} 条")
+verdict("编排面合计 ≤ 6 条（tasks 3 + scenarios 3，D3 后的实际口径）",
+        len(orchestration) <= 6,
+        f"实际 {len(orchestration)} 条；相对旧应用 21 条编排端点收敛 {100 - round(len(orchestration) / 21 * 100)}%")
 
 # ── ② 接线断言（T2.1-T2.4）──────────────────────────────────────────
 hr("② 接线断言：create_app() 注册的任务 target 是否非 None（只读，不启动任何任务）")
@@ -159,17 +169,30 @@ with TestClient(create_app()) as c:
 # ── ⑤ 页面路由（T2.17）───────────────────────────────────────────────
 hr("⑤ T2.17 认证页面路由")
 
+# 期望值来自 tests/contract/mapping.py 的 page 条目（与契约回放同一份真相源），
+# 不再写死 200 —— 因为 GET /logout 是**有意**收窄为 405 的（防跨站强制登出）。
+_PAGE_EXPECT = {
+    "/": [200, 302],
+    "/login": [200],
+    "/logout": [405],
+    "/change-password": [200, 302],
+}
+
 with TestClient(create_app()) as c:
-    for p in ["/", "/login", "/logout", "/change-password"]:
+    for p, expected in _PAGE_EXPECT.items():
         r = c.get(p)
-        verdict(f"T2.17 页面路由 {p} 可访问", r.status_code == 200, f"{r.status_code}")
+        verdict(f"T2.17 页面路由 GET {p} 状态符合声明", r.status_code in expected,
+                f"{r.status_code}（期望 {expected}）")
+    r = c.get("/logout")
+    verdict("T2.17 GET /logout 拒绝登出（防跨站强制登出）", r.status_code == 405,
+            f"{r.status_code}")
     for p in ["/api/login", "/api/logout", "/api/change-password"]:
         r = c.post(p, json={})
         print(f"     POST {p:<24} -> {r.status_code}（API 版存在，但路径/方法已与旧契约不同）")
     import pathlib
     has_tpl = (ROOT / "src" / "campus_ids" / "web_new" / "templates").exists()
     has_static = (ROOT / "src" / "campus_ids" / "web_new" / "static").exists()
-    verdict("T2.17 web_new 具备页面渲染能力（templates/static）", has_tpl or has_static,
+    verdict("T2.17 web_new 具备页面渲染能力（templates/static）", has_tpl and has_static,
             f"templates={has_tpl} static={has_static}")
 
 # ── ⑥ cleanup days 语义（T2.14）──────────────────────────────────────
@@ -186,24 +209,32 @@ from campus_ids.runtime.repositories import UserRepository  # noqa: E402
 old_ts = (datetime.utcnow() - timedelta(days=30)).strftime("%Y-%m-%d %H:%M:%S")
 new_ts = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")
 results: dict[int, tuple[int, int, list[str]]] = {}
+# ⚠️ 对照用的临时库必须建在**隔离临时目录**里，不能建在项目根。
+#    2026-09-17 实测：建在项目根时，末尾的 `unlink()` 会被宿主级安全删除钩子
+#    （`[safe-delete][SAFE_DELETE_BULK_CONFIRM_REQUIRED]`）拦下 → 项目根残留
+#    `_probe_cleanup.db`。探针的契约是"跑完不留痕"，且残留物会污染下一轮的
+#    `git status` 检查。放进 TMP（`bootstrap()` 建的临时目录）后，即使删除失败
+#    也不会落到工作区。
 for days in (7, 9999):
-    db_file = ROOT / "_probe_cleanup.db"
+    db_file = TMP / "_probe_cleanup.db"
     db_file.unlink(missing_ok=True)
-    eng = create_engine(f"sqlite:///{db_file.as_posix()}")
-    _meta.create_all(eng)
-    with eng.connect() as conn:
-        conn.execute(insert(alerts), [
-            {"time": old_ts, "level": "low", "attack_type": "probe", "message": "30天前"},
-            {"time": new_ts, "level": "low", "attack_type": "probe", "message": "刚刚"},
-        ])
-        conn.execute(insert(traffic_history), [{"time": old_ts, "qps": 1}, {"time": new_ts, "qps": 2}])
-        conn.commit()
-    with eng.connect() as conn:
-        da, dt = UserRepository.cleanup_old_data(conn, days=days)
-        left = [row[0] for row in conn.execute(select(alerts.c.message)).all()]
-    results[days] = (da, dt, left)
-    eng.dispose()
-    db_file.unlink(missing_ok=True)
+    try:
+        eng = create_engine(f"sqlite:///{db_file.as_posix()}")
+        _meta.create_all(eng)
+        with eng.connect() as conn:
+            conn.execute(insert(alerts), [
+                {"time": old_ts, "level": "low", "attack_type": "probe", "message": "30天前"},
+                {"time": new_ts, "level": "low", "attack_type": "probe", "message": "刚刚"},
+            ])
+            conn.execute(insert(traffic_history), [{"time": old_ts, "qps": 1}, {"time": new_ts, "qps": 2}])
+            conn.commit()
+        with eng.connect() as conn:
+            da, dt = UserRepository.cleanup_old_data(conn, days=days)
+            left = [row[0] for row in conn.execute(select(alerts.c.message)).all()]
+        results[days] = (da, dt, left)
+    finally:
+        eng.dispose()
+        db_file.unlink(missing_ok=True)
     print(f"     days={days:<6} 删除 (alerts={da}, traffic={dt})，剩余 {left}")
 
 verdict("T2.14 cleanup 的 days 参数真的生效（7 与 9999 结果不同）",
@@ -221,7 +252,14 @@ import json  # noqa: E402
 
 base = ROOT / "tests" / "contract" / "baseline"
 goldens = sorted(base.glob("*.json"))
-suspect = []
+
+# 判定口径（2026-09-17 修正）：
+# 原来的判据是"没有 4xx 录制"，但它是个**过期代理指标** —— 4xx 有两种：
+#   (a) 录制时漏带 CSRF token 造成的假 400（真正的问题，必须为 0）
+#   (b) 旧应用在默认配置下的**真实行为**（如 auth 关闭时 /login 蓝图未注册 → 404）
+# (b) 是有价值的期望值，(a) 才是"期望值不可用"。这里只对 (a) 判红。
+csrf_missing = []
+real_4xx = []
 for p in goldens:
     try:
         d = json.loads(p.read_text(encoding="utf-8"))
@@ -229,12 +267,19 @@ for p in goldens:
         continue
     sc = d.get("status_code")
     if sc is not None and sc >= 400:
-        suspect.append((p.name, sc))
-print(f"     基线 {len(goldens)} 个 json；其中 {len(suspect)} 个录的是**拒绝响应**：")
-for n, sc in suspect[:12]:
-    print(f"       {n:<34} status_code={sc}")
-verdict("T2.18 基线期望值可用（无 4xx 录制）", not suspect,
-        f"{len(suspect)}/{len(goldens)} 个是 4xx（录制时未带 CSRF token）")
+        if "CSRF token is missing" in (d.get("body") or ""):
+            csrf_missing.append((p.name, sc))
+        else:
+            real_4xx.append((p.name, sc))
+print(f"     基线 {len(goldens)} 个 json：{len(csrf_missing)} 个 CSRF 伪影、"
+      f"{len(real_4xx)} 个旧应用真实拒绝响应")
+for n, sc in real_4xx[:12]:
+    print(f"       (真实) {n:<32} status_code={sc}")
+for n, sc in csrf_missing[:12]:
+    print(f"       (伪影) {n:<32} status_code={sc}")
+verdict("T2.18 基线无 CSRF 伪影（期望值可用）", not csrf_missing,
+        f"{len(csrf_missing)} 个是 'CSRF token is missing' 的假 400（旧基线为 20）")
+print(f"     （旧应用真实 4xx 保留为期望值：{len(real_4xx)} 个 —— 它们描述的是旧行为，不是录制缺陷）")
 
 replay_hits = []
 for p in (ROOT / "tests").glob("*.py"):
@@ -243,6 +288,22 @@ for p in (ROOT / "tests").glob("*.py"):
         replay_hits.append(p.name)
 verdict("T2.18 存在契约回放 harness（测试读取 baseline）", bool(replay_hits),
         f"命中: {replay_hits}" if replay_hits else f"{len(goldens)} 个 golden 录了从不回放")
+
+# 真正跑一遍回放（只读；写端点只做规格存在性断言，不会真的删库/训练）
+try:
+    import sys as _sys
+
+    _sys.path.insert(0, str(ROOT))
+    from tests.contract.replay import run_replay  # noqa: E402
+
+    _failures, _lines = run_replay()
+    verdict("T2.18 回放零未解释差异（退出码判据）", _failures == 0,
+            f"{_failures} 项未解释" if _failures else "全部差异均已解释")
+    for _ln in _lines:
+        if _ln.strip().startswith("旧规格路径") or "未解释丢失" in _ln:
+            print(f"     {_ln.strip()}")
+except Exception as _exc:  # noqa: BLE001
+    verdict("T2.18 回放可执行", False, f"{type(_exc).__name__}: {_exc}")
 
 # ── ⑧ CSRF / 限流 / 安全头 ─────────────────────────────────────────
 hr("⑧ CSRF / 限流 / 安全头")
