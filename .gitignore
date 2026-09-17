@@ -63,3 +63,6 @@ coverage.xml
 # Generated API spec dumps
 apispec_check.json
 openapi_new.json
+# Playwright e2e（frontend/）
+frontend/test-results/
+frontend/playwright-report/

@@ -19,5 +19,6 @@
     "erasableSyntaxOnly": true,
     "noFallthroughCasesInSwitch": true
   },
-  "include": ["vite.config.ts"]
+  "include": ["vite.config.ts", "playwright.config.ts"]
+  // e2e/ 不并入：nodenext 要求相对导入带扩展名，而 playwright 自行转译 e2e（不需要本 tsconfig）
 }
