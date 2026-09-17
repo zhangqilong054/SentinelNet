@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import argparse
 import logging
+import queue
 import random
 import threading
 import time
@@ -160,21 +161,40 @@ class AttackSimulator:
 
     直接向 Web 面板的 packet_queue 注入模拟数据，
     适用于现场网络受限的场景。
+
+    支持两种注入方式：
+    1. 旧方式：from campus_ids.web.helpers import _packet_queue（向后兼容）
+    2. 新方式：通过 RuntimeState.packet_queue 注入（推荐）
     """
 
-    def __init__(self):
+    def __init__(self, packet_queue: queue.Queue | None = None):
+        """初始化攻击模拟器。
+
+        Args:
+            packet_queue: 注入目标队列（RuntimeState.packet_queue）。
+                         None 时回退到 helpers._packet_queue（向后兼容）。
+        """
         self._running = False
         self._threads: list[threading.Thread] = []
+        self._packet_queue = packet_queue
+
+    def _get_queue(self) -> queue.Queue:
+        """获取注入目标队列。"""
+        if self._packet_queue is not None:
+            return self._packet_queue
+        # 向后兼容：回退到 helpers._packet_queue
+        from campus_ids.web.helpers import _packet_queue
+        return _packet_queue
 
     def inject_syn_flood(self, duration: int = 10, rate: int = 50) -> None:
         """注入 SYN Flood 模拟数据。"""
-        from campus_ids.web.helpers import _packet_queue
+        pkt_queue = self._get_queue()
         logger.info("注入 SYN Flood 模拟数据（%d 秒，%d 包/秒）", duration, rate)
         start = time.time()
         while time.time() - start < duration and self._running:
             for _ in range(rate):
                 try:
-                    _packet_queue.put_nowait({
+                    pkt_queue.put_nowait({
                         'length': random.randint(40, 60),
                         'sport': random.randint(1024, 65535),
                         'dport': 80,
@@ -191,14 +211,14 @@ class AttackSimulator:
 
     def inject_port_scan(self, duration: int = 10, rate: int = 30) -> None:
         """注入端口扫描模拟数据。"""
-        from campus_ids.web.helpers import _packet_queue
+        pkt_queue = self._get_queue()
         logger.info("注入端口扫描模拟数据（%d 秒，%d 包/秒）", duration, rate)
         start = time.time()
         port = 1
         while time.time() - start < duration and self._running:
             for _ in range(rate):
                 try:
-                    _packet_queue.put_nowait({
+                    pkt_queue.put_nowait({
                         'length': random.randint(40, 60),
                         'sport': random.randint(1024, 65535),
                         'dport': port % 1024 + 1,
@@ -216,13 +236,13 @@ class AttackSimulator:
 
     def inject_udp_flood(self, duration: int = 10, rate: int = 100) -> None:
         """注入 UDP Flood 模拟数据。"""
-        from campus_ids.web.helpers import _packet_queue
+        pkt_queue = self._get_queue()
         logger.info("注入 UDP Flood 模拟数据（%d 秒，%d 包/秒）", duration, rate)
         start = time.time()
         while time.time() - start < duration and self._running:
             for _ in range(rate):
                 try:
-                    _packet_queue.put_nowait({
+                    pkt_queue.put_nowait({
                         'length': random.randint(64, 512),
                         'sport': random.randint(1024, 65535),
                         'dport': 53,
@@ -244,7 +264,7 @@ class AttackSimulator:
         同一源 IP 高频连接同一目标端口，触发暴力破解检测。
         阈值: BRUTE_FORCE_THRESHOLD(10) 次 / BRUTE_FORCE_WINDOW_SEC(60s)。
         """
-        from campus_ids.web.helpers import _packet_queue
+        pkt_queue = self._get_queue()
         from campus_ids.config import BRUTE_FORCE_PORTS
         if target_port not in BRUTE_FORCE_PORTS:
             logger.warning("端口 %d 不在 BRUTE_FORCE_PORTS %s 中，可能无法触发检测",
@@ -255,7 +275,7 @@ class AttackSimulator:
         while time.time() - start < duration and self._running:
             for _ in range(rate):
                 try:
-                    _packet_queue.put_nowait({
+                    pkt_queue.put_nowait({
                         'length': random.randint(60, 200),
                         'sport': random.randint(1024, 65535),
                         'dport': target_port,
@@ -276,7 +296,7 @@ class AttackSimulator:
         同一源 IP 访问多个不同内网目标 IP，触发横向移动检测。
         阈值: LATERAL_MOVEMENT_THRESHOLD(5) 个不同内网 IP。
         """
-        from campus_ids.web.helpers import _packet_queue
+        pkt_queue = self._get_queue()
         src_ip = "10.0.0.200"  # 固定源 IP
         # 生成多个不同的内网目标 IP
         lateral_targets = [f"192.168.1.{i}" for i in range(1, 20)]
@@ -287,7 +307,7 @@ class AttackSimulator:
         while time.time() - start < duration and self._running:
             for _ in range(rate):
                 try:
-                    _packet_queue.put_nowait({
+                    pkt_queue.put_nowait({
                         'length': random.randint(60, 200),
                         'sport': random.randint(1024, 65535),
                         'dport': 445,  # SMB 端口，典型横向移动目标

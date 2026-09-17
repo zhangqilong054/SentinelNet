@@ -31,17 +31,66 @@ from campus_ids.web_new.security import limiter
 logger = logging.getLogger(__name__)
 
 
-def _register_default_tasks(registry: TaskRegistry) -> None:
-    """注册默认任务描述符（阶段1空壳，阶段2接入 services/）。"""
+def _register_default_tasks(registry: TaskRegistry, *, capture_service, detection_service,
+                             model_service, attack_simulator, scenario_service) -> None:
+    """注册默认任务描述符并接入工作函数（P0-1 编排域接线）。"""
+    import threading
+
+    # ── capture: 基础抓包（CONTINUOUS） ──────────────────────────
+    def capture_target(stop_event: threading.Event, **kwargs) -> None:
+        capture_service.start_capture()
+        stop_event.wait()
+        capture_service.stop_capture()
+
+    # ── capture_full: 增强抓包（TIMED） ──────────────────────────
+    def capture_full_target(stop_event: threading.Event, duration: int = 60, **kwargs) -> None:
+        capture_service.start_enhanced(duration=duration)
+        stop_event.wait()
+
+    # ── detection: 检测节拍（CONTINUOUS） ──────────────────────────
+    def detection_target(stop_event: threading.Event, **kwargs) -> None:
+        detection_service.start_detection()
+        stop_event.wait()
+        detection_service.stop_detection()
+
+    # ── ml: ML 引擎（CONTINUOUS） ──────────────────────────────────
+    def ml_target(stop_event: threading.Event, **kwargs) -> None:
+        detection_service.load_ml()
+        stop_event.wait()
+        detection_service.stop_ml()
+
+    # ── attack: 攻击模拟（TIMED） ──────────────────────────────────
+    def attack_target(stop_event: threading.Event, duration: int = 30, **kwargs) -> None:
+        attack_simulator.start_all(duration=duration)
+        stop_event.wait()
+        attack_simulator.stop()
+
+    # ── train: 模型训练（TIMED） ──────────────────────────────────
+    def train_target(stop_event: threading.Event, duration: int = 120, **kwargs) -> None:
+        model_service.train()
+        stop_event.wait()
+
+    # ── auto: 一键全流程（TIMED）— 委托 ScenarioService("full") ──
+    def auto_target(stop_event: threading.Event, duration: int = 180, **kwargs) -> None:
+        scenario_service.start_scenario("full", duration=duration)
+        stop_event.wait()
+        scenario_service.stop_scenario("full")
+
+    # ── demo: 一键演示（TIMED）— 委托 ScenarioService("demo") ────
+    def demo_target(stop_event: threading.Event, duration: int = 60, **kwargs) -> None:
+        scenario_service.start_scenario("demo", duration=duration)
+        stop_event.wait()
+        scenario_service.stop_scenario("demo")
+
     tasks = [
-        Task("capture", TaskKind.CONTINUOUS, description="基础抓包"),
-        Task("capture_full", TaskKind.TIMED, default_duration=60, description="增强抓包（18维流特征+TLS）"),
-        Task("detection", TaskKind.CONTINUOUS, description="检测节拍"),
-        Task("ml", TaskKind.CONTINUOUS, description="ML 引擎"),
-        Task("attack", TaskKind.TIMED, default_duration=30, description="攻击模拟"),
-        Task("train", TaskKind.TIMED, default_duration=120, description="模型训练"),
-        Task("auto", TaskKind.TIMED, default_duration=180, description="一键全流程"),
-        Task("demo", TaskKind.TIMED, default_duration=60, description="一键演示"),
+        Task("capture", TaskKind.CONTINUOUS, target=capture_target, description="基础抓包"),
+        Task("capture_full", TaskKind.TIMED, target=capture_full_target, default_duration=60, description="增强抓包（18维流特征+TLS）"),
+        Task("detection", TaskKind.CONTINUOUS, target=detection_target, description="检测节拍"),
+        Task("ml", TaskKind.CONTINUOUS, target=ml_target, description="ML 引擎"),
+        Task("attack", TaskKind.TIMED, target=attack_target, default_duration=30, description="攻击模拟"),
+        Task("train", TaskKind.TIMED, target=train_target, default_duration=120, description="模型训练"),
+        Task("auto", TaskKind.TIMED, target=auto_target, default_duration=180, description="一键全流程"),
+        Task("demo", TaskKind.TIMED, target=demo_target, default_duration=60, description="一键演示"),
     ]
     registry.register_many(tasks)
 
@@ -122,12 +171,12 @@ async def lifespan(app: FastAPI):
 
     # 初始化任务注册表
     registry = TaskRegistry()
-    _register_default_tasks(registry)
     app.state.task_registry = registry
 
     # 初始化剧本服务
     from campus_ids.services.scenario_service import ScenarioService
-    app.state.scenario_service = ScenarioService(registry)
+    scenario_service = ScenarioService(registry)
+    app.state.scenario_service = scenario_service
 
     # 初始化流量服务
     from campus_ids.services.traffic_service import TrafficService
@@ -135,7 +184,8 @@ async def lifespan(app: FastAPI):
 
     # 初始化告警服务
     from campus_ids.services.alert_service import AlertService
-    app.state.alert_service = AlertService(event_bus=state.event_bus)
+    alert_service = AlertService(event_bus=state.event_bus)
+    app.state.alert_service = alert_service
 
     # 初始化 TLS 分析器
     from campus_ids.capture.tls_analyzer import tls_analyzer
@@ -156,6 +206,45 @@ async def lifespan(app: FastAPI):
     dual_detector = DualDetector(rule_detector=rule_detector)
     app.state.rule_detector = rule_detector
     app.state.dual_detector = dual_detector
+
+    # 初始化业务服务（P0-1 编排域接线）
+    from campus_ids.services.capture_service import CaptureService
+    from campus_ids.services.detection_service import DetectionService
+    from campus_ids.services.model_service import ModelService
+    from campus_ids.demo.attack_sim import AttackSimulator
+
+    capture_service = CaptureService(
+        state=state,
+        dual_detector=dual_detector,
+        tls_analyzer=tls_analyzer,
+        alert_service=alert_service,
+    )
+    app.state.capture_service = capture_service
+
+    detection_service = DetectionService(
+        state=state,
+        dual_detector=dual_detector,
+        alert_service=alert_service,
+        event_bus=state.event_bus,
+        settings=settings,
+    )
+    app.state.detection_service = detection_service
+
+    model_service = ModelService(state=state, dual_detector=dual_detector)
+    app.state.model_service = model_service
+
+    attack_simulator = AttackSimulator(packet_queue=state.packet_queue)
+    app.state.attack_simulator = attack_simulator
+
+    # 注册任务并接入工作函数
+    _register_default_tasks(
+        registry,
+        capture_service=capture_service,
+        detection_service=detection_service,
+        model_service=model_service,
+        attack_simulator=attack_simulator,
+        scenario_service=scenario_service,
+    )
 
     logger.info("SentinelNet FastAPI 应用启动 (port=%d)", settings.web_port)
 

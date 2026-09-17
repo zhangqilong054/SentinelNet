@@ -35,16 +35,16 @@ class TrafficService:
         with self._state._state_lock:
             td = self._state.traffic_data
             return {
-                "qps": td.get("qps", 0),
-                "connections": td.get("connections", 0),
-                "alert": td.get("alert", ""),
-                "timestamp": td.get("timestamp", ""),
-                "packet_count": td.get("packet_count", 0),
-                "port_count": len(set(td.get("unique_ports", []))),
-                "src_ip_count": len(set(td.get("src_ips", []))),
-                "syn_packets": td.get("syn_packets", 0),
-                "udp_packets": td.get("udp_packets", 0),
-                "dns_packets": td.get("dns_packets", 0),
+                "qps": float(td.get("qps") or 0),
+                "connections": int(td.get("connections") or 0),
+                "alert": td.get("alert") or "",
+                "timestamp": td.get("timestamp") or "",
+                "packet_count": int(td.get("packet_count") or 0),
+                "port_count": len(set(td.get("unique_ports") or [])),
+                "src_ip_count": len(set(td.get("src_ips") or [])),
+                "syn_packets": int(td.get("syn_packets") or 0),
+                "udp_packets": int(td.get("udp_packets") or 0),
+                "dns_packets": int(td.get("dns_packets") or 0),
             }
 
     def get_traffic_history(self, limit: int = 60, offset: int = 0) -> dict[str, Any]:

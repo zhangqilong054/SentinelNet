@@ -166,11 +166,18 @@ class TestStartScenario:
         assert resp.status_code == 404
         assert "不存在" in resp.json()["detail"]
 
-    def test_503_empty_shell_scenario(self, client):
+    def test_503_empty_shell_scenario(self, client, app):
         """启动空壳剧本（子任务无 target）返回 503。
 
-        默认注册的任务均为空壳（target=None），启动应失败并回滚。
+        P0-1 后默认任务已接入真实 target，需显式注册无 target 任务来验证 503 行为。
         """
+        # 将 attack 任务替换为无 target 的空壳
+        registry: TaskRegistry = app.state.task_registry
+        from campus_ids.runtime.tasks import Task
+        registry._tasks["attack"] = Task(
+            name="attack", kind=TaskKind.TIMED, target=None,
+            default_duration=5, description="测试空壳任务",
+        )
         resp = _post_with_csrf(client, "/api/scenarios/start", {"scenario": "attack"})
         assert resp.status_code == 503
         # attack 剧本只有 1 个子任务，无需回滚
@@ -215,11 +222,16 @@ class TestStartScenario:
         """多步剧本中某步失败时，已启动的子任务被回滚（停止）。
 
         demo 剧本：capture(连续) + ml(连续) + attack(限时)
-        capture 和 ml 有真实 target，attack 是空壳 → attack 失败 → capture/ml 被回滚
+        capture 和 ml 有真实 target，attack 被替换为空壳 → attack 失败 → capture/ml 被回滚
         """
         _register_test_task(app, "capture", TaskKind.CONTINUOUS)
         _register_test_task(app, "ml", TaskKind.CONTINUOUS)
-        # attack 保持空壳（target=None）
+        # 将 attack 替换为无 target 的空壳以触发失败
+        registry: TaskRegistry = app.state.task_registry
+        registry._tasks["attack"] = Task(
+            name="attack", kind=TaskKind.TIMED, target=None,
+            default_duration=5, description="测试空壳任务",
+        )
 
         resp = _post_with_csrf(client, "/api/scenarios/start", {"scenario": "demo"})
         assert resp.status_code == 503

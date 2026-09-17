@@ -197,11 +197,20 @@ class TestStartTask:
         assert resp.status_code == 404
         assert "不存在" in resp.json()["detail"]
 
-    def test_start_task_no_target_returns_503(self, client):
-        """启动无工作函数的任务（阶段1空壳）返回 503。"""
-        resp = _post_with_csrf(client, "/api/tasks/capture/start")
+    def test_start_task_no_target_returns_503(self, client, app):
+        """启动无工作函数的任务返回 503。
+
+        P0-1 后默认任务已接入真实 target，需显式注册无 target 任务来验证 503 行为。
+        """
+        # 注册一个无 target 的自定义任务
+        registry: TaskRegistry = app.state.task_registry
+        registry.register(Task(name="_test_no_target", kind=TaskKind.CONTINUOUS,
+                               target=None, description="测试空壳任务"))
+        resp = _post_with_csrf(client, "/api/tasks/_test_no_target/start")
         assert resp.status_code == 503
         assert "暂不可用" in resp.json()["detail"] or "尚未接入" in resp.json()["detail"]
+        # 清理
+        del registry._tasks["_test_no_target"]
 
     def test_start_continuous_task_success(self, client, app):
         """启动连续任务成功。"""
