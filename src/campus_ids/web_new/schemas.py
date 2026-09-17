@@ -305,9 +305,19 @@ class PayloadAnalysisRequest(BaseModel):
 
 
 class PayloadAnalysisResponse(BaseModel):
-    """载荷分析响应。"""
-    threats: list[str] = Field(default_factory=list, description="检测到的威胁消息列表")
-    is_malicious: bool = Field(default=False, description="是否检测到恶意内容")
+    """载荷分析响应。
+
+    ⚠️ 字段名必须与**旧实现**一致：`web/bp_capture.py:368-373` 返回
+    `{'alerts': [...], 'is_anomaly': bool, 'payload_length': len(payload)}`。
+
+    2026-09-17 参数级契约门禁（`tests/contract/specdiff.py`）抓到本类此前用了
+    `threats` / `is_malicious` 两个**新名字**，并把 `payload_length` 整个丢掉 ——
+    旧客户端的 `addEventListener` 式取值会全部拿到 `undefined`。这正是
+    "路径保住了、响应契约没保住"的典型：路径级门禁完全看不见。
+    """
+    alerts: list[str] = Field(default_factory=list, description="告警列表")
+    is_anomaly: bool = Field(default=False, description="是否异常")
+    payload_length: int = Field(default=0, description="载荷长度")
 
 
 # ── 环境自检 ──────────────────────────────────────────────────────

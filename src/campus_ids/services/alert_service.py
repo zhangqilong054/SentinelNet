@@ -13,7 +13,7 @@ import time
 from typing import Any
 
 from campus_ids.runtime.db import get_connection
-from campus_ids.runtime.events import EventBus
+from campus_ids.runtime.events import TOPIC_ALERT, EventBus
 from campus_ids.runtime.repositories import AlertRepository
 
 logger = logging.getLogger(__name__)
@@ -69,9 +69,11 @@ class AlertService:
             "ml_confidence": ml_confidence,
         }
 
-        # 广播
+        # 广播 —— 必须用 TOPIC_ALERT 常量（值 "alert"，与旧契约
+        # `_broadcast_sse("alert", ...)` 及 SSE 帧 `event: alert` 一致）。
+        # 曾写死 "alerts"（复数）导致帧名与旧前端监听器不匹配。
         if self._event_bus:
-            self._event_bus.publish("alerts", alert_data)
+            self._event_bus.publish(TOPIC_ALERT, alert_data)
 
         logger.info("告警已生成: %s (%s)", alert_type, severity)
         return alert_data

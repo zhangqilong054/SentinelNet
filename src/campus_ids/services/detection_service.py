@@ -27,6 +27,7 @@ from campus_ids.config import (
     WINDOW_SIZE,
 )
 from campus_ids.runtime.db import get_connection
+from campus_ids.runtime.events import TOPIC_TRAFFIC
 from campus_ids.runtime.repositories import TrafficRepository
 
 logger = logging.getLogger(__name__)
@@ -314,22 +315,45 @@ class DetectionService:
         except Exception as exc:
             logger.warning("流量历史写入数据库失败: %s", exc)
 
-        # 事件广播
+        # 事件广播 —— 必须用 TOPIC_TRAFFIC 常量（值 "traffic"）。
+        # 曾写死 "traffic_update"，而 SSE 订阅的是 "traffic"，
+        # 于是**订阅了流量主题的客户端永远收不到任何事件**。
         if self._event_bus:
-            self._event_bus.publish("traffic_update", history_entry)
+            self._event_bus.publish(TOPIC_TRAFFIC, history_entry)
 
     def _do_maintenance(self) -> None:
-        """O-07c: 数据自动维护。"""
+        """O-07c: 数据自动维护（清理 30 天前的历史 + WAL checkpoint）。
+
+        ⚠️ 2026-09-17 修复两处真实缺陷（由 `tests/test_detection_service.py`
+        的 `TestMaintenance` 抓出）：
+
+        1. `cleanup_old_data` 返回的是 **tuple** `(alerts_deleted, traffic_deleted)`，
+           原代码却写成 `result.get("alerts_deleted", 0)` —— 必然抛
+           `AttributeError: 'tuple' object has no attribute 'get'`。
+           异常被外层 `except` 吞掉，于是表面上"维护正常"，实际上
+           **清理结果永不记录**，而且紧随其后的 WAL checkpoint
+           **连执行都轮不到**（异常发生在它之前）→ WAL 文件持续膨胀。
+        2. `conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")` 传的是**裸字符串**，
+           SQLAlchemy 2.0 起不再接受（需要 `text()`）→ 即使执行到也会抛
+           `ObjectNotExecutableError`，又被内层 `except` 静默吞掉。
+        """
+        from sqlalchemy import text
+
         try:
             from campus_ids.runtime.repositories import UserRepository
             with get_connection() as conn:
-                result = UserRepository.cleanup_old_data(conn, days=30)
-                if result.get("alerts_deleted", 0) > 0 or result.get("traffic_deleted", 0) > 0:
-                    logger.info("自动维护: 清理完成 %s", result)
+                alerts_deleted, traffic_deleted = UserRepository.cleanup_old_data(
+                    conn, days=30
+                )
+                if alerts_deleted or traffic_deleted:
+                    logger.info(
+                        "自动维护: 清理完成 alerts=%d traffic=%d",
+                        alerts_deleted, traffic_deleted,
+                    )
                 # WAL checkpoint
                 try:
-                    conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
-                except Exception:
-                    pass
+                    conn.execute(text("PRAGMA wal_checkpoint(TRUNCATE)"))
+                except Exception as exc:
+                    logger.debug("WAL checkpoint 跳过: %s", exc)
         except Exception as exc:
             logger.warning("自动维护失败: %s", exc)

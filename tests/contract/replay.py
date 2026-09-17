@@ -17,10 +17,16 @@
 3. **规格门禁**（`--schema-only` 只跑这一层）—— 用旧 `apispec.json`（T0.2 冻结的
    Swagger 2.0）对新 `app.openapi()`（OpenAPI 3.1）做三分类账：
    保留 / 已解释移除 / **未解释丢失**。未解释丢失必须为 0。
+4. **参数级 / 类型级比对**（`specdiff.py`）—— 同一路径上的参数被删除、必填被收紧、
+   字段类型被改，路径级账目完全看不见。2026-09-17 补上，共两层：
+   - 跨版本（旧 Swagger 2.0 → 新 OpenAPI 3.1，仅新旧同名操作）；
+   - **快照门禁**（当前 schema vs `schema_snapshot.json`，覆盖全部路径）——
+     用于长期防回归，任何契约收紧都必须显式刷快照。
 
-   为什么不直接用 `oasdiff`：它是 Go 二进制，本机未安装。本层是等价目的下的
-   Python 实现（覆盖面较窄：只做路径级三分类账 + 保留端点的键集比对，
-   不做参数级 / 类型级破坏性判定）。**这是已知的能力差距，不假装等价。**
+   为什么不直接用 `oasdiff`：它是 Go 二进制，本机未安装。本模块是等价目的下的
+   Python 实现。覆盖面的剩余差距：不做**递归** `$ref` 展开（只展开顶层 `$ref` 链，
+   循环引用记为 `recursive`）、不做 enum 取值级比对、`allOf` 只合并属性不判定
+   组合语义。原则是**宁可多报也不漏报**。
 """
 from __future__ import annotations
 
@@ -120,7 +126,16 @@ def check_page(client, name: str, spec: dict) -> list[str]:
 
 
 def run_schema_gate(app) -> tuple[int, list[str]]:
-    """路径级三分类账。返回 (未解释丢失数, 输出行)。"""
+    """规格门禁 —— 三层：路径级三分类账 + 参数级比对 + 快照防回归。
+
+    返回 (失败数, 输出行)。
+
+    第 3 层（路径级）只看"路径还在不在"。路径还在、但**参数被删/必填收紧/
+    类型被改**的情况它看不见 —— 那正是 2026-09-17 补上的第 4、5 层
+    （`tests/contract/specdiff.py`）。
+    """
+    from tests.contract.specdiff import BREAKING, diff_documents, load_snapshot
+
     old_paths = _old_spec_paths()
     new_paths = _spec_paths(app)
     explained = _explained_old_paths()
@@ -137,7 +152,64 @@ def run_schema_gate(app) -> tuple[int, list[str]]:
         f"  未解释丢失 🔴        : {len(gone_unexplained)}  {gone_unexplained}",
         f"新规格新增            : {len(added)}  {added if len(added) <= 8 else added[:8] + ['…']}",
     ]
-    return len(gone_unexplained), lines
+    failures = len(gone_unexplained)
+
+    new_spec = app.openapi()
+    old_spec = json.loads((BASELINE_DIR / "apispec.json").read_text(encoding="utf-8"))
+
+    # ── 第 4 层：参数级 / 类型级（旧 Swagger 2.0 → 新 OpenAPI 3.1）──
+    # 只比对**两边都存在**的操作 —— 已移除的路径由 mapping 账目解释过，
+    # 在这里重复报会淹没真正的参数级变化。
+    findings, stats = diff_documents(old_spec, new_spec, only_common=True)
+    lines.append("")
+    lines.append(
+        f"参数级（旧→新，同名操作 {stats['common_operations']} 个）："
+        f"BREAKING {stats['breaking']} / COMPATIBLE {stats['compatible']}"
+    )
+    lines.extend(_format_findings(findings))
+    failures += stats["breaking"]
+
+    # ── 第 5 层：快照门禁（覆盖**全部**路径，长期防回归）────────────
+    # 跨版本比对只覆盖新旧同名的那几条；快照比对能拦住此后任何契约收紧。
+    lines.append("")
+    snapshot = load_snapshot()
+    if snapshot is None:
+        failures += 1
+        lines.append(
+            "🔴 规格快照缺失 → 运行 "
+            "`$PY scripts/replay_contract.py --update-snapshot` 生成后提交"
+        )
+    else:
+        s_findings, s_stats = diff_documents(snapshot, new_spec, only_common=False)
+        lines.append(
+            f"快照门禁（当前 schema vs schema_snapshot.json，"
+            f"{s_stats['new_operations']} 个操作）："
+            f"BREAKING {s_stats['breaking']} / COMPATIBLE {s_stats['compatible']}"
+        )
+        lines.extend(_format_findings(s_findings))
+        failures += s_stats["breaking"]
+
+    return failures, lines
+
+
+_MAX_DETAIL_LINES = 25
+
+
+def _format_findings(findings: list[tuple[str, str]]) -> list[str]:
+    """格式化比对结果：BREAKING 全列出，COMPATIBLE 截断（只列前若干条）。"""
+    from tests.contract.specdiff import BREAKING
+
+    breaking = [(lv, msg) for lv, msg in findings if lv == BREAKING]
+    compatible = [(lv, msg) for lv, msg in findings if lv != BREAKING]
+
+    out = [f"    🔴 {msg}" for _lv, msg in breaking]
+    shown = compatible[:_MAX_DETAIL_LINES]
+    out += [f"    ·  {msg}" for _lv, msg in shown]
+    if len(compatible) > len(shown):
+        out.append(f"    ·  …另有 {len(compatible) - len(shown)} 条 COMPATIBLE 未列出")
+    if not breaking and not compatible:
+        out.append("    ✅ 无差异")
+    return out
 
 
 def run_replay(*, schema_only: bool = False) -> tuple[int, list[str]]:

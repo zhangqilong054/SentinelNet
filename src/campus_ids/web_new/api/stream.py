@@ -1,11 +1,16 @@
 """web_new/api/stream.py — SSE 实时推送路由。
 
 端点：
-- GET /api/stream  单条 SSE（?topics=traffic,alerts）
+- GET /api/stream  单条 SSE（?topics=traffic,alert）
 
 取代旧 Flask 2 条 SSE 连接：
 - /api/stream/traffic  → ?topics=traffic
-- /api/stream/alerts   → ?topics=alerts
+- /api/stream/alerts   → ?topics=alert
+
+⚠️ 帧名契约：SSE 帧的 `event:` 名 == topic 名，取值沿用旧应用
+`web/app.py` 的 `_broadcast_sse("alert"|"traffic", ...)`，即 **单数 `alert`**
+（不是 `alerts`）。旧前端 `addEventListener('alert', ...)` 因此无需改动。
+topic 集合由 `campus_ids.runtime.events.VALID_TOPICS` 单点定义，本模块不再自持字面量。
 
 ADR-0001 §5.2: async 端点 + call_soon_threadsafe 桥接。
 """
@@ -18,7 +23,7 @@ import logging
 from fastapi import APIRouter, Query, Request
 from fastapi.responses import StreamingResponse
 
-from campus_ids.runtime.events import EventBus, MAX_SUBSCRIBERS
+from campus_ids.runtime.events import DEFAULT_TOPICS, MAX_SUBSCRIBERS, VALID_TOPICS, EventBus
 from campus_ids.web_new.errors import ApiError
 from campus_ids.web_new.security import Public
 
@@ -29,8 +34,8 @@ router = APIRouter(prefix="/api", tags=["stream"])
 # 心跳间隔（秒）
 KEEPALIVE_INTERVAL = 30
 
-# 支持的 topic 列表
-VALID_TOPICS = {"traffic", "alerts", "tasks", "detection"}
+_DEFAULT_TOPICS_STR = ",".join(DEFAULT_TOPICS)
+_VALID_TOPICS_STR = ", ".join(sorted(VALID_TOPICS))
 
 
 def _get_event_bus(request: Request) -> EventBus:
@@ -48,19 +53,30 @@ def _get_event_bus(request: Request) -> EventBus:
 @router.get("/stream", dependencies=[Public], summary="SSE 实时事件流")
 async def event_stream(
     request: Request,
-    topics: str = Query(default="traffic,alerts", description="订阅主题（逗号分隔）"),
+    topics: str = Query(default=_DEFAULT_TOPICS_STR, description="订阅主题（逗号分隔）"),
 ) -> StreamingResponse:
     """单条 SSE 事件流。
 
-    通过 ?topics= 参数选择订阅主题，支持：traffic, alerts, tasks, detection。
-    默认订阅 traffic + alerts。
+    通过 ?topics= 参数选择订阅主题。**帧的 `event:` 名与 topic 名相同。**
     """
     bus = _get_event_bus(request)
 
-    # 解析 topics
-    topic_list = [t.strip() for t in topics.split(",") if t.strip() in VALID_TOPICS]
-    if not topic_list:
-        topic_list = ["traffic", "alerts"]
+    # 解析 topics —— 未知值必须显式失败。
+    # 旧实现把未知值过滤掉，全部无效时静默回落到默认订阅，
+    # 于是 `?topics=tasks` 会"成功"返回默认的 traffic+alert 流，
+    # 调用方以为订阅成功却收的是别的 —— 属静默失败。
+    requested = [t.strip() for t in topics.split(",") if t.strip()]
+    if not requested:
+        requested = list(DEFAULT_TOPICS)
+
+    unknown = [t for t in requested if t not in VALID_TOPICS]
+    if unknown:
+        raise ApiError(
+            error_code="INVALID_TOPIC",
+            detail=f"未知 topic: {', '.join(unknown)}；合法值: {_VALID_TOPICS_STR}",
+            status_code=400,
+        )
+    topic_list = requested
 
     # 订阅者上限检查
     if bus.subscriber_count() >= MAX_SUBSCRIBERS:
@@ -81,7 +97,10 @@ async def event_stream(
                 # 订阅失败（已达上限），清理已订阅的
                 for t in topic_list:
                     bus.unsubscribe_async(t, queue)
-                yield f"event: error\ndata: {json.dumps({'error': '订阅数已达上限'})}\n\n"
+                # 与正常事件帧保持一致的 `ensure_ascii=False` —— 否则同一条流里
+                # 中文在前者被转义成 \uXXXX、在后者是明文，抓包/日志里非常难读。
+                payload = json.dumps({"error": "订阅数已达上限"}, ensure_ascii=False)
+                yield f"event: error\ndata: {payload}\n\n"
                 return
 
         try:

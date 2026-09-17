@@ -1,0 +1,2305 @@
+{
+  "components": {
+    "schemas": {
+      "AlertListResponse": {
+        "description": "告警列表响应。",
+        "examples": [
+          {
+            "alerts": [],
+            "limit": 50,
+            "offset": 0,
+            "total": 0
+          }
+        ],
+        "properties": {
+          "alerts": {
+            "items": {
+              "$ref": "#/components/schemas/AlertResponse"
+            },
+            "title": "Alerts",
+            "type": "array"
+          },
+          "limit": {
+            "default": 50,
+            "title": "Limit",
+            "type": "integer"
+          },
+          "offset": {
+            "default": 0,
+            "title": "Offset",
+            "type": "integer"
+          },
+          "total": {
+            "title": "Total",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "alerts",
+          "total"
+        ],
+        "title": "AlertListResponse",
+        "type": "object"
+      },
+      "AlertResponse": {
+        "description": "单条告警响应。",
+        "examples": [
+          {
+            "attack_type": "ddos",
+            "id": 1,
+            "level": "high",
+            "message": "DDoS attack detected",
+            "ml_confidence": 0.95,
+            "time": "2026-01-01 00:00:00"
+          }
+        ],
+        "properties": {
+          "attack_type": {
+            "title": "Attack Type",
+            "type": "string"
+          },
+          "id": {
+            "title": "Id",
+            "type": "integer"
+          },
+          "level": {
+            "title": "Level",
+            "type": "string"
+          },
+          "message": {
+            "title": "Message",
+            "type": "string"
+          },
+          "ml_confidence": {
+            "default": 0.0,
+            "title": "Ml Confidence",
+            "type": "number"
+          },
+          "time": {
+            "title": "Time",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "time",
+          "level",
+          "attack_type",
+          "message"
+        ],
+        "title": "AlertResponse",
+        "type": "object"
+      },
+      "AlertStatsResponse": {
+        "description": "告警统计响应。",
+        "properties": {
+          "alerts_by_severity": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "title": "Alerts By Severity",
+            "type": "object"
+          },
+          "alerts_by_type": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "title": "Alerts By Type",
+            "type": "object"
+          },
+          "total_alerts": {
+            "default": 0,
+            "title": "Total Alerts",
+            "type": "integer"
+          }
+        },
+        "title": "AlertStatsResponse",
+        "type": "object"
+      },
+      "ChangePasswordRequest": {
+        "description": "修改密码请求。",
+        "properties": {
+          "new_password": {
+            "maxLength": 128,
+            "minLength": 6,
+            "title": "New Password",
+            "type": "string"
+          },
+          "old_password": {
+            "maxLength": 128,
+            "minLength": 1,
+            "title": "Old Password",
+            "type": "string"
+          }
+        },
+        "required": [
+          "old_password",
+          "new_password"
+        ],
+        "title": "ChangePasswordRequest",
+        "type": "object"
+      },
+      "ChangePasswordResponse": {
+        "description": "修改密码响应。",
+        "properties": {
+          "message": {
+            "default": "",
+            "title": "Message",
+            "type": "string"
+          },
+          "status": {
+            "default": "success",
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "title": "ChangePasswordResponse",
+        "type": "object"
+      },
+      "CheckResponse": {
+        "description": "环境自检响应 — 对齐旧 Flask /api/check 返回格式。",
+        "properties": {
+          "capture": {
+            "additionalProperties": true,
+            "title": "Capture",
+            "type": "object"
+          },
+          "data_files": {
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "title": "Data Files",
+            "type": "array"
+          },
+          "dependencies": {
+            "additionalProperties": true,
+            "title": "Dependencies",
+            "type": "object"
+          },
+          "model_files": {
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "title": "Model Files",
+            "type": "array"
+          },
+          "ok": {
+            "default": true,
+            "title": "Ok",
+            "type": "boolean"
+          },
+          "python": {
+            "additionalProperties": true,
+            "title": "Python",
+            "type": "object"
+          }
+        },
+        "title": "CheckResponse",
+        "type": "object"
+      },
+      "CleanupRequest": {
+        "description": "清理请求。",
+        "properties": {
+          "days": {
+            "default": 7,
+            "description": "保留最近N天的数据",
+            "minimum": 1.0,
+            "title": "Days",
+            "type": "integer"
+          }
+        },
+        "title": "CleanupRequest",
+        "type": "object"
+      },
+      "CleanupResponse": {
+        "description": "清理响应。",
+        "properties": {
+          "alerts_deleted": {
+            "default": 0,
+            "title": "Alerts Deleted",
+            "type": "integer"
+          },
+          "status": {
+            "default": "success",
+            "title": "Status",
+            "type": "string"
+          },
+          "traffic_deleted": {
+            "default": 0,
+            "title": "Traffic Deleted",
+            "type": "integer"
+          }
+        },
+        "title": "CleanupResponse",
+        "type": "object"
+      },
+      "ExportResponse": {
+        "description": "导出响应。",
+        "properties": {
+          "message": {
+            "default": "",
+            "title": "Message",
+            "type": "string"
+          },
+          "rows": {
+            "default": 0,
+            "title": "Rows",
+            "type": "integer"
+          },
+          "status": {
+            "default": "success",
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "title": "ExportResponse",
+        "type": "object"
+      },
+      "HTTPValidationError": {
+        "properties": {
+          "detail": {
+            "items": {
+              "$ref": "#/components/schemas/ValidationError"
+            },
+            "title": "Detail",
+            "type": "array"
+          }
+        },
+        "title": "HTTPValidationError",
+        "type": "object"
+      },
+      "HealthResponse": {
+        "description": "健康检查响应 — 对齐旧 Flask /api/health 返回格式。",
+        "examples": [
+          {
+            "components": {
+              "capture": {
+                "status": "stopped"
+              },
+              "database": {
+                "status": "ok"
+              },
+              "ml_model": {
+                "model_loaded": false
+              }
+            },
+            "status": "healthy",
+            "timestamp": "2026-01-01 12:00:00",
+            "uptime_seconds": 3600.0
+          }
+        ],
+        "properties": {
+          "components": {
+            "additionalProperties": true,
+            "title": "Components",
+            "type": "object"
+          },
+          "status": {
+            "default": "healthy",
+            "title": "Status",
+            "type": "string"
+          },
+          "timestamp": {
+            "default": "",
+            "title": "Timestamp",
+            "type": "string"
+          },
+          "uptime_seconds": {
+            "default": 0.0,
+            "title": "Uptime Seconds",
+            "type": "number"
+          }
+        },
+        "title": "HealthResponse",
+        "type": "object"
+      },
+      "LoginRequest": {
+        "description": "登录请求。",
+        "properties": {
+          "password": {
+            "maxLength": 128,
+            "minLength": 1,
+            "title": "Password",
+            "type": "string"
+          },
+          "username": {
+            "maxLength": 64,
+            "minLength": 1,
+            "title": "Username",
+            "type": "string"
+          }
+        },
+        "required": [
+          "username",
+          "password"
+        ],
+        "title": "LoginRequest",
+        "type": "object"
+      },
+      "LoginResponse": {
+        "description": "登录响应。",
+        "properties": {
+          "message": {
+            "default": "",
+            "title": "Message",
+            "type": "string"
+          },
+          "status": {
+            "default": "success",
+            "title": "Status",
+            "type": "string"
+          },
+          "username": {
+            "default": "",
+            "title": "Username",
+            "type": "string"
+          }
+        },
+        "title": "LoginResponse",
+        "type": "object"
+      },
+      "LogoutResponse": {
+        "description": "登出响应。",
+        "properties": {
+          "message": {
+            "default": "已登出",
+            "title": "Message",
+            "type": "string"
+          },
+          "status": {
+            "default": "success",
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "title": "LogoutResponse",
+        "type": "object"
+      },
+      "MessageResponse": {
+        "description": "通用消息响应。",
+        "examples": [
+          {
+            "message": "操作成功",
+            "status": "ok"
+          }
+        ],
+        "properties": {
+          "message": {
+            "title": "Message",
+            "type": "string"
+          },
+          "status": {
+            "default": "ok",
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "message"
+        ],
+        "title": "MessageResponse",
+        "type": "object"
+      },
+      "ModelInfoResponse": {
+        "description": "模型信息响应。",
+        "properties": {
+          "created_at": {
+            "title": "Created At",
+            "type": "string"
+          },
+          "metrics": {
+            "additionalProperties": true,
+            "title": "Metrics",
+            "type": "object"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "version": {
+            "title": "Version",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "version",
+          "created_at"
+        ],
+        "title": "ModelInfoResponse",
+        "type": "object"
+      },
+      "ModelListResponse": {
+        "description": "模型列表响应。",
+        "properties": {
+          "models": {
+            "items": {
+              "$ref": "#/components/schemas/ModelInfoResponse"
+            },
+            "title": "Models",
+            "type": "array"
+          }
+        },
+        "required": [
+          "models"
+        ],
+        "title": "ModelListResponse",
+        "type": "object"
+      },
+      "PayloadAnalysisRequest": {
+        "description": "载荷分析请求。",
+        "properties": {
+          "payload": {
+            "description": "待分析的 HTTP 载荷字符串",
+            "title": "Payload",
+            "type": "string"
+          }
+        },
+        "required": [
+          "payload"
+        ],
+        "title": "PayloadAnalysisRequest",
+        "type": "object"
+      },
+      "PayloadAnalysisResponse": {
+        "description": "载荷分析响应。\n\n⚠️ 字段名必须与**旧实现**一致：`web/bp_capture.py:368-373` 返回\n`{'alerts': [...], 'is_anomaly': bool, 'payload_length': len(payload)}`。\n\n2026-09-17 参数级契约门禁（`tests/contract/specdiff.py`）抓到本类此前用了\n`threats` / `is_malicious` 两个**新名字**，并把 `payload_length` 整个丢掉 ——\n旧客户端的 `addEventListener` 式取值会全部拿到 `undefined`。这正是\n\"路径保住了、响应契约没保住\"的典型：路径级门禁完全看不见。",
+        "properties": {
+          "alerts": {
+            "description": "告警列表",
+            "items": {
+              "type": "string"
+            },
+            "title": "Alerts",
+            "type": "array"
+          },
+          "is_anomaly": {
+            "default": false,
+            "description": "是否异常",
+            "title": "Is Anomaly",
+            "type": "boolean"
+          },
+          "payload_length": {
+            "default": 0,
+            "description": "载荷长度",
+            "title": "Payload Length",
+            "type": "integer"
+          }
+        },
+        "title": "PayloadAnalysisResponse",
+        "type": "object"
+      },
+      "ScenarioInfoResponse": {
+        "description": "剧本信息响应。",
+        "properties": {
+          "description": {
+            "title": "Description",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "steps": {
+            "description": "剧本子任务序列",
+            "items": {
+              "type": "string"
+            },
+            "title": "Steps",
+            "type": "array"
+          }
+        },
+        "required": [
+          "name",
+          "description",
+          "steps"
+        ],
+        "title": "ScenarioInfoResponse",
+        "type": "object"
+      },
+      "ScenarioListResponse": {
+        "description": "剧本列表响应。",
+        "properties": {
+          "scenarios": {
+            "items": {
+              "$ref": "#/components/schemas/ScenarioInfoResponse"
+            },
+            "title": "Scenarios",
+            "type": "array"
+          }
+        },
+        "required": [
+          "scenarios"
+        ],
+        "title": "ScenarioListResponse",
+        "type": "object"
+      },
+      "ScenarioStartRequest": {
+        "description": "剧本启动请求。",
+        "properties": {
+          "duration": {
+            "anyOf": [
+              {
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "限时子任务运行秒数（仅影响 TIMED 类型子任务）",
+            "title": "Duration"
+          },
+          "scenario": {
+            "description": "剧本名称: demo | full | attack",
+            "title": "Scenario",
+            "type": "string"
+          }
+        },
+        "required": [
+          "scenario"
+        ],
+        "title": "ScenarioStartRequest",
+        "type": "object"
+      },
+      "ScenarioStopRequest": {
+        "description": "剧本停止请求。",
+        "properties": {
+          "scenario": {
+            "description": "剧本名称: demo | full | attack",
+            "title": "Scenario",
+            "type": "string"
+          }
+        },
+        "required": [
+          "scenario"
+        ],
+        "title": "ScenarioStopRequest",
+        "type": "object"
+      },
+      "SettingsResponse": {
+        "description": "配置响应 — 对齐 Settings 类字段。",
+        "examples": [
+          {
+            "alert_config": {
+              "max_alert_api_return": 20
+            },
+            "auth_enabled": false,
+            "ml_config": {
+              "ml_conf_high": 0.7,
+              "ml_interval_sec": 5.0
+            },
+            "thresholds": {
+              "ddos_threshold": 500,
+              "port_scan_threshold": 50
+            },
+            "web_config": {
+              "web_port": 5000
+            }
+          }
+        ],
+        "properties": {
+          "alert_config": {
+            "additionalProperties": true,
+            "description": "告警配置",
+            "title": "Alert Config",
+            "type": "object"
+          },
+          "auth_enabled": {
+            "default": false,
+            "title": "Auth Enabled",
+            "type": "boolean"
+          },
+          "ml_config": {
+            "additionalProperties": true,
+            "description": "ML 检测配置",
+            "title": "Ml Config",
+            "type": "object"
+          },
+          "thresholds": {
+            "additionalProperties": true,
+            "description": "规则检测阈值",
+            "title": "Thresholds",
+            "type": "object"
+          },
+          "web_config": {
+            "additionalProperties": true,
+            "description": "Web 面板配置",
+            "title": "Web Config",
+            "type": "object"
+          }
+        },
+        "title": "SettingsResponse",
+        "type": "object"
+      },
+      "TaskActionRequest": {
+        "description": "任务启动/停止请求。",
+        "properties": {
+          "duration": {
+            "anyOf": [
+              {
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "限时任务运行秒数（仅 TIMED 类型）",
+            "title": "Duration"
+          }
+        },
+        "title": "TaskActionRequest",
+        "type": "object"
+      },
+      "TaskListResponse": {
+        "description": "任务列表响应。",
+        "properties": {
+          "tasks": {
+            "items": {
+              "$ref": "#/components/schemas/TaskStatusResponse"
+            },
+            "title": "Tasks",
+            "type": "array"
+          }
+        },
+        "required": [
+          "tasks"
+        ],
+        "title": "TaskListResponse",
+        "type": "object"
+      },
+      "TaskStatusResponse": {
+        "description": "单个任务状态响应。",
+        "properties": {
+          "default_duration": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "限时任务默认时长(秒)",
+            "title": "Default Duration"
+          },
+          "description": {
+            "default": "",
+            "title": "Description",
+            "type": "string"
+          },
+          "elapsed": {
+            "default": 0.0,
+            "title": "Elapsed",
+            "type": "number"
+          },
+          "error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error"
+          },
+          "kind": {
+            "description": "continuous | timed",
+            "title": "Kind",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "status": {
+            "description": "idle | running | stopping | finished | failed",
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "kind",
+          "status"
+        ],
+        "title": "TaskStatusResponse",
+        "type": "object"
+      },
+      "ThresholdUpdateRequest": {
+        "description": "阈值更新请求。",
+        "properties": {
+          "key": {
+            "description": "阈值键名",
+            "title": "Key",
+            "type": "string"
+          },
+          "value": {
+            "description": "阈值新值",
+            "title": "Value",
+            "type": "number"
+          }
+        },
+        "required": [
+          "key",
+          "value"
+        ],
+        "title": "ThresholdUpdateRequest",
+        "type": "object"
+      },
+      "TlsAnalysisResponse": {
+        "description": "TLS 分析响应。",
+        "properties": {
+          "anomalies": {
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "title": "Anomalies",
+            "type": "array"
+          },
+          "summary": {
+            "additionalProperties": true,
+            "title": "Summary",
+            "type": "object"
+          }
+        },
+        "title": "TlsAnalysisResponse",
+        "type": "object"
+      },
+      "TrafficHistoryRecord": {
+        "description": "单条流量历史记录。",
+        "properties": {
+          "alert": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Alert"
+          },
+          "connections": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Connections"
+          },
+          "id": {
+            "title": "Id",
+            "type": "integer"
+          },
+          "packet_count": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Packet Count"
+          },
+          "port_count": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Port Count"
+          },
+          "qps": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Qps"
+          },
+          "src_ip_count": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Src Ip Count"
+          },
+          "time": {
+            "title": "Time",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "time"
+        ],
+        "title": "TrafficHistoryRecord",
+        "type": "object"
+      },
+      "TrafficHistoryResponse": {
+        "description": "流量历史响应。",
+        "properties": {
+          "history": {
+            "items": {
+              "$ref": "#/components/schemas/TrafficHistoryRecord"
+            },
+            "title": "History",
+            "type": "array"
+          },
+          "limit": {
+            "default": 60,
+            "title": "Limit",
+            "type": "integer"
+          },
+          "offset": {
+            "default": 0,
+            "title": "Offset",
+            "type": "integer"
+          },
+          "total": {
+            "default": 0,
+            "title": "Total",
+            "type": "integer"
+          }
+        },
+        "title": "TrafficHistoryResponse",
+        "type": "object"
+      },
+      "TrafficStatsResponse": {
+        "description": "流量统计响应。",
+        "examples": [
+          {
+            "alert": "",
+            "connections": 42,
+            "dns_packets": 50,
+            "packet_count": 10000,
+            "port_count": 15,
+            "qps": 150.5,
+            "src_ip_count": 8,
+            "syn_packets": 500,
+            "timestamp": "2026-01-01T00:00:00",
+            "udp_packets": 200
+          }
+        ],
+        "properties": {
+          "alert": {
+            "default": "",
+            "title": "Alert",
+            "type": "string"
+          },
+          "connections": {
+            "default": 0,
+            "title": "Connections",
+            "type": "integer"
+          },
+          "dns_packets": {
+            "default": 0,
+            "title": "Dns Packets",
+            "type": "integer"
+          },
+          "packet_count": {
+            "default": 0,
+            "title": "Packet Count",
+            "type": "integer"
+          },
+          "port_count": {
+            "default": 0,
+            "title": "Port Count",
+            "type": "integer"
+          },
+          "qps": {
+            "default": 0.0,
+            "title": "Qps",
+            "type": "number"
+          },
+          "src_ip_count": {
+            "default": 0,
+            "title": "Src Ip Count",
+            "type": "integer"
+          },
+          "syn_packets": {
+            "default": 0,
+            "title": "Syn Packets",
+            "type": "integer"
+          },
+          "timestamp": {
+            "default": "",
+            "title": "Timestamp",
+            "type": "string"
+          },
+          "udp_packets": {
+            "default": 0,
+            "title": "Udp Packets",
+            "type": "integer"
+          }
+        },
+        "title": "TrafficStatsResponse",
+        "type": "object"
+      },
+      "TrainRequest": {
+        "description": "训练请求（T2.13 起带破坏性操作保护）。",
+        "properties": {
+          "confirm": {
+            "default": false,
+            "description": "**必填确认位**。训练会覆盖 model.pkl / evaluation_report.txt / confusion_matrix.png，未传 `confirm=true` 时请求被拒绝（400），不会启动训练。启动前会自动备份这三个产物到 `<data_dir>/training_backup/<时间戳>/`。",
+            "title": "Confirm",
+            "type": "boolean"
+          },
+          "dataset": {
+            "default": "auto",
+            "description": "训练数据集标识（透传给训练链路 dataset_type）",
+            "title": "Dataset",
+            "type": "string"
+          },
+          "epochs": {
+            "default": 10,
+            "description": "训练轮数；≤3 视为 quick 模式",
+            "minimum": 1.0,
+            "title": "Epochs",
+            "type": "integer"
+          }
+        },
+        "title": "TrainRequest",
+        "type": "object"
+      },
+      "TrainStatusResponse": {
+        "description": "训练状态响应。\n\n`status` 的真相源是 `TaskRegistry` 里 `train` 任务的状态\n（T2.13 收敛；此前是 `api/models.py` 的模块级状态机，与任务编排互不感知）。",
+        "examples": [
+          {
+            "epoch": 5,
+            "progress": 0.5,
+            "status": "training",
+            "total_epochs": 10
+          }
+        ],
+        "properties": {
+          "duration_seconds": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "任务窗口时长（来自 TaskRegistry）",
+            "title": "Duration Seconds"
+          },
+          "elapsed_seconds": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "任务已运行秒数（来自 TaskRegistry）",
+            "title": "Elapsed Seconds"
+          },
+          "epoch": {
+            "default": 0,
+            "title": "Epoch",
+            "type": "integer"
+          },
+          "error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error"
+          },
+          "progress": {
+            "default": 0.0,
+            "description": "进度 0.0–1.0，由任务窗口已耗时/总时长算出（非硬编码）",
+            "title": "Progress",
+            "type": "number"
+          },
+          "status": {
+            "description": "idle | training | completed | failed",
+            "title": "Status",
+            "type": "string"
+          },
+          "total_epochs": {
+            "default": 0,
+            "title": "Total Epochs",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "title": "TrainStatusResponse",
+        "type": "object"
+      },
+      "ValidationError": {
+        "properties": {
+          "ctx": {
+            "title": "Context",
+            "type": "object"
+          },
+          "input": {
+            "title": "Input"
+          },
+          "loc": {
+            "items": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "integer"
+                }
+              ]
+            },
+            "title": "Location",
+            "type": "array"
+          },
+          "msg": {
+            "title": "Message",
+            "type": "string"
+          },
+          "type": {
+            "title": "Error Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "loc",
+          "msg",
+          "type"
+        ],
+        "title": "ValidationError",
+        "type": "object"
+      }
+    },
+    "securitySchemes": {
+      "HTTPBearer": {
+        "scheme": "bearer",
+        "type": "http"
+      }
+    }
+  },
+  "info": {
+    "description": "校园网加密流量入侵检测系统",
+    "title": "SentinelNet",
+    "version": "0.2.0"
+  },
+  "openapi": "3.1.0",
+  "paths": {
+    "/api/admin/cleanup": {
+      "post": {
+        "description": "清理过期历史数据 — 删除超过指定天数的告警和流量记录。\n\n对齐旧 /api/cleanup 端点行为。",
+        "operationId": "cleanup_data_api_admin_cleanup_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CleanupRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CleanupResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "清理过期历史数据",
+        "tags": [
+          "admin",
+          "admin"
+        ]
+      }
+    },
+    "/api/admin/export": {
+      "post": {
+        "description": "导出流量数据到 CSV — 从 SQLite 查询写入 traffic_stats.csv。\n\n对齐旧 /api/save 端点行为。",
+        "operationId": "export_data_api_admin_export_post",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ExportResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "导出流量数据到CSV",
+        "tags": [
+          "admin",
+          "admin"
+        ]
+      }
+    },
+    "/api/alerts": {
+      "get": {
+        "description": "获取告警列表（从 SQLite alerts 表查询）。",
+        "operationId": "get_alerts_api_alerts_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 50,
+              "maximum": 500,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "offset",
+            "required": false,
+            "schema": {
+              "default": 0,
+              "minimum": 0,
+              "title": "Offset",
+              "type": "integer"
+            }
+          },
+          {
+            "description": "级别筛选: high/medium/low/all",
+            "in": "query",
+            "name": "level",
+            "required": false,
+            "schema": {
+              "default": "all",
+              "description": "级别筛选: high/medium/low/all",
+              "title": "Level",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AlertListResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "查询告警列表（支持分页和级别筛选）",
+        "tags": [
+          "alerts",
+          "alerts"
+        ]
+      }
+    },
+    "/api/alerts/stats": {
+      "get": {
+        "description": "获取告警统计（总数、类型分布、级别分布）。",
+        "operationId": "get_alert_stats_api_alerts_stats_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AlertStatsResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "获取告警统计",
+        "tags": [
+          "alerts",
+          "alerts"
+        ]
+      }
+    },
+    "/api/change-password": {
+      "post": {
+        "description": "修改当前用户密码。需提供旧密码验证。",
+        "operationId": "change_password_api_change_password_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ChangePasswordRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ChangePasswordResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "修改密码",
+        "tags": [
+          "auth",
+          "auth"
+        ]
+      }
+    },
+    "/api/check": {
+      "get": {
+        "description": "环境自检：Python 版本、依赖包、Npcap、模型文件、数据文件。\n\n数据目录取自 `Settings.data_dir`（而非硬算项目根），这样\n`CAMPUS_IDS_DATA_DIR` 指向别处时自检结果与实际运行目录一致。",
+        "operationId": "environment_check_api_check_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CheckResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "环境自检",
+        "tags": [
+          "system",
+          "system"
+        ]
+      }
+    },
+    "/api/csrf-token": {
+      "get": {
+        "description": "获取 CSRF token 并设置双提交 cookie。\n\n双提交模式：cookie + X-CSRFToken 头比对。\ncookie 设为 HttpOnly + SameSite=Lax，JS 从响应体读取 token。",
+        "operationId": "get_csrf_token_api_csrf_token_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "获取CSRF令牌",
+        "tags": [
+          "system",
+          "system"
+        ]
+      }
+    },
+    "/api/health": {
+      "get": {
+        "description": "系统健康检查 — 对齐旧 Flask /api/health 返回格式。\n\n组件：database / capture / ml_model / memory / sse / threads",
+        "operationId": "health_check_api_health_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HealthResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "系统健康检查",
+        "tags": [
+          "system",
+          "system"
+        ]
+      }
+    },
+    "/api/login": {
+      "post": {
+        "description": "用户名+密码登录，成功后写入会话。",
+        "operationId": "login_api_login_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LoginRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LoginResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "会话登录",
+        "tags": [
+          "auth",
+          "auth"
+        ]
+      }
+    },
+    "/api/logout": {
+      "post": {
+        "description": "清除会话认证信息。",
+        "operationId": "logout_api_logout_post",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LogoutResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "会话登出",
+        "tags": [
+          "auth",
+          "auth"
+        ]
+      }
+    },
+    "/api/models": {
+      "get": {
+        "description": "获取可用模型列表 — 从 registry.json 读取。",
+        "operationId": "list_models_api_models_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ModelListResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "获取可用模型列表",
+        "tags": [
+          "models",
+          "models"
+        ]
+      }
+    },
+    "/api/models/train": {
+      "post": {
+        "description": "启动模型训练 —— 委托 `TaskRegistry` 的 `train` 任务（T2.13）。\n\n三步保护：\n1. `confirm=true` 必填，否则 400 且不启动；\n2. 已在运行时返回 409（判据来自 TaskRegistry，不是本地状态机）；\n3. 启动前备份三个产物到 `<data_dir>/training_backup/<时间戳>/`。\n\n`epochs` 仅用于判定 quick 模式（≤3），不直接等于训练轮数 ——\n训练链路的轮数由数据集配置决定（D4：不重构训练链路内部）。",
+        "operationId": "start_training_api_models_train_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TrainRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MessageResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "启动模型训练",
+        "tags": [
+          "models",
+          "models"
+        ]
+      }
+    },
+    "/api/models/train/status": {
+      "get": {
+        "description": "获取训练状态 —— 真相源是 `TaskRegistry`（T2.13）。\n\n状态映射（TaskRegistry → 本响应）：\n`idle`→`idle`、`running`→`training`、`finished`→`completed`、`failed`→`failed`。\n\n`progress` 由任务窗口 elapsed/duration 算出而非硬编码：\n训练任务在本架构里是 TIMED 任务（窗口时长 = `default_duration`，默认 120s），\n所以它是\"任务窗口进度\"而不是\"训练收敛进度\" —— 训练链路内部进度需要\n改 `model/train.py` 才能拿到，属 D4 范围外。",
+        "operationId": "get_train_status_api_models_train_status_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TrainStatusResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "获取训练状态",
+        "tags": [
+          "models",
+          "models"
+        ]
+      }
+    },
+    "/api/models/{name}": {
+      "delete": {
+        "description": "删除指定模型 — 从 registry.json 移除并删除 run 目录。",
+        "operationId": "delete_model_api_models__name__delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "title": "Name",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MessageResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "删除指定模型",
+        "tags": [
+          "models",
+          "models"
+        ]
+      }
+    },
+    "/api/payload/analyze": {
+      "post": {
+        "description": "对 HTTP 载荷执行应用层检测（SQL 注入 + XSS）。",
+        "operationId": "analyze_payload_api_payload_analyze_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PayloadAnalysisRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PayloadAnalysisResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "载荷分析",
+        "tags": [
+          "payload",
+          "payload"
+        ]
+      }
+    },
+    "/api/payload/check": {
+      "post": {
+        "description": "对 HTTP 载荷执行应用层检测（SQL 注入 + XSS）。\n\n保留旧路径 /api/payload/check 以兼容现有客户端。",
+        "operationId": "check_payload_api_payload_check_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PayloadAnalysisRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PayloadAnalysisResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "载荷送检（旧路径）",
+        "tags": [
+          "payload",
+          "payload"
+        ]
+      }
+    },
+    "/api/scenarios": {
+      "get": {
+        "description": "获取可用剧本列表（供前端抽屉渲染，替代硬编码按钮）。",
+        "operationId": "list_scenarios_api_scenarios_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ScenarioListResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "获取可用剧本列表",
+        "tags": [
+          "scenarios",
+          "scenarios"
+        ]
+      }
+    },
+    "/api/scenarios/start": {
+      "post": {
+        "description": "启动指定剧本（按序执行子任务，任一失败则整体失败并回滚）。",
+        "operationId": "start_scenario_api_scenarios_start_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ScenarioStartRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MessageResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "启动指定剧本",
+        "tags": [
+          "scenarios",
+          "scenarios"
+        ]
+      }
+    },
+    "/api/scenarios/stop": {
+      "post": {
+        "description": "停止指定剧本（停止所有子任务，幂等）。",
+        "operationId": "stop_scenario_api_scenarios_stop_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ScenarioStopRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MessageResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "停止指定剧本",
+        "tags": [
+          "scenarios",
+          "scenarios"
+        ]
+      }
+    },
+    "/api/settings": {
+      "get": {
+        "description": "获取当前配置 — 从 Settings 单例读取。",
+        "operationId": "get_settings_endpoint_api_settings_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SettingsResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "获取当前配置",
+        "tags": [
+          "system",
+          "system"
+        ]
+      },
+      "put": {
+        "description": "更新阈值配置 — 运行期覆盖 + DB 持久化 + 检测器热重建。",
+        "operationId": "update_settings_api_settings_put",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ThresholdUpdateRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MessageResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "更新阈值配置",
+        "tags": [
+          "system",
+          "system"
+        ]
+      }
+    },
+    "/api/stream": {
+      "get": {
+        "description": "单条 SSE 事件流。\n\n通过 ?topics= 参数选择订阅主题。**帧的 `event:` 名与 topic 名相同。**",
+        "operationId": "event_stream_api_stream_get",
+        "parameters": [
+          {
+            "description": "订阅主题（逗号分隔）",
+            "in": "query",
+            "name": "topics",
+            "required": false,
+            "schema": {
+              "default": "traffic,alert",
+              "description": "订阅主题（逗号分隔）",
+              "title": "Topics",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "SSE 实时事件流",
+        "tags": [
+          "stream",
+          "stream"
+        ]
+      }
+    },
+    "/api/tasks": {
+      "get": {
+        "description": "获取所有任务状态。\n\n取代旧端点：\n- GET /api/capture/status\n- GET /api/capture/enhanced-status\n- GET /api/detector/status\n- GET /api/attack/status\n- GET /api/auto/status\n- GET /api/dual/stats\n- GET /api/model/train-status",
+        "operationId": "list_tasks_api_tasks_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TaskListResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "获取所有任务状态",
+        "tags": [
+          "tasks",
+          "tasks"
+        ]
+      }
+    },
+    "/api/tasks/{name}/start": {
+      "post": {
+        "description": "启动指定任务。\n\n限时任务可指定 duration（秒），未指定则使用任务默认时长。\n连续任务忽略 duration 参数。\n\n取代旧端点：\n- POST /api/capture/start\n- POST /api/capture/start-enhanced\n- POST /api/detector/start\n- POST /api/attack/start\n- POST /api/auto/start\n- POST /api/demo/start\n- POST /api/dual/load\n- POST /api/model/train",
+        "operationId": "start_task_api_tasks__name__start_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "title": "Name",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TaskActionRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MessageResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "启动指定任务",
+        "tags": [
+          "tasks",
+          "tasks"
+        ]
+      }
+    },
+    "/api/tasks/{name}/stop": {
+      "post": {
+        "description": "停止指定任务（幂等）。\n\n即使任务未在运行也返回成功，与旧端点行为一致。\n\n取代旧端点：\n- POST /api/capture/stop\n- POST /api/capture/stop-enhanced\n- POST /api/detector/stop\n- POST /api/attack/stop\n- POST /api/dual/stop",
+        "operationId": "stop_task_api_tasks__name__stop_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "title": "Name",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MessageResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "停止指定任务",
+        "tags": [
+          "tasks",
+          "tasks"
+        ]
+      }
+    },
+    "/api/tls/analyze": {
+      "get": {
+        "description": "TLS 异常分析（聚合统计 + 可疑记录摘要）。",
+        "operationId": "analyze_tls_api_tls_analyze_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TlsAnalysisResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "TLS异常分析",
+        "tags": [
+          "tls",
+          "tls"
+        ]
+      }
+    },
+    "/api/tls/stats": {
+      "get": {
+        "description": "获取 TLS 加密流量统计。",
+        "operationId": "get_tls_stats_api_tls_stats_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Get Tls Stats Api Tls Stats Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "TLS加密流量统计",
+        "tags": [
+          "tls",
+          "tls"
+        ]
+      }
+    },
+    "/api/tls/suspicious": {
+      "get": {
+        "description": "获取可疑 TLS 记录列表。",
+        "operationId": "get_tls_suspicious_api_tls_suspicious_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 50,
+              "maximum": 1000,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Get Tls Suspicious Api Tls Suspicious Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "获取可疑TLS记录",
+        "tags": [
+          "tls",
+          "tls"
+        ]
+      }
+    },
+    "/api/traffic": {
+      "get": {
+        "description": "获取实时流量统计数据（从 RuntimeState 读取内存中的当前值）。",
+        "operationId": "get_traffic_api_traffic_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TrafficStatsResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "获取实时流量统计",
+        "tags": [
+          "traffic",
+          "traffic"
+        ]
+      }
+    },
+    "/api/traffic/history": {
+      "get": {
+        "description": "获取流量历史数据（从 SQLite traffic_history 表查询）。",
+        "operationId": "get_traffic_history_api_traffic_history_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 60,
+              "maximum": 200,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "offset",
+            "required": false,
+            "schema": {
+              "default": 0,
+              "minimum": 0,
+              "title": "Offset",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TrafficHistoryResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "获取流量历史数据",
+        "tags": [
+          "traffic",
+          "traffic"
+        ]
+      }
+    }
+  }
+}

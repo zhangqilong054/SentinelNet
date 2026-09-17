@@ -22,13 +22,17 @@ def _analyze(payload: str, request: Request) -> PayloadAnalysisResponse:
     """载荷分析核心逻辑（SQL 注入 + XSS 检测）。
 
     从 app.state.rule_detector 获取检测器实例，
-    确保阈值热更新后立即生效。
+    确保阈值热更新后立即生效（模块级单例会让 `/api/settings` 的改动不生效）。
+
+    响应字段名对齐旧 `web/bp_capture.py:368-373`：
+    `alerts` / `is_anomaly` / `payload_length`。
     """
     rule_detector = request.app.state.rule_detector
     alerts = rule_detector.check_payload(payload)
     return PayloadAnalysisResponse(
-        threats=alerts,
-        is_malicious=len(alerts) > 0,
+        alerts=alerts,
+        is_anomaly=len(alerts) > 0,
+        payload_length=len(payload),
     )
 
 

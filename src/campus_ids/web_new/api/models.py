@@ -109,7 +109,15 @@ def backup_training_products() -> Path | None:
         logger.info("训练产物均不存在，跳过备份（首次训练）")
         return None
 
-    target = data_dir / "training_backup" / datetime.now().strftime("%Y%m%d-%H%M%S")
+    stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+    backup_root = data_dir / "training_backup"
+    # 时间戳只到秒 —— 同一秒内第二次备份会撞名并**覆盖**上一次的备份，
+    # 与下面"多次训练不会互相覆盖"的承诺矛盾。追加序号消除这个窗口。
+    target = backup_root / stamp
+    suffix = 1
+    while target.exists():
+        suffix += 1
+        target = backup_root / f"{stamp}-{suffix}"
     target.mkdir(parents=True, exist_ok=True)
     for src in existing:
         shutil.copy2(src, target / src.name)

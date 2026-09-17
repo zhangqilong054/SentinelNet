@@ -29,13 +29,27 @@ from campus_ids.runtime.events import (
 
 
 class TestEventConstants:
-    """验证事件类型常量。"""
+    """验证事件类型常量。
+
+    ⚠️ 2026-09-17 变更：`EVENT_TRAFFIC_UPDATE` 的值由 `"traffic_update"` 改为
+    `"traffic"`。原值是一个**从未被任何订阅者使用的孤儿值** —— 生产者按它发布，
+    SSE 端按 `"traffic"` 订阅，两边对不上，导致订阅流量主题的客户端永远收不到事件。
+    现在 topic 名与 SSE 帧 `event:` 名统一，并与旧应用
+    `_broadcast_sse("alert"|"traffic", ...)` 的对外契约一致。
+    本类只断言"常量属于合法 topic 集合"，漂移检测由 `tests/test_sse_topics.py` 负责。
+    """
 
     def test_event_types_defined(self):
-        assert EVENT_TRAFFIC_UPDATE == "traffic_update"
-        assert EVENT_ALERT == "alert"
-        assert EVENT_TASK_STATUS == "task_status"
+        from campus_ids.runtime.events import TOPIC_ALERT, TOPIC_TRAFFIC, VALID_TOPICS
+
+        assert EVENT_TRAFFIC_UPDATE == TOPIC_TRAFFIC == "traffic"
+        assert EVENT_ALERT == TOPIC_ALERT == "alert"
+        # 以下两个是**预留** topic（暂无生产者），不得出现在可订阅集合里
+        assert EVENT_TASK_STATUS == "tasks"
         assert EVENT_DETECTION == "detection"
+        assert VALID_TOPICS == frozenset({TOPIC_TRAFFIC, TOPIC_ALERT})
+        assert EVENT_TASK_STATUS not in VALID_TOPICS
+        assert EVENT_DETECTION not in VALID_TOPICS
 
     def test_max_subscribers(self):
         assert MAX_SUBSCRIBERS == 20
