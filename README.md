@@ -54,7 +54,7 @@ pip install -e .
 ### 3. 验证安装
 
 ```bash
-python My_task.py
+python main.py
 ```
 
 若输出用法说明，说明安装成功。若报 `ModuleNotFoundError: No module named 'campus_ids'`，说明可编辑包未正确安装或 Python 解释器不一致，请重新执行 `pip install -e .` 并确认使用的是同一个 Python 环境。
@@ -64,7 +64,7 @@ python My_task.py
 安装完成后，启动 Web 面板即可体验全部功能：
 
 ```bash
-python My_task.py
+python main.py
 ```
 
 > 启动后访问 http://localhost:8000 ，所有功能（环境自检、抓包、训练、检测、攻击模拟）均通过 Web 面板操作。
@@ -74,7 +74,7 @@ python My_task.py
 启动 Web 面板：
 
 ```
-python My_task.py app
+python main.py app
 ```
 
 启动后访问 http://localhost:8000，所有功能通过 Web 面板操作：
@@ -90,7 +90,7 @@ python My_task.py app
 | 一键演示 | 控制面板 → 一键演示模式 |
 | 攻击模拟 | 控制面板 → 攻击模拟控制 |
 
-> 旧版 CLI 子命令（check/auto/menu/capture/ecapture/train/detect/demo/attack_sim）已整合到 Web 面板。`My_task.py` 现仅接受 `app` 或无参数启动 Web 面板。
+> 旧版 CLI 子命令（check/auto/menu/capture/ecapture/train/detect/demo/attack_sim）已整合到 Web 面板。`main.py` 现仅接受 `app` 或无参数启动 Web 面板。
 
 ### 1. 抓包采集流量数据
 
@@ -127,7 +127,7 @@ python My_task.py app
 ### 4. 启动 Web 监控面板
 
 ```
-python My_task.py app
+python main.py app
 ```
 
 - 启动 FastAPI 服务，访问 http://localhost:8000
@@ -180,7 +180,7 @@ python -m campus_ids.demo.attack_sim generate_pcap --output demo_attacks.pcap
 
 ```
 Task-main/
-├── My_task.py                     # CLI 入口（仅 app 命令，所有功能通过 Web 面板操作）
+├── main.py                     # CLI 入口（仅 app 命令，所有功能通过 Web 面板操作）
 ├── pyproject.toml                 # 包声明（src layout）
 ├── requirements.txt               # 依赖清单
 ├── Dockerfile                     # Docker 容器构建
@@ -523,7 +523,7 @@ python -m pytest tests/test_verification.py -v        # 验证测试（8 个）
 
 ```bash
 # 启动 Web 面板（所有功能均通过面板操作）
-python My_task.py
+python main.py
 
 # 面板内操作流程：
 # 1. 环境自检 → 确认环境就绪

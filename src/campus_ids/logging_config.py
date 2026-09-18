@@ -12,7 +12,7 @@
     capture.log      — 流量捕获模块日志（campus_ids.capture）
     detector.log     — 入侵检测模块日志（campus_ids.detector）
     model.log        — 模型训练/评估模块日志（campus_ids.model）
-    web.log          — Web面板模块日志（campus_ids.web）
+    web.log          — Web面板模块日志（campus_ids.web_new）
     detections.jsonl — 检测告警专用（JSON Lines 格式）
 """
 from __future__ import annotations
@@ -42,7 +42,7 @@ MODULE_LOG_FILES: dict[str, str] = {
     "campus_ids.capture": "capture.log",
     "campus_ids.detector": "detector.log",
     "campus_ids.model": "model.log",
-    "campus_ids.web": "web.log",
+    "campus_ids.web_new": "web.log",
 }
 
 # 单个日志文件最大 10MB，保留 5 个备份

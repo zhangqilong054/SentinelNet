@@ -1,7 +1,7 @@
 """Project entry point.
 
 用法:
-  python My_task.py app     启动 Web 面板（双引擎检测）
+  python main.py app     启动 Web 面板（双引擎检测）
 
 所有功能均通过 Web 面板操作:
   - 基础抓包:     控制面板 → 实时抓包控制
@@ -32,7 +32,7 @@ def main(argv: list[str] | None = None) -> int:
 
     print(
         "用法:\n"
-        "  python My_task.py app     启动 Web 面板\n\n"
+        "  python main.py app     启动 Web 面板\n\n"
         "所有功能均通过 Web 面板操作，无需额外命令行参数。\n"
     )
     return 1

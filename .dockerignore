@@ -21,5 +21,5 @@ frontend/playwright-report/
 frontend/e2e/smoke.spec.ts-snapshots/
 openapi_new.json
 apispec_check.json
-My_task.py
+main.py
 test_endpoints.bat

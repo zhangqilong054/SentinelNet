@@ -2,6 +2,7 @@
   "recorded_at": "2026-09-17T12:11:16",
   "recorder": "scripts/record_golden.py",
   "target": "旧 Flask 应用 campus_ids.web.app（基线对照）",
+  "_note": "旧 web/ 层已于 T5.1 删除，stubbed_bindings 中的 campus_ids.web.* 模块已不存在。需重新录制基线以更新。",
   "config": {
     "CAMPUS_IDS_DATA_DIR": "C:\\Users\\18551\\AppData\\Local\\Temp\\sn_record_j1vap9gy",
     "auth": "默认（api_token 为空 → 认证关闭，CSRF 强制生效）"

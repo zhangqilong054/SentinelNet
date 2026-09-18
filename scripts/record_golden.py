@@ -5,11 +5,11 @@
 
 ## 与旧版的区别（为什么必须重录）
 
-旧版录制时**没带 CSRF token**，所以全部 21 个写端点都被 Flask-WTF 拦成
+旧版录制时**没带 CSRF token**，所以全部 21 个写端点都被拦截成
 
-    400 <p>The CSRF token is missing.</p>
+    400 / 403 CSRF token missing/invalid
 
-→ 41 个 golden 里 **20 个是这种 400**，期望值本身不可用（报告的 P0 结论）。
+→ 41 个 golden 里大量是这种错误响应，期望值本身不可用（报告的 P0 结论）。
 
 补上 token 后同一条脚本立刻变**破坏性**（真抓包 / 真训练 / 真按 days=7 删数据），
 因此本版把 `_recorder_safety` 的三道保险列为**不可绕过的前置**：

@@ -156,14 +156,21 @@ def neutralized_report() -> str:
 
 
 def get_csrf_token(client) -> str:
-    """从旧应用首页的 <meta name="csrf-token"> 取出 CSRF token。
+    """从新 FastAPI 应用的 /api/csrf-token 端点获取 CSRF token。
 
-    没有它，所有 POST 都会被 Flask-WTF 拦成 400 —— 这正是旧 golden 不可用的原因。
+    新应用使用 HMAC-SHA256 双提交 cookie 机制，不再依赖 Flask-WTF 的 HTML meta 标签。
     """
-    import re
+    resp = client.get("/api/csrf-token")
+    if resp.status_code != 200:
+        raise RuntimeError(
+            f"/api/csrf-token 返回 {resp.status_code}，无法录制有效的写端点样本"
+        )
+    token = resp.json().get("csrf_token")
+    if not token:
+        raise RuntimeError("/api/csrf-token 响应中缺少 csrf_token 字段")
+    # 双提交：同时设置 cookie
+    client.cookies.set("csrf_token", token)
+    return token
 
-    html = client.get("/").get_data(as_text=True)
-    match = re.search(r'name="csrf-token"\s+content="([^"]+)"', html)
-    if not match:
-        raise RuntimeError("首页未渲染 csrf-token meta，无法录制有效的写端点样本")
-    return match.group(1)
+
+
