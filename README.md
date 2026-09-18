@@ -7,7 +7,7 @@
 ```
 ┌─────────────┐    ┌──────────────┐    ┌──────────────┐    ┌──────────────────┐
 │  流量采集    │───▶│  特征提取     │───▶│  双引擎检测   │───▶│  Web 监控面板     │
-│  Scapy/Npcap│    │  18 维特征    │    │  规则 + ML    │    │  Flask 实时仪表盘 │
+│  Scapy/Npcap│    │  18 维特征    │    │  规则 + ML    │    │  FastAPI 实时仪表盘 │
 │  TLS 解析   │    │  JA3 指纹     │    │  告警分级     │    │  API + 认证      │
 └─────────────┘    └──────────────┘    └──────────────────┘    └──────────────────┘
                           │                     │                      │
@@ -67,7 +67,7 @@ python My_task.py
 python My_task.py
 ```
 
-> 启动后访问 http://localhost:5000 ，所有功能（环境自检、抓包、训练、检测、攻击模拟）均通过 Web 面板操作。
+> 启动后访问 http://localhost:8000 ，所有功能（环境自检、抓包、训练、检测、攻击模拟）均通过 Web 面板操作。
 
 ## 四、使用方法
 
@@ -77,7 +77,7 @@ python My_task.py
 python My_task.py app
 ```
 
-启动后访问 http://localhost:5000，所有功能通过 Web 面板操作：
+启动后访问 http://localhost:8000，所有功能通过 Web 面板操作：
 
 | 功能 | 面板入口 |
 |------|----------|
@@ -130,7 +130,7 @@ python My_task.py app
 python My_task.py app
 ```
 
-- 启动 Flask 服务，访问 http://localhost:5000
+- 启动 FastAPI 服务，访问 http://localhost:8000
 - 面板功能：
   - 实时流量指标（QPS、连接数、端口数、来源 IP 数、SYN/UDP/DNS 包数）
   - QPS 趋势图
@@ -220,24 +220,28 @@ Task-main/
     │   └── dual_detector.py       # 双引擎检测器（规则 + ML 融合）
     ├── demo/
     │   └── attack_sim.py          # 攻击模拟脚本
-    └── web/
-        ├── app.py                 # Flask 应用入口 + 蓝图注册
-        ├── attack_sim_state.py    # 攻击模拟共享状态
-        ├── bp_admin.py            # 配置/攻击模拟/健康检查蓝图
-        ├── bp_capture.py          # 抓包/TLS/双引擎/载荷检测蓝图
-        ├── bp_model.py            # 模型训练/全流程/演示蓝图
-        ├── bp_monitor.py          # 流量监控/告警/SSE 推送蓝图
-        ├── sse.py                 # SSE 实时推送基础设施
-        ├── utils.py               # Web 层共享工具函数
-        ├── auth.py                # Flask-Login 认证
-        ├── database.py            # SQLite 用户数据库
-        ├── helpers.py             # 全局状态、抓包线程、流量更新与保存
-        ├── limiter.py             # API 速率限制（按端点分级）
-        ├── templates/
-        │   ├── index.html         # 仪表盘 Jinja 模板（6 页签）
-        │   ├── login.html         # 登录页模板
-        │   └── change_password.html  # 修改密码模板
-        └── static/
+    └── web_new/
+        ├── app.py                 # FastAPI 应用工厂 + lifespan + 路由注册
+        ├── auth.py                # 认证（登录/登出/密码修改）
+        ├── security.py            # 安全策略（@public/@readonly/@write + CSRF + 限流）
+        ├── schemas.py             # 请求体校验
+        ├── errors.py              # 统一异常处理
+        ├── openapi.py             # OpenAPI 自动生成
+        ├── pages.py               # 页面路由
+        ├── api/                   # API 路由模块
+        │   ├── admin.py           # 清理/导出
+        │   ├── alerts.py          # 告警查询/统计
+        │   ├── auth_routes.py     # 登录/登出/改密 API
+        │   ├── models.py          # 模型管理
+        │   ├── payload.py         # 载荷检测
+        │   ├── scenarios.py       # 剧本编排
+        │   ├── stream.py          # SSE 统一事件流
+        │   ├── system.py          # 健康/自检/配置/CSRF
+        │   ├── tasks.py           # 任务统一端点
+        │   ├── tls.py             # TLS 分析
+        │   └── traffic.py         # 流量查询
+        ├── templates/             # Jinja 模板
+        └── static/                # 静态资源
             ├── css/dashboard.css  # 设计 token + 组件样式
             └── js/
                 ├── alerts.js      # 告警面板逻辑
@@ -308,67 +312,103 @@ Task-main/
 
 ## 七、Web API 接口
 
+> **迁移说明（v0.3.0）**：旧 Flask 层端点已删除，以下为当前 FastAPI 层端点。旧端点迁移映射见操作手册 §5。
+
+### 任务控制（统一端点）
+
+| 方法 | 路径 | 说明 |
+|------|------|------|
+| GET | `/api/tasks` | 获取所有任务状态 |
+| POST | `/api/tasks/{name}/start` | 启动指定任务（name: capture / capture_full / detection / ml / scenario） |
+| POST | `/api/tasks/{name}/stop` | 停止指定任务 |
+
+### 剧本编排
+
+| 方法 | 路径 | 说明 |
+|------|------|------|
+| GET | `/api/scenarios` | 获取可用剧本列表 |
+| POST | `/api/scenarios/start` | 启动指定剧本（name: demo / full / attack） |
+| POST | `/api/scenarios/stop` | 停止当前剧本 |
+
+### 流量与告警
+
 | 方法 | 路径 | 说明 |
 |------|------|------|
 | GET | `/api/traffic` | 获取实时流量指标 |
 | GET | `/api/traffic/history` | 获取流量历史数据 |
-| GET | `/api/alerts` | 获取最近告警（支持 level 筛选） |
-| GET | `/api/stream/traffic` | SSE 实时流量推送 |
-| GET | `/api/stream/alerts` | SSE 实时告警推送 |
-| GET | `/api/config` | 获取当前检测阈值配置 |
-| POST | `/api/config` | 更新检测阈值 |
-| POST | `/api/save` | 保存流量统计到 CSV |
+| GET | `/api/alerts` | 获取最近告警（支持 level 筛选与分页） |
+| GET | `/api/alerts/stats` | 获取告警统计 |
+| GET | `/api/stream` | SSE 实时事件流（统一，取代旧 /api/stream/traffic + /api/stream/alerts） |
+
+### 配置与运维
+
+| 方法 | 路径 | 说明 |
+|------|------|------|
+| GET | `/api/settings` | 获取当前检测阈值配置 |
+| PUT | `/api/settings` | 更新检测阈值配置 |
 | POST | `/api/cleanup` | 清理旧数据 |
-| POST | `/api/capture/start` | 启动基础抓包线程 |
-| POST | `/api/capture/stop` | 停止基础抓包线程 |
-| GET | `/api/capture/status` | 查询基础抓包状态 |
-| POST | `/api/detector/start` | 启动检测节拍 |
-| POST | `/api/detector/stop` | 停止检测节拍 |
-| GET | `/api/detector/status` | 查询检测节拍状态 |
-| POST | `/api/capture/start-enhanced` | 启动增强抓包（18 维特征） |
-| POST | `/api/capture/stop-enhanced` | 停止增强抓包 |
-| GET | `/api/capture/enhanced-status` | 查询增强抓包状态 |
-| GET | `/api/tls/stats` | TLS 加密流量统计 |
-| GET | `/api/tls/suspicious` | 可疑 TLS 记录 |
-| GET | `/api/dual/stats` | 双引擎检测统计 |
-| POST | `/api/dual/load` | 加载 ML 模型 |
-| POST | `/api/dual/stop` | 停止 ML 预测 |
-| POST | `/api/payload/check` | 载荷检测（SQL 注入 / XSS）— **手工送检**，非实时链路 |
-| POST | `/api/attack/start` | 启动攻击模拟 |
-| POST | `/api/attack/stop` | 停止攻击模拟 |
-| GET | `/api/attack/status` | 查询攻击模拟状态 |
+| POST | `/api/export` | 导出流量数据到 CSV |
 | GET | `/api/check` | 环境自检 |
 | GET | `/api/health` | 系统健康检查（免认证） |
-| GET | `/api/model/list` | 列出已注册模型 |
-| POST | `/api/model/train` | 启动模型训练 |
-| GET | `/api/model/train-status` | 查询训练状态 |
-| POST | `/api/auto/start` | 启动自动检测 |
-| GET | `/api/auto/status` | 查询自动检测状态 |
-| POST | `/api/demo/start` | 启动一键演示 |
+| GET | `/api/csrf-token` | 获取 CSRF 令牌 |
+
+### TLS 与载荷
+
+| 方法 | 路径 | 说明 |
+|------|------|------|
+| GET | `/api/tls/analyze` | TLS 异常分析 |
+| GET | `/api/tls/stats` | TLS 加密流量统计 |
+| GET | `/api/tls/suspicious` | 可疑 TLS 记录 |
+| POST | `/api/payload/check` | 载荷检测（旧路径，兼容） |
+| POST | `/api/payload/analyze` | 载荷分析 |
+
+### 模型管理
+
+| 方法 | 路径 | 说明 |
+|------|------|------|
+| GET | `/api/models` | 获取可用模型列表 |
+| POST | `/api/models/train` | 启动模型训练 |
+| GET | `/api/models/train/status` | 获取训练状态 |
+| DELETE | `/api/models/{name}` | 删除指定模型 |
+
+### 认证
+
+| 方法 | 路径 | 说明 |
+|------|------|------|
+| POST | `/api/login` | 会话登录 |
+| POST | `/api/logout` | 会话登出 |
+| POST | `/api/change-password` | 修改密码 |
+
+### 页面
+
+| 方法 | 路径 | 说明 |
+|------|------|------|
+| GET | `/` | 控制台首页 |
+| GET | `/login` | 登录页 |
+| POST | `/login` | 登录提交 |
+| GET+POST | `/logout` | 登出 |
+| GET+POST | `/change-password` | 修改密码页 |
 
 > API 认证默认关闭，通过 `CAMPUS_IDS_AUTH_ENABLED=1` 启用。详见 [操作手册 §5](docs/操作手册.md)。
 
-### 写操作为何需要 CSRF Token
+### 写操作认证方式
 
-所有 `POST` 端点受 Flask-WTF CSRF 保护。仅附加 `Content-Type` 头**不能**通过校验，必须提交首页 `<meta name="csrf-token">` 中的 token；`utils._csrf_exempt` 只在 Bearer 模式下豁免（即设置了 `CAMPUS_IDS_API_TOKEN` 时）。默认配置下的两步调用：
+所有 `POST`/`PUT`/`DELETE` 端点受 CSRF 保护。会话模式下需先获取 CSRF 令牌：
 
 ```bash
-# 1) 取 token（HTML 页面免认证，同时保存会话 cookie）
-TOKEN=$(curl -s -c cookie.txt http://localhost:5000/ \
-  | grep -o 'name="csrf-token" content="[^"]*"' | cut -d'"' -f4)
+# 1) 取 CSRF 令牌
+TOKEN=$(curl -s http://localhost:8000/api/csrf-token | python -c "import sys,json;print(json.load(sys.stdin)['csrf_token'])")
 
 # 2) 带 token 调用写操作
-curl -X POST http://localhost:5000/api/cleanup \
-  -b cookie.txt -H "X-CSRFToken: $TOKEN" \
-  -H "Content-Type: application/json" -d '{"days": 30}'   # 保留最近 30 天
-
-curl -X POST http://localhost:5000/api/save -b cookie.txt -H "X-CSRFToken: $TOKEN"
+curl -X POST http://localhost:8000/api/cleanup \
+  -H "X-CSRFToken: $TOKEN" \
+  -H "Content-Type: application/json" -d '{"days": 30}'
 ```
 
-设置了 `CAMPUS_IDS_API_TOKEN` 后转为 Bearer 模式，写操作豁免 CSRF，直接带 `Authorization` 即可：
+设置了 `CAMPUS_IDS_API_TOKEN` 后转为 Bearer 模式，写操作豁免 CSRF：
 
 ```bash
-curl -X POST http://localhost:5000/api/cleanup \
+curl -X POST http://localhost:8000/api/cleanup \
   -H "Authorization: Bearer $CAMPUS_IDS_API_TOKEN" \
   -H "Content-Type: application/json" -d '{"days": 30}'
 ```
@@ -420,7 +460,7 @@ curl -X POST http://localhost:5000/api/cleanup \
 # 构建并启动（模拟模式，无需 Npcap）
 docker compose up --build
 
-# 访问面板：http://localhost:5000
+# 访问面板：http://localhost:8000
 ```
 
 关键环境变量：`CAMPUS_IDS_AUTH_ENABLED`、`CAMPUS_IDS_API_TOKEN`、`CAMPUS_IDS_WEB_PORT`。
@@ -505,7 +545,7 @@ docker compose up --build
 | 特征提取 | NumPy + Pandas |
 | 模型训练 | scikit-learn / XGBoost / LightGBM |
 | 类别均衡 | imbalanced-learn (SMOTE) |
-| Web 面板 | Flask + Chart.js |
+| Web 面板 | FastAPI + Vue 3 |
 | 日志 | Python logging + RotatingFileHandler |
 | 容器化 | Docker + Docker Compose |
 | 测试 | pytest |

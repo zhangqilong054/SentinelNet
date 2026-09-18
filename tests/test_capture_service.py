@@ -108,6 +108,12 @@ def _drain(state: RuntimeState) -> list[dict]:
             return out
 
 
+def _wait_for_thread(state: RuntimeState, timeout: float = 2.0) -> None:
+    """等待抓包线程处理完毕（FakeSniff 同步执行，join 消除竞态）。"""
+    if state.capture_thread is not None:
+        state.capture_thread.join(timeout=timeout)
+
+
 # ══ 基础抓包生命周期 ══════════════════════════════════════════════
 
 
@@ -210,6 +216,7 @@ class TestCaptureWorker:
     def test_tcp_syn_packet_is_queued_with_flags(self, svc, state, patch_sniff):
         patch_sniff([IP(src="10.0.0.1", dst="10.0.0.2") / TCP(sport=1234, dport=80, flags="S")])
         svc.start_capture()
+        _wait_for_thread(state)
 
         rows = _drain(state)
         assert len(rows) == 1, f"应入队 1 个包，实际 {rows}"
@@ -224,11 +231,13 @@ class TestCaptureWorker:
     def test_non_syn_tcp_is_not_flagged_as_syn(self, svc, state, patch_sniff):
         patch_sniff([IP() / TCP(sport=1, dport=80, flags="A")])
         svc.start_capture()
+        _wait_for_thread(state)
         assert _drain(state)[0]["is_syn"] is False
 
     def test_dns_packet_is_flagged_by_dst_port(self, svc, state, patch_sniff):
         patch_sniff([IP() / UDP(sport=33333, dport=DNS_PORT)])
         svc.start_capture()
+        _wait_for_thread(state)
 
         row = _drain(state)[0]
         assert row["is_dns"] is True
@@ -238,12 +247,14 @@ class TestCaptureWorker:
     def test_other_udp_port_is_not_dns(self, svc, state, patch_sniff):
         patch_sniff([IP() / UDP(sport=33333, dport=DNS_PORT + 1)])
         svc.start_capture()
+        _wait_for_thread(state)
         assert _drain(state)[0]["is_dns"] is False
 
     def test_non_ip_packet_is_skipped(self, svc, state, patch_sniff):
         """ARP 没有 IP 层 → `_parse_base_fields` 返回 None → 不得入队、不得抛异常。"""
         patch_sniff([Ether() / ARP()])
         svc.start_capture()
+        _wait_for_thread(state)
         assert _drain(state) == []
 
     def test_stop_filter_reads_live_flag_not_captured_value(self, svc, state, patch_sniff):
@@ -269,6 +280,7 @@ class TestCaptureWorker:
         state.packet_queue = queue.Queue(maxsize=1)
         patch_sniff([IP() / TCP(sport=i, dport=80) for i in range(3)])
         svc.start_capture()
+        _wait_for_thread(state)
 
         assert len(_drain(state)) == 1
         assert state.dropped_packets == 2, f"应丢 2 个，实际 {state.dropped_packets}"
@@ -277,17 +289,20 @@ class TestCaptureWorker:
         pkt = IP() / TCP(sport=1234, dport=TLS_PORT, flags="S")
         patch_sniff([pkt])
         svc.start_capture()
+        _wait_for_thread(state)
         assert tls.calls == [pkt], "命中 TLS_PORTS 的包必须交给 tls_analyzer"
 
     def test_non_tls_port_does_not_trigger_tls_analysis(self, svc, state, tls, patch_sniff):
         patch_sniff([IP() / TCP(sport=1234, dport=80)])
         svc.start_capture()
+        _wait_for_thread(state)
         assert tls.calls == []
 
     def test_dns_udp_does_not_trigger_tls_analysis(self, svc, state, tls, patch_sniff):
         """TLS 只在 TCP 上解析 —— UDP/53 不得触发。"""
         patch_sniff([IP() / UDP(sport=1, dport=DNS_PORT)])
         svc.start_capture()
+        _wait_for_thread(state)
         assert tls.calls == []
 
     def test_tls_analyzer_exception_does_not_break_capture(self, svc, state, patch_sniff):
@@ -300,6 +315,7 @@ class TestCaptureWorker:
             IP() / TCP(sport=5678, dport=80),
         ])
         svc.start_capture()  # 不得抛异常
+        _wait_for_thread(state)
 
         assert len(tls.calls) == 1, "异常后仍应处理后续包"
         assert len(_drain(state)) == 2
@@ -309,6 +325,7 @@ class TestCaptureWorker:
         patch_sniff([], raises=OSError("无法打开网卡"))
         with caplog.at_level("ERROR", logger="campus_ids.services.capture_service"):
             svc.start_capture()  # 不得抛异常
+        _wait_for_thread(state)
         assert any("后台抓包线程异常退出" in r.getMessage() for r in caplog.records)
 
 

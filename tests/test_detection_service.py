@@ -24,9 +24,19 @@ import pytest
 from campus_ids.config import (
     DEMO_CONN_MAX, DEMO_CONN_MIN, DEMO_QPS_MAX, DEMO_QPS_MIN,
 )
+from campus_ids.runtime.db import init_db
 from campus_ids.runtime.events import TOPIC_TRAFFIC
 from campus_ids.runtime.state import RuntimeState
 from campus_ids.services.detection_service import DetectionService
+
+
+# ── 数据库建表 ──────────────────────────────────────────────────────
+
+
+@pytest.fixture(autouse=True)
+def _schema():
+    """隔离库需要建表才能落库（conftest 只重置引擎，不建表）。"""
+    init_db()
 
 
 # ── 记录型 fake 依赖 ──────────────────────────────────────────────
