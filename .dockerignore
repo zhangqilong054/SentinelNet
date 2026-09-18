@@ -1,0 +1,25 @@
+# 构建上下文瘦身：镜像只需要 src/ + frontend/ + pyproject.toml + requirements.txt
+.git
+.workbuddy
+backup/
+data/
+logs/
+models/
+docs/
+tests/
+scripts/
+migrations/
+*.pkl
+*.db
+*.csv
+*.png
+*.log
+*.jsonl
+frontend/node_modules/
+frontend/test-results/
+frontend/playwright-report/
+frontend/e2e/smoke.spec.ts-snapshots/
+openapi_new.json
+apispec_check.json
+My_task.py
+test_endpoints.bat

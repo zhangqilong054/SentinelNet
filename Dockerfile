@@ -12,7 +12,7 @@ WORKDIR /frontend
 
 # 先复制依赖文件，利用 Docker 缓存层
 COPY frontend/package.json frontend/package-lock.json ./
-RUN npm ci --prefer-offline
+RUN npm ci --prefer-offline --legacy-peer-deps
 
 # 复制前端源码并构建
 COPY frontend/ ./
@@ -53,9 +53,6 @@ RUN pip install --no-cache-dir --no-deps -e .
 # 暴露 Web 面板端口（默认 5000，可通过 CAMPUS_IDS_WEB_PORT 覆盖）
 EXPOSE 5000
 
-# 数据持久化目录
-VOLUME ["/app/data", "/app/logs"]
-
 # 环境变量
 ENV PYTHONUNBUFFERED=1
 ENV CAMPUS_IDS_DATA_DIR=/app/data
@@ -68,9 +65,14 @@ HEALTHCHECK --interval=30s --timeout=5s --start-period=10s \
     CMD python -c "import urllib.request; urllib.request.urlopen('http://localhost:5000/api/health')" || exit 1
 
 # 非 root 用户运行（安全加固）
-RUN useradd --create-home appuser && chown -R appuser:appuser /app
+RUN useradd --create-home appuser && mkdir -p /app/data /app/logs \
+    && chown -R appuser:appuser /app
+
+# 数据持久化目录（必须在 mkdir+chown 之后声明，卷初始化才继承 appuser 属主）
+VOLUME ["/app/data", "/app/logs"]
+
 USER appuser
 
 # Uvicorn 单 worker 运行（ADR-0001 §4.1：多 worker 会导致状态分裂）
 # WEB_CONCURRENCY>1 时 create_app() 会拒绝启动
-CMD ["uvicorn", "campus_ids.web_new.app:create_app()", "--host", "0.0.0.0", "--port", "5000", "--factory"]
+CMD ["uvicorn", "campus_ids.web_new.app:create_app", "--host", "0.0.0.0", "--port", "5000", "--factory"]

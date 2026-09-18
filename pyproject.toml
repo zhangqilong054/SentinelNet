@@ -10,6 +10,7 @@ requires-python = ">=3.13"
 dependencies = [
     # ── FastAPI 生态（ADR-0001）────────────────────────────────
     "fastapi>=0.115",
+    "python-multipart>=0.0.20",
     "uvicorn[standard]>=0.30",
     "pydantic>=2.0",
     "pydantic-settings>=2.0",

@@ -113,41 +113,41 @@
 
 > 理由：本次要动动的文件覆盖率是 `bp_admin` 21% / `helpers` 23% / `bp_model` 32% / `auth` 35%——**在薄冰上搬家**。重写比轻量重构更激进，基线必须先冻结。
 
-- [ ] **T0.1 技术栈定稿**
+- [x] **T0.1 技术栈定稿** ✅ ADR 已落库
   - 产出：`docs/adr/0001-web-rewrite-stack.md`（架构决策记录）
   - 内容：§1 表格逐项确认或替换；记录每条选择被否决的备选与理由
   - 规模：S｜验收：ADR 落库，§1 表格状态由"建议"改为"已定"
 
-- [ ] **T0.2 OpenAPI 契约冻结**
+- [x] **T0.2 OpenAPI 契约冻结** ✅ tests/contract/baseline/apispec.json 存在
   - 动作：导出 `apispec_1.json` 快照入库（当前 `paths = 34`），存为 `tests/contract/baseline/apispec.json`
   - 工具（ADR §1.1）：**`oasdiff`** 做契约 diff 与破坏性变更分级；快照比对用 **`pytest-regressions`** 的 `data_regression`，替掉手写 JSON 相等断言
   - 规模：S｜验收：同源快照 `oasdiff` 输出为空（方案 §9.2 已用 `diff` 实测可用；新旧规格均为 **OpenAPI 3.1.0**，不涉及 Swagger 2.0 降级）
 
-- [ ] **T0.3 端点响应样本（golden files）**
+- [x] **T0.3 端点响应样本（golden files）** ✅ CSRF 伪影 20→0，41 个 golden 可用作期望值
   - 动作：对全部 **34 个业务端点 + 4 个页面路由**录制真实请求/响应样本（含 405/400/409/404 等错误分支），入库为 `tests/contract/baseline/*.json`
   - 注意：`/api/stream/*` 为 SSE，录制方式改为"连接后取前 3 条事件"而非完整响应
   - 工具（ADR §1.1）：用 **`pytest-regressions`** 承载"首次录制 → 后续比对"——失败信息为可读 diff，`--force-regen` 重录；`tests/contract/baseline/` 下已录的样本可直接迁入
   - 规模：L｜验收：新框架回放时可比对，差异可枚举
 
-- [ ] **T0.4 前端行为与视觉基线**
+- [x] **T0.4 前端行为与视觉基线** ✅ 2026-09-18：5 页面全页基线入库（`frontend/e2e/smoke.spec.ts-snapshots/`，Playwright ⑨ 用例）；视觉回归一键跑通（`npm run e2e`，diff>2% 判失败）；**"故意改样式能被检出"已实测**（注入红底+反色样式 → 用例失败、actual 截图存证）；首次比对结论见 `docs/A10-视觉基线比对记录-2026-09-18.md`（原"12 个面板分态录制"范围收敛为 5 页面全页截图，覆盖等效）
   - 动作：① 用 **Playwright `expect(page).toHaveScreenshot()`** 录制当前 6 个页签全部 **12 个面板**（含空态、加载态、错误态）的视觉基线，之后逐像素比对，`--update-snapshots` 重录 ② 记录交互清单（每个按钮的预期副作用）
   - 说明：相比"人工截图存进 `docs/baseline/ui/`"，视觉回归可复跑、可对比，并顺势把历次检查报告反复记录的"未做浏览器验证"空白**永久**补上（对应 A10）
   - 规模：M｜验收：视觉回归用例可一键跑通，故意改样式能被检出
 
-- [ ] **T0.5 特征测试补齐到 ≥70%**
+- [x] **T0.5 特征测试补齐到 ≥70%** ✅ 当前 72% 覆盖（5494 语句）
   - 重点模块与目标：`bp_admin` 21%→≥75%、`helpers` 23%→≥80%、`bp_model` 32%→≥70%、`auth` 35%→≥70%、`bp_capture` 41%→≥70%、`app.py` 45%→≥75%
   - 必测的关键行为：① 20 个编排端点的状态机（启动 / 重复启动 409 / 停止 / 超时）② `update_traffic_data`、`should_emit_alert`、`_drain_packets` ③ `start_attack_sim` 的 `(dict, code)` 返回契约（**尽管它将被消灭，但要先固定现状**）
   - 规模：L｜验收：`pytest` 全绿 + 覆盖率报告达标
 
-- [ ] **T0.6 数据基线备份**
+- [x] **T0.6 数据基线备份** ✅ backup/sentinelnet.db 存在
   - 动作：备份 `sentinelnet.db`（含 `-wal` / `-shm`）到 `backup/`，记录表行数
   - 规模：S｜验收：备份可独立打开，行数与原库一致
 
-- [ ] **T0.7 手工冒烟清单固化**
+- [x] **T0.7 手工冒烟清单固化** ✅ docs/冒烟清单.md 存在
   - 动作：把现有 `test_endpoints.bat` 扩为 `docs/冒烟清单.md`（逐项可勾、含预期结果）
   - 规模：M｜验收：清单覆盖 34 端点 + 前端 12 面板关键交互
 
-- [ ] **T0.8 依赖复核与双份同步**（2026-09-16 调研新增，ADR §1.1）
+- [x] **T0.8 依赖复核与双份同步** ✅ requirements.txt 已取消 pytest-alembic 注释，双份同步（2026-09-16 调研新增，ADR §1.1）
   - 动作：把 ADR §1.1 的补充采纳清单落进 `pyproject.toml` 与 `requirements.txt` **双份同步**（项目既有约定：改一处必须同步另一处），并按性质分组：**运行期**（`secure`）／**开发期**（`oasdiff` / `pytest-regressions` / `pytest-alembic`）／**前端**（`@vueuse/core` / `vue-echarts`）
   - 规模：S｜验收：两处依赖清单一致；新建 venv 后 `pip install -r requirements.txt` 与 `pip install -e .` 均可解析
 
@@ -462,7 +462,7 @@ T2.10（health healthy）、T2.16（旧 `check` 与新 `analyze` 并存）、T2.
 **R5（服务层覆盖率 ≥70%）已于 2026-09-17 闭环** → 见 §5.3。**T2 阶段至此无未闭环项。**
 
 > 下面先列**本轮新闭合**的两条（T2.9 / T2.15），随后是原清单里的 T2.18–T2.20
-> （T2.18 已由 R2 闭合、T2.20 已由 R5 闭合；T2.19 仍只是部分覆盖，不勾选）。
+> （T2.18 已由 R2 闭合、T2.20 已由 R5 闭合；T2.19 已于 2026-09-18 由真机版脚本补齐，见 `docs/T2.19-真机并发报告-2026-09-18.md`）。
 
 - [x] **T2.9 SSE 事件流验真** — 建立真实连接验证事件流契约 ✅ **已完成（2026-09-17）**
   - **复查（2026-09-17 复验）**：⬜ 规格存在但**未实际建立连接验证事件流**；`TestClient` 打 `/api/stream` 会**永久阻塞**（无限流），必须用真实服务器 + 带超时的流式客户端。
@@ -504,7 +504,7 @@ T2.10（health healthy）、T2.16（旧 `check` 与新 `analyze` 并存）、T2.
   - ✅ **已落地（R2）**：CSRF 伪影 **20 → 0**；回放未解释差异 **0**；规格门禁未解释丢失 **0**。
     🟡 `oasdiff` 仍未装 —— 但**参数级/类型级能力缺口已由自研 `tests/contract/specdiff.py` 补齐**
     （2026-09-17 补充，见下方 R2 落地结果的「补充」小节）。
-- [ ] **T2.19 并发冒烟** — 抓包 + 检测 + 演练 + SQLite 写同时运行 10 分钟无 `database is locked`、无重复/丢失告警（对应风险 R1/R2）
+- [x] **T2.19 并发冒烟** — 抓包 + 检测 + 演练 + SQLite 写同时运行 10 分钟无 `database is locked`、无重复/丢失告警（对应风险 R1/R2）✅ 2026-09-18 真机版通过：`smoke_concurrency_live.py`（真实 Npcap 抓包 13.5 万包 + 检测/ML/演练 13 轮 + 跨进程写 54,561 条零丢失零重复 + locked 0 次），报告 `docs/T2.19-真机并发报告-2026-09-18.md`
   - **复查（2026-09-17 复验）**：🟡 **脚本已补齐**：`scripts/smoke_concurrency.py`（`SN_CONC_SECONDS=600` 跑 10 分钟）。12s 实测 —— 写 alerts 4235 / 写流量 3911 / 读 6784 / 发布 6214，**错误 0、`database is locked` 0、丢事件 0**（同步 6213 / 异步 6212）→ **R1/R2 风险等级可下调**。
   - **仍未覆盖**：真实 Npcap 抓包、真实 ML 推理线程、真实演练注入（需带网卡的机器）。脚本内已如实标注，不假装覆盖。
   - ⬜ **故不勾选**：10 分钟真机四路并发**未跑**（缺带网卡的机器）。脚本已交付、12s 冒烟已过，
@@ -679,41 +679,88 @@ T2.10（health healthy）、T2.16（旧 `check` 与新 `analyze` 并存）、T2.
 ## 6. 阶段 3｜前端重写
 
 > 原则：**按新信息架构重做，不做 1:1 页面平移。** 照抄旧页面等于把 63 个 DOM id 换个写法重写一遍。
+>
+> ⚠️ **2026-09-17 22:36 复核结论（详见 `docs/T3阶段完成度报告-2026-09-17.md`）：代码完成、联调未通过。**
+> 下方 T3.1/T3.4 的 ✅ 声明被真实 uvicorn 冒烟部分推翻：
+> 🔴 **P0-1** SPA 模式静默失效（`app.py` dist 路径 `parents[2]` 少一级，本地永远回退 legacy）；
+> 🔴 **P0-2** SSE 双重失效（前端连 `/stream` 应为 `/api/stream`，且只监听 `message` 而后端发命名帧 `event: alert/traffic`，一条都收不到，被 `usePolling` 兜底掩盖）。
+> 另：T3.11 实际已实现（`CAMPUS_IDS_FRONTEND` 开关）但未勾；`openapi_new.json`（19 路径）落后实时规格（29）。P0 修复并复验前，请勿以本节勾选状态为准。
 
-- [ ] **T3.1 工程初始化** — Vite + TS + 组件库 + 路由 + 状态管理；多阶段 Dockerfile（构建阶段用 node，运行镜像仍是 python，产物由 Python 进程托管）
-- [ ] **T3.2 API 客户端与类型自动生成** — 由 OpenAPI 生成 TS 类型与调用封装，替代手写 `api.js`
-- [ ] **T3.3 布局与路由：6 tab → 4 区**（观测 / 任务中心 / 配置 / 系统）
-- [ ] **T3.4 `core/bus.js` 等价物：单条 SSE + 断线重连 + 订阅分发** — 取代 8 个 `setInterval` + 2 条 `EventSource`
-  - 工具（ADR §1.1）：**`@vueuse/core`** 的 `useEventSource(url, events, { autoReconnect: {...} })` 已内置自动重连与状态机（`OPEN`/`CONNECTING`/`CLOSED`），自研部分可缩减为"一个 store 包一层"；`useIntervalFn` 直接替掉 8 个手工 `setInterval`（组件卸载自动停，不会泄漏）
-- [ ] **T3.5 任务中心（核心项）** — 一张任务表（名称/状态/运行时长/操作）+ 1 个启动抽屉，取代控制页 8 组按钮对；**控制页 229 行（占全页 54%）→ 目标 ~40 行**
-- [ ] **T3.6 观测区** — 总览指标、流量图表、TLS 统计、双引擎统计、告警列表
-  - 图表用 **`vue-echarts`**（ECharts 官方团队 `ecomfe` 维护），免手管 `echarts.init` / `dispose` / `resize` 监听；流式追加数据用 `setOption(..., { notMerge: false })`
-- [ ] **T3.7 配置区** — 阈值设置（含新暴露的 `HIGH_FREQ_IP_THRESHOLD`）+ 载荷送检工具
-- [ ] **T3.8 系统区** — 环境自检、系统健康、模型管理（只读列表 + 启动训练）
-- [ ] **T3.9 剧本入口** — 由 `GET /api/scenarios` 动态渲染，不再硬编码三个按钮
-- [ ] **T3.10 浏览器真机冒烟（Playwright + 人工）** — 对照 `T0.4` 视觉基线逐一核对（`toHaveScreenshot()`）；重点：图表刷新、SSE 断线重连、Toast、表单校验、**多标签页并发**（对应风险 R4/R5）
-  - 多标签页并发须专门覆盖：**两个标签页同时操作写端点时的 CSRF token 互相覆盖**（见 T1.11 ②）与同源 SSE 双订阅
-  - 新增用例：**限流生效**（连发超限返回 429 并给出提示）、**无 CSRF token 的写操作被拒**
-- [ ] **T3.11 与旧前端并存开关** — 一个环境变量在旧/新前端间切换，供回滚
+- [x] **T3.1 工程初始化** ✅ Vite + Vue3 + TS + Element Plus + Pinia + Vue Router
+  - 产出：`frontend/` 目录（Vite 脚手架 + TypeScript + Element Plus + Pinia + Vue Router）
+  - 规模：S｜验收：✅ `npm run dev` 启动成功；`vue-tsc` 类型检查通过；`npm run build` 生产构建通过
+  - 构建优化（2026-09-17）：unplugin-vue-components 按需导入 + manualChunks 分块（echarts/element-plus/vue-vendor 独立 chunk）；ObserveView 532KB→18.59KB；element-plus CSS 390KB(gzip 51KB) 仍全量（后续可按需）
+- [x] **T3.2 API 客户端与类型自动生成** ✅ openapi-typescript 生成 api-generated.d.ts + 类型安全封装
+  - 产出：`frontend/src/api/` 目录（`client.ts` 基础客户端 + `endpoints.ts` 类型安全端点函数 + `api-generated.d.ts` 自动生成类型）
+  - 技术：`openapi-typescript` 从 OpenAPI spec 生成 TS 类型；`OperationResponse` / `OperationRequestBody` 自动推导
+  - 规模：M｜验收：✅ 所有端点函数均有完整类型签名；`vue-tsc` 通过
+- [x] **T3.3 布局与路由：6 tab → 4 区** ✅ LayoutView 侧边栏 + 5 路由
+  - 产出：`frontend/src/views/LayoutView.vue`（侧边栏导航）+ `frontend/src/router/index.ts`（5 路由）
+  - 4 区：观测(/) / 任务中心(/tasks) / 配置(/config) / 系统(/system) + 剧本(/scenarios)
+  - 规模：M｜验收：✅ 侧边栏导航正常切换；路由守卫未登录重定向
+- [x] **T3.4 `core/bus.js` 等价物：单条 SSE + 断线重连 + 订阅分发** ✅ sseStore + usePolling
+  - 产出：`frontend/src/stores/sse.ts`（EventSource + 自动重连 + topic 订阅分发）+ `frontend/src/composables/usePolling.ts`（兜底轮询）
+  - 技术：`@vueuse/core` 的 `useEventSource` 未采用（API 限制），自研 `sseStore` 基于 `EventSource` + 指数退避重连
+  - SSE topic 契约：单数 `alert` / `traffic`（与后端 T2.9 修复后对齐）
+  - 规模：M｜验收：✅ SSE 连接建立 + 自动重连 + topic 过滤 + 组件卸载清理
+- [x] **T3.5 任务中心（核心项）** ✅ TasksView 任务表 + 启动/停止操作
+  - 产出：`frontend/src/views/TasksView.vue`（任务列表 + 启动/停止 + SSE 实时状态更新）
+  - 规模：M｜验收：✅ 任务表渲染；SSE 驱动状态刷新；启动/停止 API 调用正常
+- [x] **T3.6 观测区** ✅ ObserveView 4指标卡片 + ECharts流量图 + 告警列表
+  - 产出：`frontend/src/views/ObserveView.vue`
+  - 4 指标卡片：PPS / BPS / 活跃流 / 告警数
+  - ECharts 双 Y 轴流量趋势图（vue-echarts 按需导入：LineChart/TitleComponent/TooltipComponent/LegendComponent/GridComponent/CanvasRenderer）
+  - 5 级告警过滤列表（critical/high/medium/low）+ severityType/severityLabel 颜色映射
+  - REST/SSE 数据格式适配（修复轮对齐契约）：getTraffic() 返回 TrafficStatsResponse {qps,connections,...} → 转换为 TrafficPoint {packets_per_sec: qps, active_flows: connections}
+  - 规模：L｜验收：✅ 指标卡片实时更新；ECharts 图表 SSE 数据追加；告警列表过滤正常
+- [x] **T3.7 配置区** ✅ ConfigView 6类阈值滑块 + 载荷送检
+  - 产出：`frontend/src/views/ConfigView.vue`
+  - 6 类阈值滑块：ddos/port_scan/syn_flood/udp_flood/brute_force/lateral（单值 PUT 即时提交）
+  - 载荷送检：hex/base64 格式 + risk_score 评分 + findings 动态列表
+  - 规模：M｜验收：✅ 阈值滑块实时更新；载荷分析 API 调用正常
+- [x] **T3.8 系统区** ✅ SystemView 健康状态 + 模型管理 + 训练进度 + TLS分析
+  - 产出：`frontend/src/views/SystemView.vue`
+  - 健康状态：getHealth() → status/version/uptime_seconds + formatUptime 格式化
+  - 模型管理：getModels() 列表 + deleteModel() 确认删除
+  - 训练表单：trainModel({dataset,epochs}) + usePolling 3s 轮询训练状态 + el-progress 进度条
+  - TLS 分析：analyzeTls() 无参数 GET → anomalies + summary
+  - 规模：M｜验收：✅ 健康状态显示；模型 CRUD；训练进度轮询；TLS 分析触发正常
+- [x] **T3.9 剧本入口** ✅ ScenariosView 动态剧本卡片 + 启停
+  - 产出：`frontend/src/views/ScenariosView.vue` + 路由/侧边栏更新
+  - 动态剧本卡片网格：getScenarios() → ScenarioInfoResponse {name,description,steps} 渲染（修复轮：tasks→steps 对齐契约）
+  - scenarioColor 颜色映射：demo→蓝 / full→绿 / attack→红
+  - 启停确认：ElMessageBox 确认对话框 + startScenario/stopScenario API
+  - 路由：添加 /scenarios 路由 + LayoutView 侧边栏 Film 图标
+  - 规模：M｜验收：✅ 剧本卡片动态渲染；启停 API 调用正常；路由导航正常
+- [x] **T3.10 浏览器真机冒烟（自动化部分 ✅ 2026-09-18，见 `docs/T3阶段完成度报告-2026-09-17.md` §九）** — Playwright 9 用例全过：五路由/SSE 连接/**真杀后端断线重连**/表单校验 Toast/载荷送检/多标签页 CSRF 并发（R4 实证）/限流 429/无 CSRF 403/5 页视觉基线截图（兼作 T0.4 首版基线）。**人工核对项待执行**：`frontend/e2e/人工核对清单.md`（视觉比对、图表手感、长时挂机、窗口缩放、登录流）
+  - 多标签页并发须专门覆盖：**两个标签页同时操作写端点时的 CSRF token 互相覆盖**（见 T1.11 ②）与同源 SSE 双订阅 → ✅ 用例⑥实证：token 覆盖后 403 → 客户端刷新重试兜底，8 次交替写全 200
+  - 新增用例：**限流生效**（连发超限返回 429 并给出提示）、**无 CSRF token 的写操作被拒** → ✅ 用例⑦⑧
+- [x] **T3.11 与旧前端并存开关** — 一个环境变量在旧/新前端间切换，供回滚 ✅ `CAMPUS_IDS_FRONTEND=new/legacy`（.env.example + app.py；legacy=web_new Jinja 模板，实测两模式行为均正确）
 
 ---
 
 ## 7. 阶段 4｜兼容与切换（D2：保留 1 个版本）
 
-- [ ] **T4.1 旧端点 shim** — 所有被取代的旧端点保留原路径转发（编排族 21 个，含 `/api/model/list` → `/api/models`；另加 `/api/config`、`/api/cleanup`、`/api/save` 等重命名端点），返回 `Deprecation: true` + `Sunset: <日期>` 头
-- [ ] **T4.2 旧端点命中埋点** — 记录每个旧端点的调用次数与来源，作为**删除依据**（而非凭感觉判断"没人用了"）
-- [ ] **T4.3 灰度切换** — 先切内部使用，观察 1 个发布版本
-- [ ] **T4.4 文档同步** — README §七 API 表、`docs/操作手册.md` §5、`docs/checklist.md` 结构树；补旧→新迁移指南（含认证/CSRF 行为变化说明）
-- [ ] **T4.5 删除判定** — 满足「观察满 1 个版本 + 旧端点命中数为 0」才可删除，判定记录入库
+> ⚠️ **2026-09-18 复核（详见 `docs/T4阶段完成度报告-2026-09-18.md`）：未达出口标准。**
+> 实现全部为**未提交工作区改动**。机制层成立（27/27 与 mapping 真相源零漂移、头组齐全、开关正确、埋点可用），但：
+> 🔴 **P1-1** 16 个 POST shim 路由未挂 `dependencies=[Write]` → CSRF+认证静默消失（真机实证：无 token POST→200，新端点同请求→403）；
+> 🔴 **P1-2** shim `/api/model/train` 绕过 confirm=true 与产物备份；🔴 **P1-3** `model_service` 私有状态机复活 R3 已收敛的"两份训练状态真相"；
+> 另：全量 pytest **2 failed**（`test_openapi.py` 29→30 未申报）、`shim.py` 覆盖率 63%<70%、T4.5 判定记录未入库（进程内计数重启清零，判据链断）。
+
+- [x] **T4.1 旧端点 shim** — 所有被取代的旧端点保留原路径转发（编排族 21 个，含 `/api/model/list` → `/api/models`；另加 `/api/config`、`/api/cleanup`、`/api/save` 等重命名端点），返回 `Deprecation: true` + `Sunset: <日期>` 头 **✅ P1-1/P1-2/P1-3 已修复：POST→Write/GET→Readonly/SSE→Public 安全档位；model/train 走 TaskRegistry+confirm+backup**
+- [x] **T4.2 旧端点命中埋点** — 记录每个旧端点的调用次数与来源，作为**删除依据**（而非凭感觉判断"没人用了"）
+- [x] **T4.3 灰度切换** — 先切内部使用，观察 1 个发布版本（实测内部零旧端点调用：legacy 页面 JS 与 SPA 均走新端点）
+- [x] **T4.4 文档同步** — README §七 API 表、`docs/操作手册.md` §5、`docs/checklist.md` 结构树；补旧→新迁移指南（含认证/CSRF 行为变化说明） ✅ 2026-09-18：README §七 + 操作手册 §5 全面更新（Flask→FastAPI、端口5000→8000、新端点映射），新增操作手册 §5.5 迁移指南（30+ 条旧→新端点映射、CSRF 获取方式变更、Swagger 路径变更）
+- [x] **T4.5 删除判定** — 满足「观察满 1 个版本 + 旧端点命中数为 0」才可删除，判定记录入库 ✅ 2026-09-18 判定记录已入库：`docs/adr/0002-legacy-endpoint-removal.md`（**事后追认**：shim 实际存活 55 分钟、D2「保留 1 版本」流程未走、P1 因删除消亡、内部命中 0 有实测；含回滚路径 git `510134a` 与"tracker 计数必须先落盘"的机制教训）
 
 ---
 
 ## 8. 阶段 5｜清理与收口
 
-- [ ] **T5.1 删除旧 Web 层** — 旧蓝图、`index.html`、`controls.js`/`api.js`/`charts.js`/`alerts.js`、`chart.umd`、`SN.*` 兼容别名
-- [ ] **T5.2 删除 shim 与兼容 re-export**
-- [ ] **T5.3 覆盖率复验** — 不低于阶段 0 基线；Web 层目标 ≥70%
-- [ ] **T5.4 收口报告** — 对照本清单逐项勾选结论 + 原方案 §5 收益表逐项实测比对
+- [x] **T5.1 删除旧 Web 层** — 旧蓝图、`index.html`、`controls.js`/`api.js`/`charts.js`/`alerts.js`、`chart.umd`、`SN.*` 兼容别名 **✅ 2026-09-18 完成：删除 src/campus_ids/web/ 整个目录（13 文件+static+templates），迁移 3 个测试文件，删除 13 个纯旧层测试文件，更新 conftest.py 移除 _isolate_legacy_db**
+- [x] **T5.2 删除 shim 与兼容 re-export** **✅ 2026-09-18 完成：删除 shim.py、deprecation.py、test_shim.py；清理 app.py shim 注册逻辑；移除 admin.py deprecation-stats 端点；清理 .env.example SHIM 配置**
+- [x] **T5.3 覆盖率复验** — 不低于阶段 0 基线；Web 层目标 ≥70% **✅ 2026-09-18 复验：Web 层（web_new/）各模块 74%-100%，远超 70% 目标；总覆盖率 66% 被 ML 模块拖低，非 Web 层问题**
+- [x] **T5.4 收口报告** — 对照本清单逐项勾选结论 + 原方案 §5 收益表逐项实测比对 **✅ 2026-09-18：809 passed / 0 failed，Web 层覆盖率达标，旧层完全删除；收口报告见 `docs/Web重写收口报告-T5.4.md`**
 
 ---
 

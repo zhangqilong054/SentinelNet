@@ -16,10 +16,11 @@ services:
       - model-data:/app/data
       - log-data:/app/logs
     environment:
-      - CAMPUS_IDS_DATA_DIR=/app/data
-      - CAMPUS_IDS_LOG_DIR=/app/logs
-      # 单 worker 约束：不设置 WEB_CONCURRENCY（默认为空，即单 worker）
-      # 违反约束（WEB_CONCURRENCY>1）时 create_app() 会拒绝启动
+      CAMPUS_IDS_DATA_DIR: /app/data
+      CAMPUS_IDS_LOG_DIR: /app/logs
+      # 生产密钥：必须由 .env / 环境提供，缺失则 compose 拒绝启动
+      # 生成方式：python -c "import secrets;print(secrets.token_hex(32))"
+      CAMPUS_IDS_SECRET_KEY: ${CAMPUS_IDS_SECRET_KEY:?please-set-CAMPUS_IDS_SECRET_KEY}
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:5000/api/health')"]
