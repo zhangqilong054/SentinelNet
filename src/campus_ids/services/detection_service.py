@@ -28,6 +28,7 @@ from campus_ids.config import (
     WINDOW_SIZE,
 )
 from campus_ids.runtime.db import get_connection
+from campus_ids.services.alert_service import ALERT_LEVEL_LABELS
 from campus_ids.runtime.events import TOPIC_TRAFFIC
 from campus_ids.runtime.repositories import TrafficRepository
 
@@ -277,7 +278,7 @@ class DetectionService:
         )
 
         if result.is_anomaly:
-            level_tag = {"high": "🔴高危", "medium": "🟠中危", "low": "🟡低危"}.get(result.level, "⚠️异常")
+            level_tag = ALERT_LEVEL_LABELS.get(result.level, "⚠️异常")
             alert_msg = f"{level_tag} {result.description}"
             td["alert"] = alert_msg
 

@@ -25,10 +25,6 @@ type OperationRequestBody<T extends keyof paths, M extends keyof paths[T]> =
 export const getHealth = () =>
   apiGet<OperationResponse<'/api/health', 'get'>>('/api/health')
 
-// ── CSRF ──────────────────────────────────────────────────────
-export const getCsrfToken = () =>
-  apiGet<OperationResponse<'/api/csrf-token', 'get'>>('/api/csrf-token')
-
 // ── 配置 ──────────────────────────────────────────────────────
 export const getSettings = () =>
   apiGet<OperationResponse<'/api/settings', 'get'>>('/api/settings')

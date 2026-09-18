@@ -25,6 +25,13 @@ ALERT_COOLDOWN_SECONDS = 60
 # R-15: 告警级别常量，消除散落在多处的字面量
 ALERT_LEVELS = ("high", "medium", "low")
 
+# 告警级别 → 显示标签映射
+ALERT_LEVEL_LABELS: dict[str, str] = {
+    "high": "🔴高危",
+    "medium": "🟠中危",
+    "low": "🟡低危",
+}
+
 
 class AlertService:
     """告警服务 — 管理告警生成、冷却和广播。

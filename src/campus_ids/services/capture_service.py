@@ -164,7 +164,7 @@ class CaptureService:
                     try:
                         self._tls_analyzer.parse_tls_from_packet(pkt)
                     except Exception as exc:
-                        logger.debug("TLS 解析失败: %s", exc)
+                        logger.warning("TLS 解析失败: %s", exc)
 
         try:
             sniff(prn=_on_pkt, store=False,

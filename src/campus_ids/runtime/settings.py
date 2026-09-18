@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import os
 from pathlib import Path
-from typing import Any
+from typing import Any, ClassVar
 
 from pydantic import AliasChoices, Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -143,6 +143,61 @@ class Settings(BaseSettings):
         default=["*"],
         description="CORS 允许的来源列表",
     )
+
+    # ── 演示模式常量（不可配置，仅用于 demo 数据生成）──────────────
+    DEMO_QPS_MIN: ClassVar[int] = 100
+    DEMO_QPS_MAX: ClassVar[int] = 800
+    DEMO_CONN_MIN: ClassVar[int] = 50
+    DEMO_CONN_MAX: ClassVar[int] = 200
+    DEMO_SYN_MIN: ClassVar[int] = 0
+    DEMO_SYN_MAX: ClassVar[int] = 150
+    DEMO_UDP_MIN: ClassVar[int] = 0
+    DEMO_UDP_MAX: ClassVar[int] = 250
+    DEMO_DNS_MIN: ClassVar[int] = 0
+    DEMO_DNS_MAX: ClassVar[int] = 50
+    DEMO_PKT_MIN: ClassVar[int] = 10
+    DEMO_PKT_MAX: ClassVar[int] = 50
+
+    # ── 计算路径属性（从 data_dir 派生，不独立存储）──────────────────
+    @property
+    def model_path(self) -> Path:
+        return self.data_dir / "model.pkl"
+
+    @property
+    def traffic_csv(self) -> Path:
+        return self.data_dir / "traffic_data.csv"
+
+    @property
+    def traffic_stats_csv(self) -> Path:
+        return self.data_dir / "traffic_stats.csv"
+
+    @property
+    def confusion_matrix_path(self) -> Path:
+        return self.data_dir / "confusion_matrix.png"
+
+    @property
+    def evaluation_path(self) -> Path:
+        return self.data_dir / "evaluation_report.txt"
+
+    @property
+    def models_dir(self) -> Path:
+        return self.data_dir / "models"
+
+    @property
+    def runs_dir(self) -> Path:
+        return self.models_dir / "runs"
+
+    @property
+    def latest_json(self) -> Path:
+        return self.models_dir / "latest.json"
+
+    @property
+    def best_json(self) -> Path:
+        return self.models_dir / "best.json"
+
+    @property
+    def registry_json(self) -> Path:
+        return self.models_dir / "registry.json"
 
     # ── 运行期覆盖层（不持久化，不来自环境变量）──────────────────
     _override_originals: dict[str, Any] = {}
