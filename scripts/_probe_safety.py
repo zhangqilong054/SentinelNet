@@ -180,9 +180,3 @@ def guard_no_real_training() -> None:
         raise RuntimeError("探针拦截：train() 被调用 —— 这会覆盖 model.pkl 等产物")
 
     _train.train = _blocked
-
-    # helpers._auto_worker 是函数内 import，同样拦
-    import campus_ids.web.helpers as _helpers
-    for attr in ("train",):
-        if hasattr(_helpers, attr):
-            setattr(_helpers, attr, _blocked)

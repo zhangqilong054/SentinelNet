@@ -26,7 +26,7 @@ setup_logging()
 def main(argv: list[str] | None = None) -> int:
     args = list(sys.argv[1:] if argv is None else argv)
     if not args or args[0].lower() in ("app", "run", "start", ""):
-        from campus_ids.web.app import run_app
+        from campus_ids.web_new.app import run_app
         run_app()
         return 0
 

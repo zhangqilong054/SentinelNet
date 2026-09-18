@@ -159,12 +159,10 @@ def load_and_replay(pcap_path: Path, count: int | None = None,
 class AttackSimulator:
     """P0-24: 模拟攻击流量注入器（无需真实网络发包）。
 
-    直接向 Web 面板的 packet_queue 注入模拟数据，
+    直接向 RuntimeState.packet_queue 注入模拟数据，
     适用于现场网络受限的场景。
 
-    支持两种注入方式：
-    1. 旧方式：from campus_ids.web.helpers import _packet_queue（向后兼容）
-    2. 新方式：通过 RuntimeState.packet_queue 注入（推荐）
+    用法：传入 RuntimeState.packet_queue 作为注入目标。
     """
 
     def __init__(self, packet_queue: queue.Queue | None = None):
@@ -172,7 +170,6 @@ class AttackSimulator:
 
         Args:
             packet_queue: 注入目标队列（RuntimeState.packet_queue）。
-                         None 时回退到 helpers._packet_queue（向后兼容）。
         """
         self._running = False
         self._threads: list[threading.Thread] = []
@@ -182,9 +179,15 @@ class AttackSimulator:
         """获取注入目标队列。"""
         if self._packet_queue is not None:
             return self._packet_queue
-        # 向后兼容：回退到 helpers._packet_queue
-        from campus_ids.web.helpers import _packet_queue
-        return _packet_queue
+        # 回退到 RuntimeState.packet_queue
+        from campus_ids.runtime.state import RuntimeState
+        state = RuntimeState()
+        if state.packet_queue is not None:
+            return state.packet_queue
+        raise RuntimeError(
+            "AttackSimulator 需要显式传入 packet_queue，"
+            "或确保 RuntimeState.packet_queue 已初始化"
+        )
 
     def inject_syn_flood(self, duration: int = 10, rate: int = 50) -> None:
         """注入 SYN Flood 模拟数据。"""

@@ -3,30 +3,18 @@
 
 **为什么必须存在**：
 
-`scripts/record_golden.py` 是 T0.3 时期写的。当时它**恰好无害** —— 不是设计得安全，
-而是因为录制时没带 CSRF token，所有 POST 都被 Flask-WTF 拦成
-`400 The CSRF token is missing.`，所以 `POST /api/auto/start`、`/api/model/train`、
-`/api/cleanup {"days":7}` 这些破坏性调用**一个都没真正执行**。
-
-它留下的 41 个 golden 里有 **20 个 `status_code >= 400`**，就是这些 400 ——
-**期望值本身不可用**。
-
-一旦按 T2.18 的需求把 CSRF token 补上（这是重录能产生有效期望值的前提），
-同一个脚本立刻从"无害"变成**破坏性**：真的抓包、真的训练覆盖 `model.pkl`、
-真的按 `days=7` 删历史数据。
-
-这正是本项目已经踩过一次的坑的另一面 ——
-**探针会随被测量对象一起变危险**（上一次是"任务未接线→接线"）。
+`scripts/record_golden.py` 录制契约时需要调用真实端点，但某些端点会触发
+破坏性操作（训练覆盖 model.pkl、抓包占用网卡等）。
 
 **三道保险**：
 
 1. `bootstrap()` —— `CAMPUS_IDS_DATA_DIR` 指向临时目录，且**必须在 import 任何
    `campus_ids` 模块之前**调用（`config.py` 在 import 期把 `DATA_DIR / MODEL_PATH /
-   TRAFFIC_CSV / ...` 算成模块级常量；`web/database.py:DB_PATH` 更是 import 期派生的）。
-2. `neutralize()` —— 把会真抓包 / 真起线程 / 真训练的函数换成记录型 no-op。
+   TRAFFIC_CSV / ...` 算成模块级常量）。
+2. `neutralize()` —— 把会真训练的函数换成记录型 no-op。
    关键实现细节：**必须按对象身份在整个 `campus_ids.*` 里替换**，
-   因为 `from campus_ids.web.helpers import start_capture_thread` 是
-   **import 期按值绑定**，只改源模块改不到消费方（本项目 2026-09-17 实测 0/12 生效）。
+   因为 `from campus_ids.model.train import train` 是
+   **import 期按值绑定**，只改源模块改不到消费方。
 3. `assert_products_untouched()` —— 录制前后对 6 个真实产物做 md5 比对，
    任何改写都直接抛错。这是唯一不依赖"我枚举全了危险函数"的兜底。
 """
@@ -133,18 +121,6 @@ def neutralize(dangerous_result_map: dict[str, object] | None = None) -> list[st
     calls.clear()
 
     targets = [
-        # 会真起抓包/检测线程 → 拦截（涉及真实网卡与 CPU）
-        ("campus_ids.web.helpers", "start_capture_thread"),
-        ("campus_ids.web.helpers", "stop_capture_thread"),
-        ("campus_ids.web.helpers", "start_enhanced_capture_thread"),
-        ("campus_ids.web.helpers", "stop_enhanced_capture_thread"),
-        ("campus_ids.web.helpers", "start_detector_tick"),
-        ("campus_ids.web.helpers", "stop_detector_tick"),
-        ("campus_ids.web.helpers", "start_auto_thread"),
-        ("campus_ids.web.helpers", "_auto_worker"),
-        # 会真发演练包 → 拦截
-        ("campus_ids.web.attack_sim_state", "start_attack_sim"),
-        ("campus_ids.web.attack_sim_state", "stop_attack_sim"),
         # 会真训练（分钟级 + 覆盖三个产物）→ 拦截
         ("campus_ids.model.train", "train"),
         # 注意：`save_traffic_data` / `update_traffic_data` / `cleanup_old_data`

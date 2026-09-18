@@ -27,12 +27,15 @@ class _MockQueue:
 
 
 @pytest.fixture
-def mock_queue(monkeypatch):
-    """替换 helpers._packet_queue 为 mock 队列。"""
-    import campus_ids.web.helpers as helpers_mod
-    mq = _MockQueue()
-    monkeypatch.setattr(helpers_mod, "_packet_queue", mq)
-    return mq
+def mock_queue():
+    """创建 mock 队列，供 AttackSimulator 构造函数直接传入。"""
+    return _MockQueue()
+
+
+@pytest.fixture
+def sim(mock_queue):
+    """创建注入 mock_queue 的 AttackSimulator 实例。"""
+    return AttackSimulator(packet_queue=mock_queue)
 
 
 # ── 测试：注入包必须包含完整字段 ────────────────────────────────
@@ -43,10 +46,8 @@ class TestInjectPacketFields:
     REQUIRED_KEYS = {"length", "sport", "dport", "src_ip", "dst_ip",
                      "proto", "is_syn", "is_dns", "timestamp"}
 
-    def test_syn_flood_has_all_fields(self, mock_queue):
-        sim = AttackSimulator()
+    def test_syn_flood_has_all_fields(self, sim, mock_queue):
         sim._running = True
-        # 运行极短时间后停止
         threading.Timer(0.3, lambda: setattr(sim, '_running', False)).start()
         sim.inject_syn_flood(duration=1, rate=5)
         assert len(mock_queue.items) > 0
@@ -54,8 +55,7 @@ class TestInjectPacketFields:
             assert self.REQUIRED_KEYS.issubset(pkt.keys()), \
                 f"缺少字段: {self.REQUIRED_KEYS - set(pkt.keys())}"
 
-    def test_port_scan_has_all_fields(self, mock_queue):
-        sim = AttackSimulator()
+    def test_port_scan_has_all_fields(self, sim, mock_queue):
         sim._running = True
         threading.Timer(0.3, lambda: setattr(sim, '_running', False)).start()
         sim.inject_port_scan(duration=1, rate=5)
@@ -64,8 +64,7 @@ class TestInjectPacketFields:
             assert self.REQUIRED_KEYS.issubset(pkt.keys()), \
                 f"缺少字段: {self.REQUIRED_KEYS - set(pkt.keys())}"
 
-    def test_udp_flood_has_all_fields(self, mock_queue):
-        sim = AttackSimulator()
+    def test_udp_flood_has_all_fields(self, sim, mock_queue):
         sim._running = True
         threading.Timer(0.3, lambda: setattr(sim, '_running', False)).start()
         sim.inject_udp_flood(duration=1, rate=5)
@@ -74,8 +73,7 @@ class TestInjectPacketFields:
             assert self.REQUIRED_KEYS.issubset(pkt.keys()), \
                 f"缺少字段: {self.REQUIRED_KEYS - set(pkt.keys())}"
 
-    def test_brute_force_has_all_fields(self, mock_queue):
-        sim = AttackSimulator()
+    def test_brute_force_has_all_fields(self, sim, mock_queue):
         sim._running = True
         threading.Timer(0.3, lambda: setattr(sim, '_running', False)).start()
         sim.inject_brute_force(duration=1, rate=5)
@@ -84,8 +82,7 @@ class TestInjectPacketFields:
             assert self.REQUIRED_KEYS.issubset(pkt.keys()), \
                 f"缺少字段: {self.REQUIRED_KEYS - set(pkt.keys())}"
 
-    def test_lateral_movement_has_all_fields(self, mock_queue):
-        sim = AttackSimulator()
+    def test_lateral_movement_has_all_fields(self, sim, mock_queue):
         sim._running = True
         threading.Timer(0.3, lambda: setattr(sim, '_running', False)).start()
         sim.inject_lateral_movement(duration=1, rate=5)
@@ -100,8 +97,7 @@ class TestInjectPacketFields:
 class TestInjectPacketValues:
     """验证注入包的字段值符合攻击类型预期。"""
 
-    def test_syn_flood_values(self, mock_queue):
-        sim = AttackSimulator()
+    def test_syn_flood_values(self, sim, mock_queue):
         sim._running = True
         threading.Timer(0.3, lambda: setattr(sim, '_running', False)).start()
         sim.inject_syn_flood(duration=1, rate=5)
@@ -114,8 +110,7 @@ class TestInjectPacketValues:
             assert isinstance(pkt["timestamp"], float)
             assert pkt["timestamp"] > 0
 
-    def test_port_scan_values(self, mock_queue):
-        sim = AttackSimulator()
+    def test_port_scan_values(self, sim, mock_queue):
         sim._running = True
         threading.Timer(0.3, lambda: setattr(sim, '_running', False)).start()
         sim.inject_port_scan(duration=1, rate=5)
@@ -126,8 +121,7 @@ class TestInjectPacketValues:
             assert 1 <= pkt["dport"] <= 1024
             assert isinstance(pkt["timestamp"], float)
 
-    def test_udp_flood_values(self, mock_queue):
-        sim = AttackSimulator()
+    def test_udp_flood_values(self, sim, mock_queue):
         sim._running = True
         threading.Timer(0.3, lambda: setattr(sim, '_running', False)).start()
         sim.inject_udp_flood(duration=1, rate=5)
@@ -138,8 +132,7 @@ class TestInjectPacketValues:
             assert pkt["dst_ip"] == TARGET_IP
             assert isinstance(pkt["timestamp"], float)
 
-    def test_brute_force_values(self, mock_queue):
-        sim = AttackSimulator()
+    def test_brute_force_values(self, sim, mock_queue):
         sim._running = True
         threading.Timer(0.3, lambda: setattr(sim, '_running', False)).start()
         sim.inject_brute_force(duration=1, rate=5, target_port=22)
@@ -151,8 +144,7 @@ class TestInjectPacketValues:
             assert pkt["dst_ip"] == TARGET_IP
             assert isinstance(pkt["timestamp"], float)
 
-    def test_lateral_movement_values(self, mock_queue):
-        sim = AttackSimulator()
+    def test_lateral_movement_values(self, sim, mock_queue):
         sim._running = True
         threading.Timer(0.3, lambda: setattr(sim, '_running', False)).start()
         sim.inject_lateral_movement(duration=1, rate=5)
@@ -172,8 +164,7 @@ class TestInjectPacketValues:
 # ── 测试：start_all / stop 生命周期 ──────────────────────────────
 
 class TestSimulatorLifecycle:
-    def test_start_and_stop(self, mock_queue):
-        sim = AttackSimulator()
+    def test_start_and_stop(self, sim, mock_queue):
         sim.start_all(duration=2)
         assert sim._running is True
         assert len(sim._threads) == 5
@@ -189,79 +180,17 @@ class TestSimulatorLifecycle:
         assert sim._running is False
 
 
-# ── 测试：D2 — 单类型攻击通过 start_attack_sim 注入数据包 ──────────
+# ── 测试：显式传入队列 ──────────────────────────────────────
 
-class TestSingleTypeViaStartAttackSim:
-    """D2 修复验证：start_attack_sim('syn_flood', duration) 应成功注入数据包。
+class TestExplicitQueue:
+    """验证 AttackSimulator 使用显式传入的队列。"""
 
-    原缺陷：非 'all' 路径未设 _running=True，inject 线程立即退出，0 包注入。
-    修复：attack_sim_state.py L70 手动置 sim_state.sim._running = True。
-    """
+    def test_explicit_queue_is_used(self, mock_queue):
+        """显式传入的队列应被直接使用。"""
+        sim = AttackSimulator(packet_queue=mock_queue)
+        assert sim._packet_queue is mock_queue
 
-    @pytest.fixture(autouse=True)
-    def _cleanup_sim_state(self):
-        """每个测试前后清理 sim_state 全局状态。"""
-        from campus_ids.web.attack_sim_state import sim_state
-        # 测试前：确保无残留
-        if sim_state.sim is not None:
-            sim_state.sim.stop()
-        with sim_state.lock:
-            sim_state.running = False
-            sim_state.type = ""
-            sim_state.sim = None
-            sim_state.duration = 0
-        yield
-        # 测试后：清理
-        if sim_state.sim is not None:
-            sim_state.sim.stop()
-        with sim_state.lock:
-            sim_state.running = False
-            sim_state.type = ""
-            sim_state.sim = None
-            sim_state.duration = 0
-
-    def test_syn_flood_via_start_attack_sim(self, mock_queue):
-        from campus_ids.web.attack_sim_state import start_attack_sim, sim_state
-        result = start_attack_sim('syn_flood', 2)
-        assert result is None, f"启动应返回 None，实际: {result}"
-        assert sim_state.running is True
-        assert sim_state.sim is not None
-        assert sim_state.sim._running is True
-        time.sleep(1.5)  # 等待注入
-        sim_state.sim.stop()
-        pkt_count = len(mock_queue.items)
-        assert pkt_count > 0, f"syn_flood 单类型应注入数据包，实际: {pkt_count}"
-
-    def test_port_scan_via_start_attack_sim(self, mock_queue):
-        from campus_ids.web.attack_sim_state import start_attack_sim, sim_state
-        result = start_attack_sim('port_scan', 2)
-        assert result is None
-        assert sim_state.sim._running is True
-        time.sleep(1.5)
-        sim_state.sim.stop()
-        pkt_count = len(mock_queue.items)
-        assert pkt_count > 0, f"port_scan 单类型应注入数据包，实际: {pkt_count}"
-
-    def test_udp_flood_via_start_attack_sim(self, mock_queue):
-        from campus_ids.web.attack_sim_state import start_attack_sim, sim_state
-        result = start_attack_sim('udp_flood', 2)
-        assert result is None
-        assert sim_state.sim._running is True
-        time.sleep(1.5)
-        sim_state.sim.stop()
-        pkt_count = len(mock_queue.items)
-        assert pkt_count > 0, f"udp_flood 单类型应注入数据包，实际: {pkt_count}"
-
-    def test_invalid_type_returns_error(self):
-        from campus_ids.web.attack_sim_state import start_attack_sim
-        result = start_attack_sim('invalid_type', 2)
-        assert result is not None
-        assert result[1] == 400
-
-    def test_duplicate_start_returns_409(self):
-        from campus_ids.web.attack_sim_state import start_attack_sim, sim_state
-        result1 = start_attack_sim('syn_flood', 5)
-        assert result1 is None
-        result2 = start_attack_sim('syn_flood', 5)
-        assert result2 is not None
-        assert result2[1] == 409
+    def test_default_queue_is_none(self):
+        """未传入队列时 _packet_queue 应为 None（回退到 RuntimeState）。"""
+        sim = AttackSimulator()
+        assert sim._packet_queue is None

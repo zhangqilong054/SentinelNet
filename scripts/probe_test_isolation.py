@@ -37,20 +37,13 @@ import campus_ids.config as config  # noqa: E402
 import campus_ids.logging_config as logging_config  # noqa: E402
 import campus_ids.model.evaluation as evaluation  # noqa: E402
 import campus_ids.model.train as train  # noqa: E402
-import campus_ids.web.bp_admin as bp_admin  # noqa: E402
-import campus_ids.web.bp_model as bp_model  # noqa: E402
-import campus_ids.web.database as database  # noqa: E402
-import campus_ids.web.helpers as helpers  # noqa: E402
+import campus_ids.model.data_loader as data_loader  # noqa: E402
 
 CONSUMERS = [
-    ("web/database.py", database, ["DB_PATH"]),
-    ("web/helpers.py", helpers, ["TRAFFIC_STATS_CSV", "TRAFFIC_CSV", "MODEL_PATH"]),
-    ("web/bp_admin.py", bp_admin,
-     ["TRAFFIC_STATS_CSV", "TRAFFIC_CSV", "MODEL_PATH", "EVALUATION_PATH"]),
-    ("web/bp_model.py", bp_model, ["MODEL_PATH"]),
     ("model/train.py", train,
      ["MODEL_PATH", "CONFUSION_MATRIX_PATH", "TRAFFIC_CSV", "DATA_DIR"]),
     ("model/evaluation.py", evaluation, ["EVALUATION_PATH"]),
+    ("model/data_loader.py", data_loader, ["TRAFFIC_CSV", "DATA_DIR"]),
     ("logging_config.py", logging_config, ["_DEFAULT_LOG_DIR"]),
 ]
 
@@ -70,7 +63,7 @@ class _FakeMonkeyPatch:
 
 def main() -> int:
     from tests.conftest import (  # noqa: E402
-        _isolate_legacy_db, _redirect_config_bindings, is_under,
+        _redirect_config_bindings, is_under,
     )
 
     tmp_path = Path(tempfile.mkdtemp(prefix="sn_isolate_"))
@@ -91,7 +84,6 @@ def main() -> int:
 
     mp = _FakeMonkeyPatch()
     patched = _redirect_config_bindings(mp, tmp_path)           # monkeypatch.setattr × N
-    _isolate_legacy_db(tmp_path)
 
     print("\n--- config 模块自身（被 patch 的对象）---")
     print(f"  config.DATA_DIR         {config.DATA_DIR}")
@@ -110,6 +102,13 @@ def main() -> int:
             rows.append((f"{src}:{attr}", value, inside))
             print(f"  {'✅ 已重定向' if inside else '🔴 仍泄漏  '}  {src}:{attr:<24} {value}")
 
+    # ── 新应用路径 ──────────────────────────────────────────────────
+    from campus_ids.runtime.settings import get_settings  # noqa: E402
+    settings = get_settings()
+    settings_ok = settings.data_dir == tmp_path
+    rows.append(("runtime/settings.data_dir", settings.data_dir, settings_ok))
+    print(f"\n  {'✅ 已重定向' if settings_ok else '🔴 仍泄漏  '}  runtime/settings.data_dir  {settings.data_dir}")
+
     redirected = sum(1 for _n, _v, ok in rows if ok)
     leaked = [(n, v) for n, v, ok in rows if not ok]
 
@@ -118,17 +117,9 @@ def main() -> int:
         print(f"🔴 只有 {redirected}/{len(rows)} 被重定向 —— 隔离**失效**，pytest 会改写生产产物")
         print("   泄漏项：")
         for name, value in leaked:
-            print(f"     {name}  ->  {value}")
-        print("\n   根因：`from campus_ids.config import X` 是 import 期**按值绑定**，")
-        print("         monkeypatch.setattr(config, 'X', ...) 改不到消费方已复制的引用。")
-        print("   修法：conftest 必须同时改写**每个消费模块**的同名属性")
-        print("         （见 tests/conftest.py::_redirect_config_bindings）")
-        print("=" * 78)
+            print(f"     {name} = {value}")
         return 1
-
-    print(f"✅ {redirected}/{len(rows)} 全部被重定向 —— 隔离生效")
-    print("   回归防线：python -m pytest tests/test_artifact_isolation.py")
-    print("=" * 78)
+    print(f"✅ 全部 {redirected}/{len(rows)} 被重定向 —— 隔离有效")
     return 0
 
 

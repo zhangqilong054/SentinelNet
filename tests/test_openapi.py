@@ -114,7 +114,6 @@ class TestOpenAPIPaths:
         "/api/stream",
         "/api/admin/cleanup",
         "/api/admin/export",
-        "/api/admin/deprecation-stats",
         "/api/login",
         "/api/logout",
         "/api/change-password",

@@ -37,6 +37,8 @@ import sys
 from datetime import datetime
 from pathlib import Path
 
+from fastapi.testclient import TestClient
+
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 # ① 第一件事：隔离 data_dir。必须在 import campus_ids 之前。
@@ -55,7 +57,7 @@ TMP_DIR = bootstrap()
 # ② 之后才能 import 项目模块
 import campus_ids.logging_config as lc  # noqa: E402
 lc.setup_logging()
-from campus_ids.web.app import app  # noqa: E402
+from campus_ids.web_new.app import create_app  # noqa: E402
 
 OUT_DIR = ROOT / "tests" / "contract" / "baseline"
 
@@ -190,7 +192,7 @@ def record() -> int:
     # （失败才返回 `(payload, status)` 二元组，调用方 `if err: return jsonify(err[0]), err[1]`）。
     # stub 必须复刻这个契约，否则端点在 `err[0]` 处 TypeError → 500。
     neutralize({"start_attack_sim": None, "stop_attack_sim": None})
-    client = app.test_client()
+    client = TestClient(create_app())
     csrf = get_csrf_token(client)
 
     print(f"安全底座：data_dir={TMP_DIR}")
@@ -244,7 +246,7 @@ def record() -> int:
     meta = {
         "recorded_at": datetime.now().isoformat(timespec="seconds"),
         "recorder": "scripts/record_golden.py",
-        "target": "旧 Flask 应用 campus_ids.web.app（基线对照）",
+        "target": "FastAPI 应用 campus_ids.web_new.app（基线对照）",
         "config": {
             "CAMPUS_IDS_DATA_DIR": str(TMP_DIR),
             "auth": "默认（api_token 为空 → 认证关闭，CSRF 强制生效）",

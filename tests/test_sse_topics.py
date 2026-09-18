@@ -37,7 +37,11 @@ from campus_ids.runtime import events as events_mod
 from campus_ids.web_new.api import stream as stream_mod
 
 SRC_ROOT = Path(__file__).resolve().parent.parent / "src" / "campus_ids"
-LEGACY_APP = SRC_ROOT / "web" / "app.py"
+
+# SSE 帧名契约 —— 前端 EventSource 监听的关键字
+# 旧应用 web/app.py 的 _broadcast_sse("alert", ...) / _broadcast_sse("traffic", ...)
+# 已在 T5 阶段删除，此处硬编码契约值作为前端兼容性断言
+LEGACY_SSE_FRAME_NAMES: frozenset[str] = frozenset({"alert", "traffic"})
 
 # 常量必须能从 events 模块解析到；解析不到就是"引用了不存在的常量"
 _UNRESOLVED = object()
@@ -141,35 +145,16 @@ def test_default_topics_are_valid() -> None:
     assert set(events_mod.DEFAULT_TOPICS) <= set(events_mod.VALID_TOPICS)
 
 
-def _legacy_broadcast_events() -> set[str]:
-    """从**旧应用源码** `web/app.py` 里解析 `_broadcast_sse(<字面量>, ...)` 的帧名。"""
-    tree = ast.parse(LEGACY_APP.read_text(encoding="utf-8"), filename=str(LEGACY_APP))
-    names: set[str] = set()
-    for node in ast.walk(tree):
-        if (
-            isinstance(node, ast.Call)
-            and isinstance(node.func, ast.Name)
-            and node.func.id == "_broadcast_sse"
-            and node.args
-            and isinstance(node.args[0], ast.Constant)
-            and isinstance(node.args[0].value, str)
-        ):
-            names.add(node.args[0].value)
-    return names
-
-
 def test_topics_match_legacy_broadcast_contract() -> None:
     """新应用可订阅的 topic 必须与旧应用的 SSE 帧名契约一致。
 
-    期望值从 `web/app.py` 的 `_broadcast_sse("alert"|"traffic", ...)` 解析得出，
-    **不在新代码里另写一份** —— 重点是防止 `alerts`（复数）这类"看起来更整齐"
-    的重命名悄悄破坏前端 `addEventListener('alert', ...)`。
+    旧应用 `web/app.py` 的 `_broadcast_sse("alert"|\"traffic\", ...)` 帧名是前端
+    `EventSource.addEventListener('alert', ...)` 的监听键，改名即破坏前端。
+    旧应用已在 T5 阶段删除，契约值硬编码在 `LEGACY_SSE_FRAME_NAMES` 中。
     """
-    legacy = _legacy_broadcast_events()
-    assert legacy, "未能从 web/app.py 解析出 _broadcast_sse 帧名，测试前提失效"
-    assert set(events_mod.VALID_TOPICS) == legacy, (
+    assert set(events_mod.VALID_TOPICS) == LEGACY_SSE_FRAME_NAMES, (
         f"新应用 topic={sorted(events_mod.VALID_TOPICS)} 与旧应用帧名契约="
-        f"{sorted(legacy)} 不一致；帧名是前端 EventSource 的监听键，改名即破坏前端"
+        f"{sorted(LEGACY_SSE_FRAME_NAMES)} 不一致；帧名是前端 EventSource 的监听键，改名即破坏前端"
     )
 
 

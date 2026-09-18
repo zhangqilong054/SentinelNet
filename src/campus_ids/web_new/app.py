@@ -431,13 +431,6 @@ def create_app() -> FastAPI:
     app.include_router(admin.router, tags=["admin"])
     app.include_router(auth_routes.router, tags=["auth"])
 
-    # ── 旧端点 shim 路由（T4.1）──────────────────────────────────
-    # CAMPUS_IDS_ENABLE_SHIM=1 时注册旧路径转发（带 Deprecation/Sunset 头）
-    if os.environ.get("CAMPUS_IDS_ENABLE_SHIM", "").lower() in ("1", "true", "yes"):
-        from campus_ids.web_new.shim import router as shim_router
-        app.include_router(shim_router)
-        logger.info("旧端点 shim 已启用（Deprecation + Sunset 头 + 命中追踪）")
-
     # ── 页面路由与静态资源（T3.1 新增前端模式切换）────────────────
     # CAMPUS_IDS_FRONTEND=new → Vue3 SPA（frontend/dist/）
     # CAMPUS_IDS_FRONTEND=legacy 或未设置 → 旧 Jinja2 模板（T2.17 pages）
@@ -488,3 +481,28 @@ def create_app() -> FastAPI:
     register_exception_handlers(app)
 
     return app
+
+
+def run_app() -> None:
+    """启动 SentinelNet Web 应用（uvicorn 单 worker）。
+
+    取代旧 campus_ids.web.app.run_app()（Flask + Waitress）。
+    ADR-0001 §4.1：强制单 worker，多 worker 启动会被 create_app() 拒绝。
+    """
+    import uvicorn
+
+    settings = get_settings()
+    port = settings.web_port
+    host = "0.0.0.0"
+
+    logger.info("SentinelNet 监控系统启动（FastAPI + uvicorn）")
+    logger.info("访问地址: http://localhost:%s", port)
+
+    uvicorn.run(
+        "campus_ids.web_new.app:create_app()",
+        host=host,
+        port=port,
+        workers=1,
+        log_level="info",
+        factory=True,
+    )

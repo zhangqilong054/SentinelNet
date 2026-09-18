@@ -2,7 +2,7 @@
 """`web_new/api/auth_routes.py` 行为测试（R5 覆盖率补齐）。
 
 改动前覆盖率 **47%**。注意 `tests/test_web_auth_routes.py` 测的是**旧 Flask 版**
-（`campus_ids.web.app`），对新栈的 `/api/login`、`/api/logout`、`/api/change-password`
+（旧 Flask 版 `campus_ids.web.app`），对新栈的 `/api/login`、`/api/logout`、`/api/change-password`
 一行都没覆盖 —— 覆盖率数字低正是因为"名字像、其实无关"。
 
 ## 本文件重点验证的三件事

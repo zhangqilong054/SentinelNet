@@ -45,8 +45,7 @@ _ARTIFACT_PATHS: dict[str, str] = {
 
 # 除 config 常量外还需重定向的名字：
 #   _DEFAULT_LOG_DIR —— logging_config.py 对 config.LOG_DIR 的按值绑定（重命名后的别名）
-#   DB_PATH          —— web/database.py 由 DATA_DIR 在 import 期**派生**出的常量
-_EXTRA_NAMES: tuple[str, ...] = ("_DEFAULT_LOG_DIR", "DB_PATH")
+_EXTRA_NAMES: tuple[str, ...] = ("_DEFAULT_LOG_DIR",)
 
 # 项目根目录 —— 生产产物所在位置，测试绝不应写它
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
@@ -99,6 +98,20 @@ def _is_campus_module(mod_name: str) -> bool:
     return mod_name == "campus_ids" or mod_name.startswith("campus_ids.")
 
 
+def _ensure_consumer_modules_loaded() -> None:
+    """确保持有产物路径常量的消费模块已加载到 sys.modules。
+
+    `from campus_ids.config import X` 在 import 期按值绑定，
+    因此必须先加载这些模块，才能在 _redirect_config_bindings 中改写绑定。
+    旧 web 层删除后，不再有 _isolate_legacy_db 触发的级联 import，
+    需要显式加载关键消费模块。
+    """
+    import campus_ids.model.train
+    import campus_ids.model.evaluation
+    import campus_ids.model.data_loader
+    import campus_ids.logging_config
+
+
 def _redirect_config_bindings(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> int:
     """把产物常量同步到所有**按值绑定**它们的模块。
 
@@ -110,6 +123,9 @@ def _redirect_config_bindings(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -
     一并改写到 tmp 路径。返回改写的绑定数。
     """
     import campus_ids.config as config
+
+    # 确保持有 Path 常量的消费模块已加载
+    _ensure_consumer_modules_loaded()
 
     targets = artifact_targets(tmp_path)
     patched = 0
@@ -128,8 +144,6 @@ def _redirect_config_bindings(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -
             if not isinstance(current, Path):
                 continue
             new_value = targets["LOG_DIR"] if attr == "_DEFAULT_LOG_DIR" else targets["DATA_DIR"]
-            if attr == "DB_PATH":
-                new_value = tmp_path / "sentinelnet.db"
             if current == new_value:
                 continue
             monkeypatch.setattr(module, attr, new_value, raising=False)
@@ -141,41 +155,6 @@ def _redirect_config_bindings(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -
         patched += 1
 
     return patched
-
-
-def _isolate_legacy_db(tmp_path: Path) -> None:
-    """把旧 web/database.py 的 sqlite 连接切到 tmp，并在空库上建好表结构。
-
-    三步（缺一不可）：
-    1. 丢弃 `_local` 里按旧 DB_PATH 打开的线程局部连接 —— 不关的话改常量无效；
-    2. **安全断言**：确认 DB_PATH 已指向 tmp，否则拒绝建表（防止污染生产库）；
-    3. 调 `init_db()` 建表 —— 不建的话 `/api/alerts`、`/api/save`、`/api/cleanup`
-       等旧端点会 `no such table`。这些测试原先之所以能过，是因为它们**搭了真实
-       `sentinelnet.db` 已有表结构的便车**（隐式耦合，隔离后立刻暴露）。
-    """
-    try:
-        import campus_ids.web.database as legacy_db
-    except ImportError:
-        return
-
-    # 1. 丢弃缓存的线程局部连接
-    conn = getattr(legacy_db._local, "conn", None)
-    if conn is not None:
-        try:
-            conn.close()
-        except Exception:  # noqa: BLE001 — 关闭失败不应影响测试
-            pass
-        legacy_db._local.conn = None
-
-    # 2. 安全断言：DB_PATH 必须已被重定向
-    if not is_under(legacy_db.DB_PATH, tmp_path):
-        raise RuntimeError(
-            f"web.database.DB_PATH = {legacy_db.DB_PATH} 未重定向到 {tmp_path}，"
-            "拒绝在其上建表（可能污染生产库）"
-        )
-
-    # 3. 在 tmp 空库上建表（CREATE TABLE IF NOT EXISTS，幂等）
-    legacy_db.init_db()
 
 
 @pytest.fixture(autouse=True)
@@ -205,11 +184,10 @@ def _isolate_artifacts(tmp_path, monkeypatch):
     保护范围（三层，缺一不可）：
     1. **config 常量的按值绑定**（`from campus_ids.config import MODEL_PATH`）
        —— 必须逐个消费模块改写，只 patch config 无效；
-    2. **由 DATA_DIR 派生的常量**（`web/database.py: DB_PATH`）及其缓存的连接；
-    3. **新应用的 Settings.data_dir**（经 `CAMPUS_IDS_DATA_DIR` 环境变量 + 重置单例）。
+    2. **新应用的 Settings.data_dir**（经 `CAMPUS_IDS_DATA_DIR` 环境变量 + 重置单例）。
 
     被保护的产物：model.pkl / evaluation_report.txt / confusion_matrix.png /
-    traffic_data.csv / traffic_stats.csv / sentinelnet.db / models/ / logs/。
+    traffic_data.csv / traffic_stats.csv / models/ / logs/。
 
     回归防线：`tests/test_artifact_isolation.py` 断言隔离后没有任何绑定点
     指向项目根目录。改动本 fixture 时该测试必须仍然通过。
@@ -225,9 +203,8 @@ def _isolate_artifacts(tmp_path, monkeypatch):
     reset_settings()
     reset_engine()
 
-    # 3. 改写所有按值绑定的产物常量（旧 Flask 代码路径）
+    # 3. 改写所有按值绑定的产物常量
     _redirect_config_bindings(monkeypatch, tmp_path)
-    _isolate_legacy_db(tmp_path)
 
     yield
 
@@ -265,7 +242,6 @@ def _pin_session_bindings() -> None:
     在测试结束后仍只会写临时目录，不会回落到项目根。
     """
     targets = artifact_targets(_SESSION_TMP)
-    session_db = _SESSION_TMP / "sentinelnet.db"
 
     for mod_name, module in list(sys.modules.items()):
         if module is None or not _is_campus_module(mod_name):
@@ -274,8 +250,6 @@ def _pin_session_bindings() -> None:
             if isinstance(getattr(module, attr, None), Path):
                 setattr(module, attr, new_value)
         # 派生常量 / 别名
-        if isinstance(getattr(module, "DB_PATH", None), Path):
-            module.DB_PATH = session_db
         if isinstance(getattr(module, "_DEFAULT_LOG_DIR", None), Path):
             module._DEFAULT_LOG_DIR = targets["LOG_DIR"]
 

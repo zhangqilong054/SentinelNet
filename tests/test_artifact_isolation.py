@@ -77,24 +77,13 @@ class TestRepresentativeConsumers:
             value = getattr(module, attr)
             assert is_under(value, tmp_path), f"{module.__name__}.{attr} = {value} 未重定向"
 
-    def test_legacy_web_module_paths(self, tmp_path):
-        import campus_ids.web.bp_admin as bp_admin
-        import campus_ids.web.bp_model as bp_model
-        import campus_ids.web.helpers as helpers
-
-        checks = [
-            (helpers, "TRAFFIC_STATS_CSV"),
-            (helpers, "TRAFFIC_CSV"),
-            (helpers, "MODEL_PATH"),
-            (bp_admin, "TRAFFIC_STATS_CSV"),
-            (bp_admin, "EVALUATION_PATH"),
-            (bp_model, "REGISTRY_JSON"),
-        ]
-        for module, attr in checks:
-            value = getattr(module, attr, None)
-            if value is None:
-                continue
-            assert is_under(value, tmp_path), f"{module.__name__}.{attr} = {value} 未重定向"
+    def test_runtime_state_paths(self, tmp_path):
+        """RuntimeState 的产物路径也应落在 tmp。"""
+        from campus_ids.runtime.state import RuntimeState
+        state = RuntimeState()
+        # RuntimeState 不直接持有产物路径常量，但 data_dir 应指向 tmp
+        from campus_ids.runtime.settings import get_settings
+        assert get_settings().data_dir == tmp_path
 
     def test_data_loader_paths(self, tmp_path):
         import campus_ids.model.data_loader as data_loader
@@ -102,14 +91,6 @@ class TestRepresentativeConsumers:
         for attr in ("TRAFFIC_CSV", "DATA_DIR"):
             value = getattr(data_loader, attr)
             assert is_under(value, tmp_path), f"data_loader.{attr} = {value} 未重定向"
-
-    def test_legacy_db_path_is_derived_and_redirected(self, tmp_path):
-        """`web/database.py: DB_PATH` 是由 DATA_DIR 派生的，需单独重定向。"""
-        import campus_ids.web.database as legacy_db
-
-        assert is_under(legacy_db.DB_PATH, tmp_path), (
-            f"web.database.DB_PATH = {legacy_db.DB_PATH} 未重定向（派生常量需显式处理）"
-        )
 
     def test_logging_config_redirected(self, tmp_path):
         """logging_config 把 config.LOG_DIR 重命名为 _DEFAULT_LOG_DIR 后绑定。"""
@@ -143,13 +124,6 @@ class TestSettingsDataDir:
 
 class TestWriteDoesNotEscape:
     """端到端：通过重定向后的路径写文件，只应落在 tmp。"""
-
-    def test_legacy_db_write_lands_in_tmp(self, tmp_path, project_root):
-        import campus_ids.web.database as legacy_db
-
-        legacy_db.DB_PATH.write_bytes(b"isolation-probe")
-        assert (tmp_path / "sentinelnet.db").read_bytes() == b"isolation-probe"
-        assert not (project_root / "sentinelnet.db").read_bytes() == b"isolation-probe"
 
     def test_evaluation_report_write_lands_in_tmp(self, tmp_path, project_root):
         import campus_ids.model.evaluation as evaluation
