@@ -7,12 +7,13 @@
 """
 from __future__ import annotations
 
+import json
 import os
 from pathlib import Path
-from typing import Any, ClassVar
+from typing import Annotated, Any, ClassVar
 
-from pydantic import AliasChoices, Field
-from pydantic_settings import BaseSettings, SettingsConfigDict
+from pydantic import AliasChoices, Field, field_validator
+from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 
 
 class Settings(BaseSettings):
@@ -139,10 +140,28 @@ class Settings(BaseSettings):
     debug: bool = Field(default=False, description="开发模式（允许不安全默认值）")
 
     # ── CORS ──────────────────────────────────────────────────────
-    cors_origins: list[str] = Field(
+    # NoDecode：禁用 pydantic-settings 对 list 类型的强制 JSON 解码，
+    # 否则 `CAMPUS_IDS_CORS_ORIGINS=`（空串）或逗号分隔写法会让 Settings()
+    # 直接抛 SettingsError（.env.example 文档化的是逗号分隔 → 复制即启动失败）。
+    cors_origins: Annotated[list[str], NoDecode] = Field(
         default=["*"],
-        description="CORS 允许的来源列表",
+        description="CORS 允许的来源列表（空串=[] 即仅同源；逗号分隔或 JSON 数组均可）",
     )
+
+    @field_validator("cors_origins", mode="before")
+    @classmethod
+    def _parse_cors_origins(cls, v: Any) -> Any:
+        """兼容三种写法：空串→[]（仅同源）；逗号分隔→拆分；JSON 数组→原样。"""
+        if v is None:
+            return []
+        if isinstance(v, str):
+            s = v.strip()
+            if not s:
+                return []
+            if s.startswith("["):
+                return json.loads(s)  # JSON 数组写法；格式错则让 pydantic 报出可读错误
+            return [item.strip() for item in s.split(",") if item.strip()]
+        return v
 
     # ── 演示模式常量（不可配置，仅用于 demo 数据生成）──────────────
     DEMO_QPS_MIN: ClassVar[int] = 100
