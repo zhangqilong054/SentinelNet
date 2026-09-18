@@ -16,12 +16,12 @@ dependencies = [
     "pydantic-settings>=2.0",
     "sqlalchemy>=2.0",
     "alembic>=1.13",
-    "sse-starlette>=2.0",
     "slowapi>=0.1.9",
+    "jinja2>=3.1",
+    "werkzeug>=3.0",
     # ── 安全响应头（ADR-0001 §1.1 / §6 #3，T1.11 ③）──────────
     "secure>=0.3.0",
-    # ── 既有依赖 ──────────────────────────────────────────────
-    "flask>=3.0",
+    # ── 数据处理与模型训练 ────────────────────────────────────
     "scapy>=2.5",
     "numpy>=1.24",
     "pandas>=2.0",
@@ -31,14 +31,7 @@ dependencies = [
     "imbalanced-learn>=0.11",
     "tqdm>=4.60",
     "matplotlib>=3.7",
-    "waitress>=2.1",
-    "flask-talisman>=1.0",
-    "flask-login>=0.6",
-    "flask-cors>=4.0",
-    "flask-limiter>=3.0",
-    "flask-wtf>=1.2",
     "python-dotenv>=1.0",
-    "flasgger>=0.9",
     "psutil>=5.9",
 ]
 
@@ -52,9 +45,6 @@ dev = [
 
 [tool.setuptools.packages.find]
 where = ["src"]
-
-[tool.setuptools.package-data]
-"campus_ids.web" = ["templates/*.html", "static/css/*.css", "static/js/*.js"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

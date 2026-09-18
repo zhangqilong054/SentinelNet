@@ -352,30 +352,6 @@ def _batch_heuristic_labels(flow_rows: list[dict]) -> list[str]:
     return labels
 
 
-def _heuristic_label(pkts: list[PacketInfo], port_entropy: float,
-                     syn_count: int, pkt_count: int) -> str:
-    """基于启发式规则给流打标签（单流版，保留向后兼容）。
-
-    委托给 detector.vectorized_rule_predict 统一规则判定逻辑，
-    避免阈值分散在多处导致不一致。
-    """
-    if pkt_count == 0:
-        return "Normal"
-
-    total_bytes = sum(p.length for p in pkts)
-    row = {
-        "pkt_count": float(pkt_count),
-        "syn_flag_ratio": syn_count / pkt_count,
-        "dst_port_entropy": port_entropy,
-        "duration": (pkts[-1].timestamp - pkts[0].timestamp) if len(pkts) > 1 else 0.0,
-        "psh_flag_ratio": sum(1 for p in pkts if p.is_psh) / pkt_count,
-        "avg_pkt_len": sum(p.length for p in pkts) / pkt_count,
-        "up_down_byte_ratio": total_bytes / pkt_count,  # bytes_per_packet
-        "rst_flag_ratio": sum(1 for p in pkts if p.is_rst) / pkt_count,
-    }
-    return _batch_heuristic_labels([row])[0]
-
-
 def flow_to_feature_vector(flow: FlowFeatures) -> list[float]:
     """将 FlowFeatures 转为特征向量（与 FEATURE_NAMES 对应）。"""
     return [
@@ -472,12 +448,6 @@ def run_enhanced_capture(duration: int, stop_filter=None) -> tuple[int, int] | N
     return len(packets_info), len(flows)
 
 
-def start_enhanced_capture(duration: int = 60) -> bool:
-    """增强版抓包（阻塞）：提取多维度流特征并保存。
 
-    T-22: 委托给 run_enhanced_capture，仅做 bool 转换。
-    """
-    result = run_enhanced_capture(duration)
-    return result is not None
 
 

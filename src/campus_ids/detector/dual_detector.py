@@ -158,13 +158,6 @@ class DualDetector:
                 entry["packets"].append(pkt_info)
                 entry["last_active"] = time.time()
 
-    def _drain_flow_buffer(self) -> list[dict]:
-        """取出流缓冲区中的所有包。"""
-        with self._flow_lock:
-            pkts = list(self._flow_buffer)
-            self._flow_buffer.clear()
-        return pkts
-
     def _drain_idle_flows(self) -> list[dict]:
         """O-20: 取出流表中 idle 超时的流的所有包，并回收流表条目。
 
@@ -310,9 +303,6 @@ class DualDetector:
                 confidences = [float(max(p)) for p in clf.predict_proba(X_scaled)]
             else:
                 confidences = [1.0] * len(predictions)
-
-            if not predictions:
-                return DualDetectionResult()
 
             self._ml_predict_count += 1
 

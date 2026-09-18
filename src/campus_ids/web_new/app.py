@@ -73,7 +73,6 @@ def _register_default_tasks(registry: TaskRegistry, *, capture_service, detectio
         # 会被静默丢弃（旧端点收 dataset_type/quick，新 schema 是 dataset/epochs）。
         forwarded = {k: v for k, v in kwargs.items() if k in ("dataset", "quick")}
         model_service.train(**forwarded)
-        stop_event.wait()
 
     # ── auto: 一键全流程（TIMED）— 委托 ScenarioService("full") ──
     def auto_target(stop_event: threading.Event, duration: int = 180, **kwargs) -> None:

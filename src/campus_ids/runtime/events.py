@@ -54,14 +54,6 @@ PLANNED_TOPIC_TASKS = "tasks"          # 预留：TaskRegistry 尚未发布状�
 PLANNED_TOPIC_DETECTION = "detection"  # 预留：检测结果尚未单独立流（现走 traffic）
 PLANNED_TOPICS: frozenset[str] = frozenset({PLANNED_TOPIC_TASKS, PLANNED_TOPIC_DETECTION})
 
-# ── 历史常量别名（值同步，勿直接写字面量）──────────────────────
-# 保留旧名以免破坏既有引用；注意 `EVENT_TRAFFIC_UPDATE` 的值
-# 已由 "traffic_update" 更正为 "traffic"（见上方说明）。
-EVENT_TRAFFIC_UPDATE = TOPIC_TRAFFIC
-EVENT_ALERT = TOPIC_ALERT
-EVENT_TASK_STATUS = PLANNED_TOPIC_TASKS
-EVENT_DETECTION = PLANNED_TOPIC_DETECTION
-
 # 订阅者上限（与原 sse.py MAX_SSE_SUBSCRIBERS = 20 一致）
 MAX_SUBSCRIBERS = 20
 

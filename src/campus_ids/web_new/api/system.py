@@ -256,13 +256,6 @@ async def get_settings_endpoint(request: Request) -> SettingsResponse:
 
 # ── T2.12: 阈值热更新辅助 ──────────────────────────────────────
 
-_RULE_THRESHOLD_KEYS = frozenset({
-    "ddos_threshold", "port_scan_threshold", "syn_flood_threshold",
-    "udp_flood_threshold", "brute_force_threshold",
-    "brute_force_window", "lateral_movement_threshold",
-})
-
-
 def _rebuild_rule_detector(app) -> None:
     """用当前 settings 重建 rule_detector，迁移有状态追踪器。
 

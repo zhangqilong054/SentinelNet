@@ -110,25 +110,25 @@ class TestRuntimeOverride:
         os.environ["CAMPUS_IDS_DDOS_THRESHOLD"] = "1000"
         s = Settings()
         s.set_override("ddos_threshold", 2000)
-        assert s.get("ddos_threshold") == 2000
+        assert s.ddos_threshold == 2000
 
     def test_get_returns_override_first(self):
-        """get() 方法优先返回运行期覆盖。"""
+        """运行期覆盖优先于默认值。"""
         s = Settings()
         s.set_override("web_port", 9000)
-        assert s.get("web_port") == 9000
+        assert s.web_port == 9000
 
     def test_get_returns_default_without_override(self):
-        """无覆盖时 get() 返回默认值。"""
+        """无覆盖时返回默认值。"""
         s = Settings()
-        assert s.get("ddos_threshold") == 500
+        assert s.ddos_threshold == 500
 
     def test_clear_overrides(self):
         """clear_overrides 清除所有运行期覆盖。"""
         s = Settings()
         s.set_override("ddos_threshold", 9999)
         s.clear_overrides()
-        assert s.get("ddos_threshold") == 500
+        assert s.ddos_threshold == 500
 
     def test_override_does_not_persist(self):
         """运行期覆盖不持久化到环境变量或文件。"""
@@ -136,7 +136,7 @@ class TestRuntimeOverride:
         s.set_override("web_port", 9999)
         # 创建新实例不应有覆盖
         s2 = Settings()
-        assert s2.get("web_port") == 5000
+        assert s2.web_port == 5000
 
 
 # ── 全局单例 ─────────────────────────────────────────────────────

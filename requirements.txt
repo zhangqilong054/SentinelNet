@@ -10,21 +10,12 @@ pydantic>=2.0
 pydantic-settings>=2.0
 sqlalchemy>=2.0
 alembic>=1.13
-sse-starlette>=2.0
 slowapi>=0.1.9
+jinja2>=3.1
+werkzeug>=3.0
 
 # ── 安全响应头（ADR-0001 §1.1 / §6 #3，T1.11 ③）──────────
 secure>=0.3.0
-
-# ── 既有 Web 监控面板（Flask，旧版保留）─────────────────────
-flask>=3.0
-flask-talisman>=1.0
-flask-login>=0.6
-flask-cors>=4.0
-flask-limiter>=3.0
-flask-wtf>=1.2
-waitress>=2.1
-flasgger>=0.9
 
 # ── 抓包与流量分析 ────────────────────────────────────────
 scapy>=2.5

@@ -16,6 +16,7 @@
 from __future__ import annotations
 
 import time
+import threading
 
 import pytest
 from fastapi.testclient import TestClient
@@ -44,15 +45,22 @@ def _clean_env():
 
 @pytest.fixture()
 def train_calls(monkeypatch):
-    """把真实训练换成记录型假实现，返回调用记录列表。"""
+    """把真实训练换成记录型假实现，返回调用记录列表。
+
+    R-02: train() 改为同步阻塞。假实现短时阻塞（2s）以便测试观测
+    'training' 状态，随后自然完成。fixture 清理时强制释放以防挂起。
+    """
     calls: list[dict] = []
+    release = threading.Event()
 
     def _fake_train(self, dataset: str = "auto", quick: bool = False) -> dict:
         calls.append({"dataset": dataset, "quick": quick})
-        return {"status": "started", "fake": True}
+        release.wait(timeout=2)  # 短时阻塞，让测试可观测 'training' 状态
+        return {"status": "ok", "fake": True}
 
     monkeypatch.setattr(ModelService, "train", _fake_train)
-    return calls
+    yield calls
+    release.set()  # 释放阻塞的假训练线程（安全网）
 
 
 @pytest.fixture()

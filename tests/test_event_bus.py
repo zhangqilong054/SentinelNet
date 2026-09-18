@@ -16,12 +16,13 @@ import threading
 import pytest
 
 from campus_ids.runtime.events import (
-    EVENT_ALERT,
-    EVENT_DETECTION,
-    EVENT_TASK_STATUS,
-    EVENT_TRAFFIC_UPDATE,
+    PLANNED_TOPIC_DETECTION,
+    PLANNED_TOPIC_TASKS,
+    TOPIC_ALERT,
+    TOPIC_TRAFFIC,
     EventBus,
     MAX_SUBSCRIBERS,
+    VALID_TOPICS,
 )
 
 
@@ -31,25 +32,20 @@ from campus_ids.runtime.events import (
 class TestEventConstants:
     """验证事件类型常量。
 
-    ⚠️ 2026-09-17 变更：`EVENT_TRAFFIC_UPDATE` 的值由 `"traffic_update"` 改为
-    `"traffic"`。原值是一个**从未被任何订阅者使用的孤儿值** —— 生产者按它发布，
-    SSE 端按 `"traffic"` 订阅，两边对不上，导致订阅流量主题的客户端永远收不到事件。
-    现在 topic 名与 SSE 帧 `event:` 名统一，并与旧应用
+    topic 名与 SSE 帧 `event:` 名统一，取值与旧应用
     `_broadcast_sse("alert"|"traffic", ...)` 的对外契约一致。
     本类只断言"常量属于合法 topic 集合"，漂移检测由 `tests/test_sse_topics.py` 负责。
     """
 
     def test_event_types_defined(self):
-        from campus_ids.runtime.events import TOPIC_ALERT, TOPIC_TRAFFIC, VALID_TOPICS
-
-        assert EVENT_TRAFFIC_UPDATE == TOPIC_TRAFFIC == "traffic"
-        assert EVENT_ALERT == TOPIC_ALERT == "alert"
+        assert TOPIC_TRAFFIC == "traffic"
+        assert TOPIC_ALERT == "alert"
         # 以下两个是**预留** topic（暂无生产者），不得出现在可订阅集合里
-        assert EVENT_TASK_STATUS == "tasks"
-        assert EVENT_DETECTION == "detection"
+        assert PLANNED_TOPIC_TASKS == "tasks"
+        assert PLANNED_TOPIC_DETECTION == "detection"
         assert VALID_TOPICS == frozenset({TOPIC_TRAFFIC, TOPIC_ALERT})
-        assert EVENT_TASK_STATUS not in VALID_TOPICS
-        assert EVENT_DETECTION not in VALID_TOPICS
+        assert PLANNED_TOPIC_TASKS not in VALID_TOPICS
+        assert PLANNED_TOPIC_DETECTION not in VALID_TOPICS
 
     def test_max_subscribers(self):
         assert MAX_SUBSCRIBERS == 20
@@ -64,18 +60,18 @@ class TestSyncCallbacks:
     def test_subscribe_and_publish(self):
         bus = EventBus()
         received = []
-        bus.subscribe(EVENT_ALERT, lambda et, data: received.append((et, data)))
-        bus.publish(EVENT_ALERT, {"level": "high"})
+        bus.subscribe(TOPIC_ALERT, lambda et, data: received.append((et, data)))
+        bus.publish(TOPIC_ALERT, {"level": "high"})
         assert len(received) == 1
-        assert received[0] == (EVENT_ALERT, {"level": "high"})
+        assert received[0] == (TOPIC_ALERT, {"level": "high"})
 
     def test_multiple_sync_subscribers(self):
         bus = EventBus()
         received_a = []
         received_b = []
-        bus.subscribe(EVENT_ALERT, lambda et, data: received_a.append(data))
-        bus.subscribe(EVENT_ALERT, lambda et, data: received_b.append(data))
-        bus.publish(EVENT_ALERT, "test")
+        bus.subscribe(TOPIC_ALERT, lambda et, data: received_a.append(data))
+        bus.subscribe(TOPIC_ALERT, lambda et, data: received_b.append(data))
+        bus.publish(TOPIC_ALERT, "test")
         assert len(received_a) == 1
         assert len(received_b) == 1
 
@@ -83,24 +79,24 @@ class TestSyncCallbacks:
         bus = EventBus()
         received = []
         cb = lambda et, data: received.append(data)  # noqa: E731
-        bus.subscribe(EVENT_ALERT, cb)
-        bus.unsubscribe(EVENT_ALERT, cb)
-        bus.publish(EVENT_ALERT, "test")
+        bus.subscribe(TOPIC_ALERT, cb)
+        bus.unsubscribe(TOPIC_ALERT, cb)
+        bus.publish(TOPIC_ALERT, "test")
         assert len(received) == 0
 
     def test_unsubscribe_nonexistent_no_error(self):
         """取消不存在的回调不报错。"""
         bus = EventBus()
-        bus.unsubscribe(EVENT_ALERT, lambda et, data: None)
+        bus.unsubscribe(TOPIC_ALERT, lambda et, data: None)
 
     def test_different_event_types_isolated(self):
         """不同事件类型互不干扰。"""
         bus = EventBus()
         alerts = []
         traffic = []
-        bus.subscribe(EVENT_ALERT, lambda et, data: alerts.append(data))
-        bus.subscribe(EVENT_TRAFFIC_UPDATE, lambda et, data: traffic.append(data))
-        bus.publish(EVENT_ALERT, "alert_data")
+        bus.subscribe(TOPIC_ALERT, lambda et, data: alerts.append(data))
+        bus.subscribe(TOPIC_TRAFFIC, lambda et, data: traffic.append(data))
+        bus.publish(TOPIC_ALERT, "alert_data")
         assert len(alerts) == 1
         assert len(traffic) == 0
 
@@ -112,9 +108,9 @@ class TestSyncCallbacks:
         def bad_callback(et, data):
             raise RuntimeError("回调异常")
 
-        bus.subscribe(EVENT_ALERT, bad_callback)
-        bus.subscribe(EVENT_ALERT, lambda et, data: received.append(data))
-        bus.publish(EVENT_ALERT, "test")
+        bus.subscribe(TOPIC_ALERT, bad_callback)
+        bus.subscribe(TOPIC_ALERT, lambda et, data: received.append(data))
+        bus.publish(TOPIC_ALERT, "test")
         assert len(received) == 1  # 第二个回调仍被调用
 
 
@@ -128,10 +124,10 @@ class TestAsyncQueues:
         bus = EventBus()
         loop = asyncio.new_event_loop()
         queue = asyncio.Queue()
-        result = bus.subscribe_async(EVENT_ALERT, queue, loop)
+        result = bus.subscribe_async(TOPIC_ALERT, queue, loop)
         assert result is True
 
-        bus.publish(EVENT_ALERT, {"level": "high"})
+        bus.publish(TOPIC_ALERT, {"level": "high"})
 
         # loop.call_soon_threadsafe 投递的回调需运行事件循环才能执行
         loop.run_until_complete(asyncio.sleep(0.05))
@@ -139,7 +135,7 @@ class TestAsyncQueues:
         # 检查队列
         assert not queue.empty()
         msg = queue.get_nowait()
-        assert msg["event"] == EVENT_ALERT
+        assert msg["event"] == TOPIC_ALERT
         assert msg["data"] == {"level": "high"}
         loop.close()
 
@@ -147,9 +143,9 @@ class TestAsyncQueues:
         bus = EventBus()
         loop = asyncio.new_event_loop()
         queue = asyncio.Queue()
-        bus.subscribe_async(EVENT_ALERT, queue, loop)
-        bus.unsubscribe_async(EVENT_ALERT, queue)
-        bus.publish(EVENT_ALERT, "test")
+        bus.subscribe_async(TOPIC_ALERT, queue, loop)
+        bus.unsubscribe_async(TOPIC_ALERT, queue)
+        bus.publish(TOPIC_ALERT, "test")
         loop.run_until_complete(asyncio.sleep(0.05))
         assert queue.empty()
         loop.close()
@@ -166,10 +162,10 @@ class TestMaxSubscribers:
         loop = asyncio.new_event_loop()
         queues = [asyncio.Queue() for _ in range(3)]
         for q in queues:
-            assert bus.subscribe_async(EVENT_ALERT, q, loop) is True
+            assert bus.subscribe_async(TOPIC_ALERT, q, loop) is True
         # 第4个应被拒绝
         q4 = asyncio.Queue()
-        assert bus.subscribe_async(EVENT_ALERT, q4, loop) is False
+        assert bus.subscribe_async(TOPIC_ALERT, q4, loop) is False
         loop.close()
 
 
@@ -182,29 +178,29 @@ class TestSubscriberCount:
     def test_count_empty(self):
         bus = EventBus()
         assert bus.subscriber_count() == 0
-        assert bus.subscriber_count(EVENT_ALERT) == 0
+        assert bus.subscriber_count(TOPIC_ALERT) == 0
 
     def test_count_sync_only(self):
         bus = EventBus()
-        bus.subscribe(EVENT_ALERT, lambda et, data: None)
-        bus.subscribe(EVENT_ALERT, lambda et, data: None)
-        assert bus.subscriber_count(EVENT_ALERT) == 2
+        bus.subscribe(TOPIC_ALERT, lambda et, data: None)
+        bus.subscribe(TOPIC_ALERT, lambda et, data: None)
+        assert bus.subscriber_count(TOPIC_ALERT) == 2
         assert bus.subscriber_count() == 2
 
     def test_count_mixed(self):
         bus = EventBus()
         loop = asyncio.new_event_loop()
-        bus.subscribe(EVENT_ALERT, lambda et, data: None)
-        bus.subscribe_async(EVENT_ALERT, asyncio.Queue(), loop)
-        assert bus.subscriber_count(EVENT_ALERT) == 2
+        bus.subscribe(TOPIC_ALERT, lambda et, data: None)
+        bus.subscribe_async(TOPIC_ALERT, asyncio.Queue(), loop)
+        assert bus.subscriber_count(TOPIC_ALERT) == 2
         loop.close()
 
     def test_count_by_event_type(self):
         bus = EventBus()
-        bus.subscribe(EVENT_ALERT, lambda et, data: None)
-        bus.subscribe(EVENT_TRAFFIC_UPDATE, lambda et, data: None)
-        assert bus.subscriber_count(EVENT_ALERT) == 1
-        assert bus.subscriber_count(EVENT_TRAFFIC_UPDATE) == 1
+        bus.subscribe(TOPIC_ALERT, lambda et, data: None)
+        bus.subscribe(TOPIC_TRAFFIC, lambda et, data: None)
+        assert bus.subscriber_count(TOPIC_ALERT) == 1
+        assert bus.subscriber_count(TOPIC_TRAFFIC) == 1
         assert bus.subscriber_count() == 2
 
 
@@ -223,11 +219,11 @@ class TestThreadSafety:
             with lock:
                 received.append(data)
 
-        bus.subscribe(EVENT_ALERT, cb)
+        bus.subscribe(TOPIC_ALERT, cb)
 
         def publisher(n):
             for i in range(50):
-                bus.publish(EVENT_ALERT, n * 100 + i)
+                bus.publish(TOPIC_ALERT, n * 100 + i)
 
         threads = [threading.Thread(target=publisher, args=(i,)) for i in range(4)]
         for t in threads:

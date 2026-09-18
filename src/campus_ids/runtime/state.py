@@ -27,6 +27,9 @@ class RuntimeState:
     """
 
     def __init__(self) -> None:
+        # ── 全局状态锁 ────────────────────────────────────────────
+        self._state_lock = threading.Lock()
+
         # ── 抓包状态 ──────────────────────────────────────────────
         self.packet_queue: queue.Queue[dict] = queue.Queue(maxsize=20000)
         self.dropped_packets: int = 0
@@ -45,68 +48,11 @@ class RuntimeState:
         # ── ML 引擎状态 ──────────────────────────────────────────
         self.ml_running: bool = False
 
-        # ── 攻击模拟状态 ──────────────────────────────────────────
-        self.attack_running: bool = False
-        self.attack_thread: threading.Thread | None = None
-
-        # ── 训练状态 ──────────────────────────────────────────────
-        self.train_running: bool = False
-        self.train_thread: threading.Thread | None = None
-        self.train_progress: float = 0.0
-        self.train_status: str = "idle"
-
-        # ── 一键流程状态 ──────────────────────────────────────────
-        self.auto_running: bool = False
-        self.auto_status: str = "idle"
-        self.auto_progress: float = 0.0
-
         # ── 流量数据 ──────────────────────────────────────────────
         self.traffic_data: dict[str, Any] = {}
         self.recent_packets: list[dict] = []
         self.last_update_time: float = 0.0
 
-        # ── 状态锁 ──────────────────────────────────────────────
-        self._state_lock = threading.Lock()
-
         # ── 事件总线 ──────────────────────────────────────────────
         self.event_bus = EventBus()
 
-    # ── 线程安全的状态读写 ──────────────────────────────────────
-
-    def get_state(self, key: str, default: Any = None) -> Any:
-        """线程安全地读取状态值。"""
-        with self._state_lock:
-            return getattr(self, key, default)
-
-    def set_state(self, key: str, value: Any) -> None:
-        """线程安全地设置状态值。"""
-        with self._state_lock:
-            setattr(self, key, value)
-
-    def is_any_task_running(self) -> bool:
-        """是否有任何后台任务在运行。"""
-        return bool(
-            self.capture_running
-            or self.enhanced_capture_running
-            or self.detection_running
-            or self.ml_running
-            or self.attack_running
-            or self.train_running
-            or self.auto_running
-        )
-
-    def reset(self) -> None:
-        """重置所有运行时状态（仅用于测试）。"""
-        with self._state_lock:
-            self.capture_running = False
-            self.enhanced_capture_running = False
-            self.detection_running = False
-            self.ml_running = False
-            self.attack_running = False
-            self.train_running = False
-            self.auto_running = False
-            self.dropped_packets = 0
-            self.train_progress = 0.0
-            self.train_status = "idle"
-            self.auto_status = "idle"
-            self.auto_progress = 0.0

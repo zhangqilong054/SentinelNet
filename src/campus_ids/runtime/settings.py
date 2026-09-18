@@ -131,7 +131,6 @@ class Settings(BaseSettings):
     # ── 认证 ──────────────────────────────────────────────────────
     api_token: str = Field(default="", description="API Token（空则禁用认证）")
     auth_enabled: bool = Field(default=True, description="是否启用 API Token 认证")
-    login_enabled: bool = Field(default=False, description="是否启用 Flask-Login 会话认证")
     secret_key: str = Field(default="change-me-in-production", description="会话密钥")
     debug: bool = Field(default=False, description="开发模式（允许不安全默认值）")
 
@@ -142,12 +141,7 @@ class Settings(BaseSettings):
     )
 
     # ── 运行期覆盖层（不持久化，不来自环境变量）──────────────────
-    _overrides: dict[str, Any] = {}
     _override_originals: dict[str, Any] = {}
-
-    def get(self, key: str, default: Any = None) -> Any:
-        """读取配置值 — 与直接属性访问等价，保留仅为兼容旧调用点。"""
-        return getattr(self, key, default)
 
     def set_override(self, key: str, value: Any) -> None:
         """设置运行期覆盖 —— **直接写入实例字段**，所有读取点立即生效。
@@ -163,14 +157,12 @@ class Settings(BaseSettings):
         if key not in self._override_originals:
             self._override_originals[key] = getattr(self, key)
         setattr(self, key, value)
-        self._overrides[key] = value
 
     def clear_overrides(self) -> None:
         """清除所有运行期覆盖，还原为覆盖前的值。"""
         for key, original in self._override_originals.items():
             setattr(self, key, original)
         self._override_originals.clear()
-        self._overrides.clear()
 
     @property
     def threshold_keys(self) -> frozenset[str]:

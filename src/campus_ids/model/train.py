@@ -78,13 +78,10 @@ def _binary_scale_pos_weight(y_train_encoded: np.ndarray,
 
 
 def _multiclass_fit_kwargs(y_train_encoded: np.ndarray,
-                            class_weight_dict: dict | bool | None,
-                            eval_set: list | None = None) -> dict:
+                            class_weight_dict: dict | bool | None) -> dict:
     """多分类 sample_weight fit_kwargs 构造（XGBoost/LightGBM 通用）。"""
     from sklearn.utils import compute_sample_weight
     kwargs = {}
-    if eval_set is not None:
-        kwargs["eval_set"] = eval_set
     if class_weight_dict is not None:
         kwargs["sample_weight"] = compute_sample_weight(
             class_weight_dict if isinstance(class_weight_dict, dict) else "balanced",
@@ -666,46 +663,6 @@ def load_model(path: Path | None = None, which: str = "best") -> dict | None:
     except Exception as exc:
         logger.warning("加载模型失败: %s", exc)
         return None
-
-
-def predict(csv_path: Path | None = None) -> tuple | None:
-    """加载模型并对数据做预测，返回 (DataFrame, predictions) 或 None。"""
-    artifact = load_model()
-    if artifact is None:
-        logger.warning("无可用模型，请先运行 train。")
-        return None
-
-    clf = artifact["model"]
-    scaler = artifact["scaler"]
-    le = artifact["label_encoder"]
-    feature_cols = artifact.get("feature_columns", ENHANCED_FEATURE_COLUMNS)
-
-    path = csv_path or TRAFFIC_CSV
-    if not path.exists() or path.stat().st_size == 0:
-        logger.warning("无抓包数据 (%s)，无法预测。", path)
-        return None
-
-    df = pd.read_csv(path)
-    if df.empty:
-        return None
-
-    # 特征对齐：补缺失特征填0、删多余特征、排序一致
-    from campus_ids.model.data_loader import align_features
-    X = align_features(df, feature_cols)
-    X = clean_features(X)
-
-    if scaler:
-        X_scaled = scaler.transform(X)
-    else:
-        X_scaled = X.values
-
-    preds_encoded = clf.predict(X_scaled)
-    if le:
-        preds = le.inverse_transform(preds_encoded)
-    else:
-        preds = preds_encoded
-
-    return df, preds
 
 
 # ── 主训练流程 ──────────────────────────────────────────────────────
