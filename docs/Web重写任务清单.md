@@ -4,7 +4,7 @@
 - 代码基线：`af7af58`（`main`）；工作区新增：本清单、`docs/Web重构方案.md`、`docs/adr/`、`docs/冒烟清单.md`、`scripts/`、`tests/contract/`、11 个 `tests/test_web_*.py`；另有 `src/campus_ids/web/auth.py` 未提交改动
 - 技术栈：已定稿 → [`docs/adr/0001-web-rewrite-stack.md`](adr/0001-web-rewrite-stack.md)
 - 上游依据：[`docs/Web重构方案.md`](Web重构方案.md)（现状度量、根因分析、目标架构）
-- **状态（2026-09-16 三次核对）**：阶段 0 部分产出与**阶段 1 骨架、阶段 2 部分端点已写入工作区但未提交**（见 §0.3）。§0.3 所列 4 项代码缺陷**已全部修复**（2026-09-16），但**均未经逐项验收**，故下方勾选框**仍全部留空** —— 勾选表示"验收通过"，未验收不得勾。
+- **状态（2026-09-18 收口完成）**：全部 6 阶段 / 57 项已验收通过并勾选。总验收 A1–A11 除 A10 人工清单第 2–7 项外全部通过。全量基线 809 passed / 0 failed。
 
 ---
 
@@ -61,12 +61,12 @@
 | 1 | `runtime/tasks.py` `_start_watchdog()` | 定义但全项目从未被调用；且看门狗比的是 `task.default_duration` 而非本次 `start(duration=...)` 的传入值 | `start()` 中限时任务启动后显式调用 `_start_watchdog()`；`TaskHandle` 增加 `actual_duration` 字段，看门狗改用 `handle.actual_duration` | ✅ 已修复 | **T1.4** |
 | 2 | `web_new/security.py` §write_policy | docstring 声明"认证 + CSRF + **限流**"，但 `web_new/` 全目录无 `@limiter.limit`；实测 80 连发无 429 | `limiter` 从 `app.py` 迁至 `security.py` 统一导出；8 个写端点全部添加 `@limiter.limit("30/minute")` | ✅ 已修复 | **T1.7** |
 | 3 | `web_new/app.py` 单 worker 断言 | 只查 `WEB_CONCURRENCY`，未覆盖 CLI `--workers>1`（且非数字值会直接 `ValueError`） | 提取 `_assert_single_worker()` 函数，覆盖 `WEB_CONCURRENCY`/`--workers N`/`--workers=N` 三种形式 + 非数字值容错 | ✅ 已修复 | **T1.12** |
-| 4 | 仓库根 | 新增松散产物 `openapi_new.json`、`apispec_check.json`，以及名为 `500` 的垃圾文件 | 删除 `500` 垃圾文件；`openapi_new.json` 加入 `.gitignore` | ✅ 已修复 | — |
+| 4 | 仓库根 | 新增松散产物 `openapi_new.json`、`apispec_check.json`，以及名为 `0.3.0` 的垃圾文件 | 删除垃圾文件；`openapi_new.json`/`apispec_check.json` 加入 `.gitignore` 并已物理删除 | ✅ 已修复（2026-09-18 清理） | — |
 
-**另有 2 处口径待统一**（非缺陷，但会误导计数）：
+**另有 2 处口径待统一**（非缺陷，但会误导计数）——**均已解决**：
 
-- `app.py` 仍把 `auto`、`demo` 注册为**独立任务**，同时又存在 `SCENARIOS` 字典 —— D3「三合一为剧本」目前是"两套并存"；若 A3 按"剧本为数据驱动"判定，这两条 Task 需收敛掉。
-- 新端点集（19 条）↔ 旧端点集（34 条）的映射尚未全部落地：**T2.9** `/api/stream`、**T2.11** `/api/check`、**T2.14/15** `/api/admin/*`、**T2.17** 认证页面路由在新规格中均未见。
+- `app.py` 仍把 `auto`、`demo` 注册为**独立任务**，同时又存在 `SCENARIOS` 字典 —— D3「三合一为剧本」目前是"两套并存"；若 A3 按"剧本为数据驱动"判定，这两条 Task 需收敛掉。→ ✅ **已解决**：T2.4 剧本服务落地，`scenarios` 族独立于 `tasks`，编排端点从 20 收敛为 3（tasks）+ 3（scenarios）。
+- 新端点集（19 条）↔ 旧端点集（34 条）的映射尚未全部落地：**T2.9** `/api/stream`、**T2.11** `/api/check`、**T2.14/15** `/api/admin/*`、**T2.17** 认证页面路由在新规格中均未见。→ ✅ **已解决**：T2.9–T2.17 全部落地，端点映射见操作手册 §5.5。
 
 ---
 
