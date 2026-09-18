@@ -1,15 +1,22 @@
-"""web_new/auth.py — 密码哈希与会话管理。
+"""web_new/auth.py — 密码哈希、会话管理与认证业务。
 
 ADR-0001 §6 #1/#6: 会话认证 + 密码哈希（沿用 werkzeug）。
 
 密码哈希使用 werkzeug.security 的 pbkdf2 实现，确保与现有数据库中
 已存储的哈希值兼容。不引入新哈希算法，避免迁移风险。
+
+R-18: 抽取 authenticate() 统一登录/改密的凭据校验逻辑，
+消除 pages.py 与 auth_routes.py 的重复实现，并补齐 API 的 is_active 检查。
 """
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, TYPE_CHECKING
 
 from werkzeug.security import check_password_hash, generate_password_hash
+
+if TYPE_CHECKING:
+    from sqlalchemy.engine import Connection
+    from campus_ids.runtime.repositories import UserRepository as _UserRow
 
 
 # ── 密码哈希 ──────────────────────────────────────────────────────
@@ -76,3 +83,49 @@ def get_current_user(request: Any) -> str | None:
 def is_authenticated(request: Any) -> bool:
     """检查当前会话是否已认证。"""
     return bool(request.session.get("authenticated"))  # type: ignore[attr-defined]
+
+
+# ── 认证业务 ──────────────────────────────────────────────────────
+
+class AuthenticationError(Exception):
+    """认证失败异常（用户名/密码错误或账户被禁用）。
+
+    消费方（pages.py / auth_routes.py）根据自身响应格式决定如何呈现。
+    """
+
+    def __init__(self, message: str, *, reason: str = "invalid_credentials"):
+        super().__init__(message)
+        self.message = message
+        self.reason = reason
+
+
+def authenticate(conn: "Connection", username: str, password: str) -> "_UserRow":
+    """校验用户凭据并返回用户行；失败时抛 AuthenticationError。
+
+    R-18: 统一 pages.py 和 auth_routes.py 的登录校验逻辑，
+    包括 is_active 检查（此前 API 端点遗漏）。
+
+    Args:
+        conn: 数据库连接
+        username: 用户名
+        password: 明文密码
+
+    Returns:
+        用户行对象（含 id, username, password_hash, is_active 等字段）
+
+    Raises:
+        AuthenticationError: 用户不存在 / 密码错误 / 账户被禁用
+    """
+    from campus_ids.runtime.repositories import UserRepository
+
+    user = UserRepository.get_by_username(conn, username)
+    if user is None:
+        raise AuthenticationError("用户名或密码错误", reason="invalid_credentials")
+
+    if not verify_password(password, user.password_hash):
+        raise AuthenticationError("用户名或密码错误", reason="invalid_credentials")
+
+    if not getattr(user, "is_active", 1):
+        raise AuthenticationError("账户已被禁用", reason="account_disabled")
+
+    return user

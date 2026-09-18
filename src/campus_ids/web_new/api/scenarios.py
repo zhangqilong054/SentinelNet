@@ -15,6 +15,7 @@ from __future__ import annotations
 from fastapi import APIRouter, Request
 
 from campus_ids.services.scenario_service import ScenarioService
+from campus_ids.web_new.deps import get_service, raise_for_task_result
 from campus_ids.web_new.errors import AlreadyRunningError, ApiError, NotFoundError
 from campus_ids.web_new.security import Readonly, Write, limiter
 from campus_ids.web_new.schemas import (
@@ -30,14 +31,7 @@ router = APIRouter(prefix="/api", tags=["scenarios"])
 
 def _get_scenario_service(request: Request) -> ScenarioService:
     """从应用状态获取剧本服务。"""
-    service = getattr(request.app.state, "scenario_service", None)
-    if service is None:
-        raise ApiError(
-            error_code="SERVICE_UNAVAILABLE",
-            detail="剧本服务未初始化",
-            status_code=503,
-        )
-    return service
+    return get_service(request, "scenario_service", "剧本")
 
 
 @router.get("/scenarios", dependencies=[Readonly], summary="获取可用剧本列表")
@@ -63,15 +57,12 @@ async def start_scenario(
     except KeyError:
         raise NotFoundError("剧本", body.scenario)
 
-    status = result.get("status")
-    if status == "already_running":
-        raise AlreadyRunningError(f"剧本 '{body.scenario}'（子任务 '{result.get('task', '')}' 已在运行）")
-    if status == "error":
-        raise ApiError(
-            error_code="SCENARIO_START_FAILED",
-            detail=result.get("message", f"剧本 '{body.scenario}' 启动失败"),
-            status_code=503,
-        )
+    raise_for_task_result(
+        result,
+        body.scenario,
+        already_running_msg=f"剧本 '{body.scenario}'（子任务 '{result.get('task', '')}' 已在运行）",
+        error_code="SCENARIO_START_FAILED",
+    )
     steps = result.get("steps", 0)
     return MessageResponse(message=f"剧本 '{body.scenario}' 已启动，{steps} 个子任务")
 

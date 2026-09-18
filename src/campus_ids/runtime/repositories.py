@@ -6,12 +6,13 @@ ADR-0001 §5.1: SQLAlchemy 2.0 Core 写法，不引 ORM Session。
 from __future__ import annotations
 
 import logging
-from datetime import datetime, timedelta
 from typing import Sequence
 
 from sqlalchemy import delete, insert, select, update, func
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.engine import Connection, Row
+
+from campus_ids.runtime.timeutil import cutoff_str
 
 from campus_ids.runtime.db import alerts, traffic_history, config, users
 
@@ -62,6 +63,19 @@ class AlertRepository:
             .order_by(func.count().desc())
         )
         return conn.execute(stmt).fetchall()
+
+    @staticmethod
+    def count_by_level(conn: Connection) -> dict[str, int]:
+        """按级别统计告警数量（单次 GROUP BY，替代多次 COUNT）。
+
+        返回 {level: count} 字典，未出现的级别不包含在结果中。
+        """
+        stmt = (
+            select(alerts.c.level, func.count().label("count"))
+            .group_by(alerts.c.level)
+        )
+        rows = conn.execute(stmt).fetchall()
+        return {row.level: row.count for row in rows}
 
 
 # ── TrafficRepository ──────────────────────────────────────────────
@@ -203,7 +217,7 @@ class UserRepository:
 
         返回 (alerts_deleted, traffic_deleted) 两表分别删除数。
         """
-        cutoff = (datetime.utcnow() - timedelta(days=days)).strftime("%Y-%m-%d %H:%M:%S")
+        cutoff = cutoff_str(days)
         # SQLite 字符串比较可直接用于时间戳
         r1 = conn.execute(delete(alerts).where(alerts.c.time < cutoff))
         r2 = conn.execute(delete(traffic_history).where(traffic_history.c.time < cutoff))

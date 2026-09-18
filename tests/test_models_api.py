@@ -237,7 +237,7 @@ class TestStartTrainingProtection:
         )
 
         assert resp.status_code == 503, resp.text
-        assert resp.json()["error"] == "TASK_REGISTRY_UNAVAILABLE"
+        assert resp.json()["error"] == "SERVICE_UNAVAILABLE"
 
     def test_requires_csrf(self, client):
         assert client.post("/api/models/train", json={"confirm": True}).status_code == 403
@@ -503,7 +503,7 @@ class TestTrainStatus:
         app.state.task_registry = None
         resp = client.get("/api/models/train/status")
         assert resp.status_code == 503
-        assert resp.json()["error"] == "TASK_REGISTRY_UNAVAILABLE"
+        assert resp.json()["error"] == "SERVICE_UNAVAILABLE"
 
 
 # ══ DELETE /api/models/{name} ═════════════════════════════════════
@@ -571,8 +571,8 @@ class TestDeleteModel:
         assert resp.status_code == 200, resp.text
         assert _read_registry_file() == []
 
-    def test_registry_write_failure_is_logged_not_raised(self, client, monkeypatch, caplog):
-        """写注册表失败 → 记日志但不抛（run 目录已删，报 500 会让调用方误以为没删）。"""
+    def test_registry_write_failure_returns_500(self, client, monkeypatch, caplog):
+        """写注册表失败 → 返回 500（R-16: 不再静默失败，调用方能感知真实状态）。"""
         from pathlib import Path
 
         _write_registry([{"run_id": "boom", "run_dir": ""}])
@@ -585,7 +585,9 @@ class TestDeleteModel:
         with caplog.at_level("ERROR", logger="campus_ids.web_new.api.models"):
             resp = client.delete("/api/models/boom", headers=_csrf(client))
 
-        assert resp.status_code == 200, resp.text
+        assert resp.status_code == 500, resp.text
+        body = resp.json()
+        assert body["error"] == "REGISTRY_WRITE_FAILED"
         assert any("更新注册表失败" in r.getMessage() for r in caplog.records)
 
     def test_requires_csrf(self, client):

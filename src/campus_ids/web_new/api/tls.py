@@ -11,6 +11,7 @@ from __future__ import annotations
 
 from fastapi import APIRouter, Query, Request
 
+from campus_ids.web_new.deps import get_service
 from campus_ids.web_new.errors import ApiError
 from campus_ids.web_new.security import Readonly
 from campus_ids.web_new.schemas import TlsAnalysisResponse
@@ -20,14 +21,7 @@ router = APIRouter(prefix="/api", tags=["tls"])
 
 def _get_tls_analyzer(request: Request):
     """从应用状态获取 TLS 分析器。"""
-    analyzer = getattr(request.app.state, "tls_analyzer", None)
-    if analyzer is None:
-        raise ApiError(
-            error_code="SERVICE_UNAVAILABLE",
-            detail="TLS 分析器未初始化",
-            status_code=503,
-        )
-    return analyzer
+    return get_service(request, "tls_analyzer", "TLS分析")
 
 
 @router.get("/tls/analyze", dependencies=[Readonly], summary="TLS异常分析")

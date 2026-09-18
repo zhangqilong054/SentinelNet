@@ -18,7 +18,7 @@ from __future__ import annotations
 
 import csv
 import os
-from datetime import datetime, timedelta
+from campus_ids.runtime.timeutil import now_str, cutoff_str
 
 import pytest
 from fastapi.testclient import TestClient
@@ -82,7 +82,7 @@ def _read_csv() -> list[list[str]]:
 
 
 def _ts(days_ago: float = 0) -> str:
-    return (datetime.utcnow() - timedelta(days=days_ago)).strftime("%Y-%m-%d %H:%M:%S")
+    return cutoff_str(days_ago) if days_ago > 0 else now_str()
 
 
 # ══ T2.15 导出 ═══════════════════════════════════════════════════
@@ -208,8 +208,8 @@ class TestCleanup:
             f"traffic_deleted 应为 2（不是两表合计 3），实际 {body}"
         )
 
-    def test_default_days_is_seven_and_keeps_recent(self, client):
-        """不传 days → 默认 7 天；近期数据必须保留。"""
+    def test_default_days_from_settings_and_keeps_recent(self, client):
+        """不传 days → 默认取 Settings.cleanup_days（30 天）；近期数据必须保留。"""
         _seed_traffic([{"time": _ts(0), "qps": 7}])
         resp = client.post("/api/admin/cleanup", json={}, headers=_csrf(client))
         assert resp.status_code == 200

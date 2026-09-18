@@ -36,6 +36,7 @@ from pathlib import Path
 from fastapi import APIRouter, Request
 
 from campus_ids.runtime.settings import get_settings
+from campus_ids.web_new.deps import get_service
 from campus_ids.web_new.errors import ApiError, ConflictError, NotFoundError, ValidationError
 from campus_ids.web_new.security import Readonly, Write, limiter
 from campus_ids.web_new.schemas import (
@@ -84,14 +85,7 @@ def _read_registry() -> list[dict]:
 
 def _task_registry(request: Request):
     """取应用级任务注册表；未初始化时抛 503（lifespan 未跑）。"""
-    registry = getattr(request.app.state, "task_registry", None)
-    if registry is None:
-        raise ApiError(
-            error_code="TASK_REGISTRY_UNAVAILABLE",
-            detail="任务注册表未初始化（应用 lifespan 未执行）",
-            status_code=503,
-        )
-    return registry
+    return get_service(request, "task_registry", "任务注册表")
 
 
 def backup_training_products() -> Path | None:
@@ -277,5 +271,10 @@ async def delete_model(name: str, request: Request) -> MessageResponse:
         registry_path.write_text(json.dumps(runs, indent=2, ensure_ascii=False), encoding="utf-8")
     except Exception as exc:
         logger.error("更新注册表失败: %s", exc)
+        raise ApiError(
+            error_code="REGISTRY_WRITE_FAILED",
+            detail=f"模型目录已删除但注册表更新失败: {exc}",
+            status_code=500,
+        )
 
     return MessageResponse(message=f"模型 '{name}' 已删除")

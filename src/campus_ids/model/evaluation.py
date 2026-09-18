@@ -14,7 +14,7 @@ from sklearn.metrics import (
     precision_score,
     recall_score,
 )
-from sklearn.model_selection import cross_val_score
+from sklearn.model_selection import cross_validate
 from sklearn.preprocessing import LabelEncoder, StandardScaler
 from tqdm import tqdm
 
@@ -68,24 +68,59 @@ def _save_confusion_matrix(y_test, y_pred, labels, path: Path) -> None:
 
 # ── 模型评估 ──────────────────────────────────────────────────────
 
+def _format_report_text(report_dict: dict, labels) -> str:
+    """从 classification_report(output_dict=True) 结果生成文本格式（R-12: 避免重复调用）。"""
+    name_w = max(max(len(str(l)) for l in labels), 10)
+    num_w = 9
+    lines = []
+    lines.append(f"{'':>{name_w}}  {'precision':>{num_w}}  {'recall':>{num_w}}  {'f1-score':>{num_w}}  {'support':>{num_w}}")
+    lines.append("")
+    for label in labels:
+        if label in report_dict and isinstance(report_dict[label], dict):
+            d = report_dict[label]
+            lines.append(
+                f"{label:>{name_w}}  {d['precision']:>{num_w}.2f}  "
+                f"{d['recall']:>{num_w}.2f}  {d['f1-score']:>{num_w}.2f}  "
+                f"{int(d['support']):>{num_w}}"
+            )
+    lines.append("")
+    if "accuracy" in report_dict:
+        acc = report_dict["accuracy"]
+        support = report_dict.get("weighted avg", {}).get("support", 0)
+        lines.append(f"{'accuracy':>{name_w}}  {'':>{num_w}}  {'':>{num_w}}  {acc:>{num_w}.2f}  {int(support):>{num_w}}")
+    for avg_key in ("macro avg", "weighted avg"):
+        if avg_key in report_dict and isinstance(report_dict[avg_key], dict):
+            d = report_dict[avg_key]
+            lines.append(
+                f"{avg_key:>{name_w}}  {d['precision']:>{num_w}.2f}  "
+                f"{d['recall']:>{num_w}.2f}  {d['f1-score']:>{num_w}.2f}  "
+                f"{int(d['support']):>{num_w}}"
+            )
+    return "\n".join(lines)
+
+
 def evaluate_model(y_test, y_pred, label_encoder, model_name: str = "Model") -> dict:
-    """P0-16 + P2-11: 评估模型，输出指标（含 Per-Class F1 和误报率）。"""
+    """P0-16 + P2-11: 评估模型，输出指标（含 Per-Class F1 和误报率）。
+    
+    R-12: 只调用一次 classification_report(output_dict=True)，从 dict 派生文本报告和 per_class_f1。
+    """
     labels = label_encoder.classes_
     acc = accuracy_score(y_test, y_pred)
     prec = precision_score(y_test, y_pred, average="weighted", zero_division=0)
     rec = recall_score(y_test, y_pred, average="weighted", zero_division=0)
     f1 = f1_score(y_test, y_pred, average="weighted", zero_division=0)
 
-    report = classification_report(y_test, y_pred, target_names=labels, zero_division=0)
-
-    # P2-11: Per-Class F1 分数
-    per_class_f1 = {}
-    per_class_report = classification_report(
+    # R-12: 只算一次 dict 版，派生文本报告和 per_class_f1
+    report_dict = classification_report(
         y_test, y_pred, target_names=labels, output_dict=True, zero_division=0
     )
+    report = _format_report_text(report_dict, labels)
+
+    # P2-11: Per-Class F1 分数（从同一 report_dict 提取）
+    per_class_f1 = {}
     for label_name in labels:
-        if label_name in per_class_report:
-            per_class_f1[label_name] = per_class_report[label_name]["f1-score"]
+        if label_name in report_dict:
+            per_class_f1[label_name] = report_dict[label_name]["f1-score"]
 
     # P2-11: 误报率（False Positive Rate）
     # FPR = FP / (FP + TN)，即正常流量被误判为攻击的比例
@@ -190,26 +225,27 @@ def cross_validate_models(X: pd.DataFrame, y: pd.Series,
             else:
                 continue
 
-            cv_f1 = cross_val_score(clf, X_scaled, y_encoded, cv=skf, scoring="f1_weighted")
-
-            # P2 修复：ROC-AUC 使用交叉验证而非全量数据训练+预测
-            roc_auc = None
+            # R-12: 用 cross_validate 一次完成多指标评分，避免同一 CV 跑两遍
+            scoring = {"f1": "f1_weighted"}
             n_classes = len(le.classes_)
             if n_classes == 2 and hasattr(clf, "predict_proba"):
-                try:
-                    cv_auc = cross_val_score(clf, X_scaled, y_encoded, cv=skf, scoring="roc_auc")
-                    roc_auc = float(cv_auc.mean())
-                except Exception:
-                    pass
+                scoring["auc"] = "roc_auc"
+            cv_results = cross_validate(clf, X_scaled, y_encoded, cv=skf, scoring=scoring)
+            cv_f1_mean = float(cv_results["test_f1"].mean())
+            cv_f1_std = float(cv_results["test_f1"].std())
+            roc_auc = None
+            if "test_auc" in cv_results:
+                roc_auc = float(cv_results["test_auc"].mean())
 
             metrics = {
                 "model": name,
-                "accuracy": float(cv_f1.mean()),
-                "precision": float(cv_f1.mean()),
-                "recall": float(cv_f1.mean()),
-                "f1_score": float(cv_f1.mean()),
-                "cv_f1_mean": float(cv_f1.mean()),
-                "cv_f1_std": float(cv_f1.std()),
+                # R-12: CV 未单独计算 accuracy/precision/recall，标记 None 避免假值误导
+                "accuracy": None,
+                "precision": None,
+                "recall": None,
+                "f1_score": cv_f1_mean,
+                "cv_f1_mean": cv_f1_mean,
+                "cv_f1_std": cv_f1_std,
                 "roc_auc": roc_auc,
             }
             results.append(metrics)
@@ -393,8 +429,11 @@ def _print_comparison_table(metrics_list: list[dict]) -> None:
     logger.info("%-25s  %-10s  %-10s  %-10s  %-10s", "模型", "准确率", "精确率", "召回率", "F1")
     logger.info("-" * 70)
     for m in metrics_list:
-        logger.info("%-25s  %-10.4f  %-10.4f  %-10.4f  %-10.4f",
-                     m["model"], m["accuracy"], m["precision"], m["recall"], m["f1_score"])
+        acc_str = f"{m['accuracy']:.4f}" if m.get("accuracy") is not None else "N/A"
+        prec_str = f"{m['precision']:.4f}" if m.get("precision") is not None else "N/A"
+        rec_str = f"{m['recall']:.4f}" if m.get("recall") is not None else "N/A"
+        logger.info("%-25s  %-10s  %-10s  %-10s  %-10.4f",
+                     m["model"], acc_str, prec_str, rec_str, m["f1_score"])
     logger.info("=" * 70)
 
 
@@ -410,9 +449,9 @@ def _save_evaluation_report(metrics_list: list[dict], data_source: str) -> None:
     lines.append("")
     for m in metrics_list:
         lines.append(f"模型: {m['model']}")
-        lines.append(f"  准确率: {m['accuracy']:.4f}")
-        lines.append(f"  精确率: {m['precision']:.4f}")
-        lines.append(f"  召回率: {m['recall']:.4f}")
+        lines.append(f"  准确率: {m['accuracy']:.4f}" if m.get("accuracy") is not None else "  准确率: N/A (CV)")
+        lines.append(f"  精确率: {m['precision']:.4f}" if m.get("precision") is not None else "  精确率: N/A (CV)")
+        lines.append(f"  召回率: {m['recall']:.4f}" if m.get("recall") is not None else "  召回率: N/A (CV)")
         lines.append(f"  F1:     {m['f1_score']:.4f}")
         if m.get("cv_f1_mean") is not None:
             lines.append(f"  CV-F1:  {m['cv_f1_mean']:.4f} (±{m['cv_f1_std']:.4f})")
@@ -445,7 +484,10 @@ def _save_evaluation_report(metrics_list: list[dict], data_source: str) -> None:
     lines.append("-" * 80)
     for m in metrics_list:
         fpr_str = f"{m['false_positive_rate']:.4f}" if m.get("false_positive_rate") is not None else "N/A"
-        lines.append(f"{m['model']:<25}  {m['accuracy']:<10.4f}  {m['precision']:<10.4f}  {m['recall']:<10.4f}  {m['f1_score']:<10.4f}  {fpr_str:<10}")
+        acc_str = f"{m['accuracy']:.4f}" if m.get("accuracy") is not None else "N/A"
+        prec_str = f"{m['precision']:.4f}" if m.get("precision") is not None else "N/A"
+        rec_str = f"{m['recall']:.4f}" if m.get("recall") is not None else "N/A"
+        lines.append(f"{m['model']:<25}  {acc_str:<10}  {prec_str:<10}  {rec_str:<10}  {m['f1_score']:<10.4f}  {fpr_str:<10}")
 
     # P2-11: Per-Class F1 对比表
     all_classes = set()

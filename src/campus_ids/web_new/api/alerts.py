@@ -11,6 +11,7 @@ from __future__ import annotations
 from fastapi import APIRouter, Query, Request
 
 from campus_ids.services.alert_service import AlertService
+from campus_ids.web_new.deps import get_service
 from campus_ids.web_new.errors import ApiError
 from campus_ids.web_new.security import Readonly
 from campus_ids.web_new.schemas import (
@@ -24,14 +25,7 @@ router = APIRouter(prefix="/api", tags=["alerts"])
 
 def _get_alert_service(request: Request) -> AlertService:
     """从应用状态获取告警服务。"""
-    service = getattr(request.app.state, "alert_service", None)
-    if service is None:
-        raise ApiError(
-            error_code="SERVICE_UNAVAILABLE",
-            detail="告警服务未初始化",
-            status_code=503,
-        )
-    return service
+    return get_service(request, "alert_service", "告警")
 
 
 @router.get("/alerts", dependencies=[Readonly], summary="查询告警列表（支持分页和级别筛选）")

@@ -12,6 +12,7 @@ from __future__ import annotations
 from fastapi import APIRouter, Request
 
 from campus_ids.runtime.tasks import TaskRegistry
+from campus_ids.web_new.deps import get_service, raise_for_task_result
 from campus_ids.web_new.errors import AlreadyRunningError, ApiError, NotFoundError
 from campus_ids.web_new.security import Readonly, Write, limiter
 from campus_ids.web_new.schemas import (
@@ -26,14 +27,7 @@ router = APIRouter(prefix="/api", tags=["tasks"])
 
 def _get_registry(request: Request) -> TaskRegistry:
     """从应用状态获取任务注册表。"""
-    registry = getattr(request.app.state, "task_registry", None)
-    if registry is None:
-        raise ApiError(
-            error_code="SERVICE_UNAVAILABLE",
-            detail="任务注册表未初始化",
-            status_code=503,
-        )
-    return registry
+    return get_service(request, "task_registry", "任务注册表")
 
 
 @router.get("/tasks", dependencies=[Readonly], summary="获取所有任务状态")
@@ -84,15 +78,7 @@ async def start_task(
     except KeyError:
         raise NotFoundError("任务", name)
 
-    status = result.get("status")
-    if status == "already_running":
-        raise AlreadyRunningError(name)
-    if status == "error":
-        raise ApiError(
-            error_code="SERVICE_UNAVAILABLE",
-            detail=result.get("message", f"任务 '{name}' 暂不可用"),
-            status_code=503,
-        )
+    raise_for_task_result(result, name)
     return MessageResponse(message=f"任务 '{name}' 已启动")
 
 

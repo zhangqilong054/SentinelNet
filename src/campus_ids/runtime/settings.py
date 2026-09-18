@@ -127,6 +127,10 @@ class Settings(BaseSettings):
         ),
         description="告警 API 返回上限",
     )
+    cleanup_days: int = Field(
+        default=30,
+        description="数据自动清理保留天数（告警与流量记录）",
+    )
 
     # ── 认证 ──────────────────────────────────────────────────────
     api_token: str = Field(default="", description="API Token（空则禁用认证）")

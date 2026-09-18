@@ -18,11 +18,14 @@ from fastapi import APIRouter, Request
 from fastapi.responses import JSONResponse
 from sqlalchemy import text
 
+from campus_ids.runtime.timeutil import now_str
+
 logger = logging.getLogger(__name__)
 
 from campus_ids.runtime.db import get_connection
 from campus_ids.runtime.repositories import ConfigRepository
 from campus_ids.runtime.settings import Settings, get_settings
+from campus_ids.web_new.errors import ValidationError
 from campus_ids.web_new.security import (
     Public, Readonly, Write, generate_csrf_token, CSRF_COOKIE_NAME, limiter,
 )
@@ -50,7 +53,7 @@ async def health_check(request: Request) -> HealthResponse:
     """
     health: dict = {
         "status": "healthy",
-        "timestamp": time.strftime("%Y-%m-%d %H:%M:%S"),
+        "timestamp": now_str(),
         "uptime_seconds": round(time.time() - _app_start_time, 1),
         "components": {},
     }
@@ -104,7 +107,7 @@ async def health_check(request: Request) -> HealthResponse:
             "rss_mb": round(mem_info.rss / 1024 / 1024, 1),
             "vms_mb": round(mem_info.vms / 1024 / 1024, 1),
         }
-    except (ImportError, Exception):
+    except Exception:
         health["components"]["memory"] = {"status": "unavailable"}
 
     # SSE 订阅者数量
@@ -313,19 +316,14 @@ async def update_settings(
 
     # 校验 key 是否为可配置阈值
     if body.key not in settings.threshold_keys:
-        from fastapi import HTTPException
-        raise HTTPException(
-            status_code=400,
-            detail=f"不可配置的阈值键: {body.key}，可配置键: {sorted(settings.threshold_keys)}",
-        )
+        raise ValidationError(f"不可配置的阈值键: {body.key}，可配置键: {sorted(settings.threshold_keys)}")
 
     # 类型转换
     try:
         field_type = type(getattr(settings, body.key))
         typed_value = field_type(body.value)
     except (ValueError, TypeError) as e:
-        from fastapi import HTTPException
-        raise HTTPException(status_code=400, detail=f"类型转换失败: {e}")
+        raise ValidationError(f"类型转换失败: {e}")
 
     # 运行期覆盖
     settings.set_override(body.key, typed_value)

@@ -32,7 +32,6 @@ _ARTIFACT_PATHS: dict[str, str] = {
     "DATA_DIR": "",
     "MODEL_PATH": "model.pkl",
     "TRAFFIC_CSV": "traffic_data.csv",
-    "TRAFFIC_STATS_CSV": "traffic_stats.csv",
     "CONFUSION_MATRIX_PATH": "confusion_matrix.png",
     "EVALUATION_PATH": "evaluation_report.txt",
     "MODELS_DIR": "models",

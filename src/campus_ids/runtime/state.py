@@ -54,5 +54,6 @@ class RuntimeState:
         self.last_update_time: float = 0.0
 
         # ── 事件总线 ──────────────────────────────────────────────
-        self.event_bus = EventBus()
+        # 由 lifespan 创建并注入，避免 __init__ 预建后被 lifespan 覆盖丢弃
+        self.event_bus: EventBus | None = None
 

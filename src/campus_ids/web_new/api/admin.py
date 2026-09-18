@@ -26,7 +26,7 @@ router = APIRouter(prefix="/api/admin", tags=["admin"])
 
 class CleanupRequest(BaseModel):
     """清理请求。"""
-    days: int = Field(default=7, ge=1, description="保留最近N天的数据")
+    days: int | None = Field(default=None, ge=1, description="保留最近N天的数据（默认取 Settings.cleanup_days）")
 
 
 class CleanupResponse(BaseModel):
@@ -52,7 +52,7 @@ async def cleanup_data(body: CleanupRequest, request: Request) -> CleanupRespons
 
     对齐旧 /api/cleanup 端点行为。
     """
-    days = body.days
+    days = body.days if body.days is not None else get_settings().cleanup_days
     with get_connection() as conn:
         alerts_deleted, traffic_deleted = UserRepository.cleanup_old_data(conn, days=days)
 

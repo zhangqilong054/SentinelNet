@@ -73,6 +73,13 @@ class TestPacketQueue:
 class TestEventBus:
     """验证 event_bus 属性。"""
 
-    def test_event_bus_type(self):
+    def test_event_bus_initially_none(self):
+        """RuntimeState 不预建 EventBus，由 lifespan 注入。"""
         state = RuntimeState()
+        assert state.event_bus is None
+
+    def test_event_bus_can_be_set(self):
+        """lifespan 可注入 EventBus 实例。"""
+        state = RuntimeState()
+        state.event_bus = EventBus()
         assert isinstance(state.event_bus, EventBus)

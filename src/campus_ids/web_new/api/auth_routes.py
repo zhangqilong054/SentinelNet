@@ -15,13 +15,15 @@ from pydantic import BaseModel, Field
 from campus_ids.runtime.db import get_connection
 from campus_ids.runtime.repositories import UserRepository
 from campus_ids.web_new.auth import (
+    authenticate,
+    AuthenticationError,
     get_current_user,
     hash_password,
     login_user,
     logout_user,
     verify_password,
 )
-from campus_ids.web_new.errors import NotFoundError, UnauthorizedError
+from campus_ids.web_new.errors import ApiError, NotFoundError, UnauthorizedError
 from campus_ids.web_new.security import Public, Write, limiter
 
 logger = logging.getLogger(__name__)
@@ -66,21 +68,17 @@ class ChangePasswordResponse(BaseModel):
 @limiter.limit("10/minute")
 async def login(body: LoginRequest, request: Request) -> LoginResponse:
     """用户名+密码登录，成功后写入会话。"""
-    username = body.username
-    password = body.password
+    try:
+        with get_connection() as conn:
+            authenticate(conn, body.username, body.password)
+    except AuthenticationError as exc:
+        if exc.reason == "account_disabled":
+            raise ApiError(error_code="ACCOUNT_DISABLED", detail=exc.message, status_code=403)
+        raise UnauthorizedError(exc.message)
 
-    with get_connection() as conn:
-        user = UserRepository.get_by_username(conn, username)
-
-    if user is None:
-        raise UnauthorizedError("用户名或密码错误")
-
-    if not verify_password(password, user.password_hash):
-        raise UnauthorizedError("用户名或密码错误")
-
-    login_user(request, username)
-    logger.info("用户 %s 登录成功", username)
-    return LoginResponse(message="登录成功", username=username)
+    login_user(request, body.username)
+    logger.info("用户 %s 登录成功", body.username)
+    return LoginResponse(message="登录成功", username=body.username)
 
 
 # ── POST /api/logout ───────────────────────────────────────────────

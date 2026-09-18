@@ -203,11 +203,13 @@
         "description": "清理请求。",
         "properties": {
           "days": {
-            "default": 7,
-            "description": "保留最近N天的数据",
-            "minimum": 1.0,
-            "title": "Days",
-            "type": "integer"
+            "anyOf": [
+              {"minimum": 1.0, "title": "Days", "type": "integer"},
+              {"type": "null"}
+            ],
+            "default": null,
+            "description": "保留最近N天的数据（默认取 Settings.cleanup_days）",
+            "title": "Days"
           }
         },
         "title": "CleanupRequest",

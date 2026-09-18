@@ -90,6 +90,59 @@ def _multiclass_fit_kwargs(y_train_encoded: np.ndarray,
     return kwargs
 
 
+def _fit_boosting(
+    clf_cls, clf_name: str, n_estimators: int,
+    X_train_scaled, y_train_encoded, X_test_scaled, y_test_encoded,
+    n_classes: int, class_weight_dict, effective_cw,
+    scaler, le,
+    extra_clf_kwargs: dict | None = None,
+    fit_kwargs_base: dict | None = None,
+    setup_tqdm=None,
+) -> tuple:
+    """R-11: 统一 XGBoost/LightGBM 训练流程，框架差异通过参数分离。
+
+    Args:
+        clf_cls: 分类器类（XGBClassifier 或 LGBMClassifier）
+        clf_name: 显示名称（"XGBoost" 或 "LightGBM"）
+        n_estimators: 树的数量
+        extra_clf_kwargs: 分类器构造器的额外参数（如 LGB 的 verbose=-1）
+        fit_kwargs_base: fit() 的基础参数（如 XGB 的 verbose=False）
+        setup_tqdm: 可调用对象 (clf, fit_kwargs, pbar)，设置框架特定的 tqdm 回调
+    """
+    # P3: 多分类安全性 — scale_pos_weight 仅适用于二分类
+    if n_classes == 2:
+        spw = _binary_scale_pos_weight(y_train_encoded, class_weight_dict)
+        clf = clf_cls(
+            n_estimators=n_estimators, max_depth=6, learning_rate=0.1,
+            random_state=42, n_jobs=-1, scale_pos_weight=spw,
+            **(extra_clf_kwargs or {}),
+        )
+    else:
+        logger.info("%s: %d 分类模式，使用 sample_weight 替代 scale_pos_weight",
+                    clf_name, n_classes)
+        clf = clf_cls(
+            n_estimators=n_estimators, max_depth=6, learning_rate=0.1,
+            random_state=42, n_jobs=-1,
+            **(extra_clf_kwargs or {}),
+        )
+
+    # 构造 fit 参数
+    fit_kwargs = {"eval_set": [(X_test_scaled, y_test_encoded)]}
+    fit_kwargs.update(fit_kwargs_base or {})
+    if n_classes > 2 and effective_cw is not None:
+        fit_kwargs.update(_multiclass_fit_kwargs(y_train_encoded, effective_cw))
+
+    # tqdm 实时进度条
+    pbar = tqdm(total=n_estimators, desc=f"{clf_name} 迭代", unit="轮", leave=False)
+    if setup_tqdm is not None:
+        setup_tqdm(clf, fit_kwargs, pbar)
+
+    clf.fit(X_train_scaled, y_train_encoded, **fit_kwargs)
+    pbar.close()
+    y_pred = clf.predict(X_test_scaled)
+    return clf, scaler, le, X_test_scaled, y_test_encoded, y_pred
+
+
 # ── 模型训练 ──────────────────────────────────────────────────────
 
 def train_model(X: pd.DataFrame, y: pd.Series,
@@ -165,98 +218,73 @@ def train_model(X: pd.DataFrame, y: pd.Series,
         logger.info("RF 训练完成: %d 棵树", rf_n_estimators)
         y_pred = clf.predict(X_test_scaled)
         return clf, scaler, le, X_test_scaled, y_test_encoded, y_pred
-    # P1-7a: XGBoost — 带 tqdm 实时进度条
-    elif model_type == "xgb":
-        try:
-            from xgboost import XGBClassifier
-        except ImportError:
-            raise ImportError("xgboost 未安装，请运行: pip install xgboost")
-        xgb_n_estimators = 100
-        # P3: 多分类安全性 — scale_pos_weight 仅适用于二分类
-        if n_classes == 2:
-            spw = _binary_scale_pos_weight(y_train_encoded, class_weight_dict)
-            clf = XGBClassifier(
-                n_estimators=xgb_n_estimators, max_depth=6, learning_rate=0.1,
-                random_state=42, n_jobs=-1, scale_pos_weight=spw,
-            )
-        else:
-            logger.info("XGBoost: %d 分类模式，使用 sample_weight 替代 scale_pos_weight", n_classes)
-            clf = XGBClassifier(
-                n_estimators=xgb_n_estimators, max_depth=6, learning_rate=0.1,
-                random_state=42, n_jobs=-1,
-            )
-        # 构造 fit 参数
-        xgb_fit_kwargs = {"eval_set": [(X_test_scaled, y_test_encoded)], "verbose": False}
-        if n_classes > 2 and effective_cw is not None:
-            xgb_fit_kwargs.update(
-                _multiclass_fit_kwargs(y_train_encoded, effective_cw)
-            )
-        # tqdm 实时进度条（每轮提升）
-        pbar_xgb = tqdm(total=xgb_n_estimators, desc="XGBoost 迭代", unit="轮", leave=False)
-        try:
-            from xgboost.callback import TrainingCallback
-            class _XGBTqdm(TrainingCallback):
-                def after_iteration(self, model, epoch, evals_log):
-                    pbar_xgb.update(1)
-                    if evals_log:
-                        for _d, metrics in evals_log.items():
-                            for mn, vs in metrics.items():
-                                if vs:
-                                    pbar_xgb.set_postfix_str(f"{mn}={vs[-1]:.4f}")
-                    return False  # 继续训练
-            # XGBoost 3.x: callbacks 在构造器中设置；2.x: 在 fit() 中传递
-            import xgboost as _xgb
-            _xgb_version = tuple(int(x) for x in _xgb.__version__.split(".")[:2])
-            if _xgb_version >= (3, 0):
-                clf.set_params(callbacks=[_XGBTqdm()])
-            else:
-                xgb_fit_kwargs["callbacks"] = [_XGBTqdm()]
-        except (ImportError, AttributeError, ValueError):
-            pass  # 旧版/不兼容 xgboost 跳过 tqdm 回调
-        clf.fit(X_train_scaled, y_train_encoded, **xgb_fit_kwargs)
-        pbar_xgb.close()
-        y_pred = clf.predict(X_test_scaled)
-        return clf, scaler, le, X_test_scaled, y_test_encoded, y_pred
+    # P1-7a: XGBoost / LightGBM — 统一走 _fit_boosting（R-11: 消除同构分支）
+    elif model_type in ("xgb", "lgb"):
+        if model_type == "xgb":
+            try:
+                from xgboost import XGBClassifier
+            except ImportError:
+                raise ImportError("xgboost 未安装，请运行: pip install xgboost")
+            clf_cls = XGBClassifier
+            clf_name = "XGBoost"
+            extra_clf_kwargs = {}
+            fit_kwargs_base = {"verbose": False}
 
-    # P1-7a: LightGBM — 带 tqdm 实时进度条
-    elif model_type == "lgb":
-        try:
-            from lightgbm import LGBMClassifier
-        except ImportError:
-            raise ImportError("lightgbm 未安装，请运行: pip install lightgbm")
-        lgb_n_estimators = 100
-        # P3: 多分类安全性 — scale_pos_weight 仅适用于二分类
-        if n_classes == 2:
-            spw = _binary_scale_pos_weight(y_train_encoded, class_weight_dict)
-            clf = LGBMClassifier(
-                n_estimators=lgb_n_estimators, max_depth=6, learning_rate=0.1,
-                random_state=42, n_jobs=-1, verbose=-1, scale_pos_weight=spw,
-            )
-        else:
-            logger.info("LightGBM: %d 分类模式，使用 sample_weight 替代 scale_pos_weight", n_classes)
-            clf = LGBMClassifier(
-                n_estimators=lgb_n_estimators, max_depth=6, learning_rate=0.1,
-                random_state=42, n_jobs=-1, verbose=-1,
-            )
-        # 构造 fit 参数
-        lgb_fit_kwargs = {"eval_set": [(X_test_scaled, y_test_encoded)]}
-        if n_classes > 2 and effective_cw is not None:
-            lgb_fit_kwargs.update(
-                _multiclass_fit_kwargs(y_train_encoded, effective_cw)
-            )
-        # tqdm 实时进度条（每轮提升）
-        pbar_lgb = tqdm(total=lgb_n_estimators, desc="LightGBM 迭代", unit="轮", leave=False)
-        def _lgb_tqdm_cb(env):
-            pbar_lgb.update(1)
-            if env.evaluation_result_list:
-                for item in env.evaluation_result_list:
-                    if len(item) >= 3:
-                        pbar_lgb.set_postfix_str(f"{item[1]}={item[2]:.4f}")
-        lgb_fit_kwargs["callbacks"] = [_lgb_tqdm_cb]
-        clf.fit(X_train_scaled, y_train_encoded, **lgb_fit_kwargs)
-        pbar_lgb.close()
-        y_pred = clf.predict(X_test_scaled)
-        return clf, scaler, le, X_test_scaled, y_test_encoded, y_pred
+            def setup_tqdm_xgb(clf, fit_kwargs, pbar):
+                """XGBoost tqdm 回调：TrainingCallback + 版本分支。"""
+                try:
+                    from xgboost.callback import TrainingCallback
+                    class _XGBTqdm(TrainingCallback):
+                        def after_iteration(self, model, epoch, evals_log):
+                            pbar.update(1)
+                            if evals_log:
+                                for _d, metrics in evals_log.items():
+                                    for mn, vs in metrics.items():
+                                        if vs:
+                                            pbar.set_postfix_str(f"{mn}={vs[-1]:.4f}")
+                            return False
+                    import xgboost as _xgb
+                    _xgb_version = tuple(int(x) for x in _xgb.__version__.split(".")[:2])
+                    if _xgb_version >= (3, 0):
+                        clf.set_params(callbacks=[_XGBTqdm()])
+                    else:
+                        fit_kwargs["callbacks"] = [_XGBTqdm()]
+                except (ImportError, AttributeError, ValueError):
+                    pass
+
+            setup_tqdm = setup_tqdm_xgb
+        else:  # lgb
+            try:
+                from lightgbm import LGBMClassifier
+            except ImportError:
+                raise ImportError("lightgbm 未安装，请运行: pip install lightgbm")
+            clf_cls = LGBMClassifier
+            clf_name = "LightGBM"
+            extra_clf_kwargs = {"verbose": -1}
+            fit_kwargs_base = {}
+
+            def setup_tqdm_lgb(clf, fit_kwargs, pbar):
+                """LightGBM tqdm 回调：闭包回调。"""
+                def _lgb_tqdm_cb(env):
+                    pbar.update(1)
+                    if env.evaluation_result_list:
+                        for item in env.evaluation_result_list:
+                            if len(item) >= 3:
+                                pbar.set_postfix_str(f"{item[1]}={item[2]:.4f}")
+                fit_kwargs["callbacks"] = [_lgb_tqdm_cb]
+
+            setup_tqdm = setup_tqdm_lgb
+
+        return _fit_boosting(
+            clf_cls=clf_cls, clf_name=clf_name, n_estimators=100,
+            X_train_scaled=X_train_scaled, y_train_encoded=y_train_encoded,
+            X_test_scaled=X_test_scaled, y_test_encoded=y_test_encoded,
+            n_classes=n_classes, class_weight_dict=class_weight_dict,
+            effective_cw=effective_cw, scaler=scaler, le=le,
+            extra_clf_kwargs=extra_clf_kwargs,
+            fit_kwargs_base=fit_kwargs_base,
+            setup_tqdm=setup_tqdm,
+        )
 
     # P1-7b: MLP 深度学习模型 — 带 tqdm 实时进度条
     elif model_type == "mlp":
@@ -408,11 +436,8 @@ def save_run(
     return run_id, run_dir
 
 
-def _check_is_best(metrics: dict, key: str = "f1_score") -> bool:
-    """检查新指标是否优于当前 best.json 中的记录。
-
-    T-24: 抽取判断逻辑，供 save_run 在写 registry.json 时一次性设置 is_best。
-    """
+def _compare_with_best(metrics: dict, key: str = "f1_score") -> bool:
+    """R-11: 纯比较函数 — 读 best.json 并比较分数，供 _check_is_best 和 update_best 共用。"""
     import json
     new_score = metrics.get(key, 0.0)
     if isinstance(new_score, dict):
@@ -433,6 +458,15 @@ def _check_is_best(metrics: dict, key: str = "f1_score") -> bool:
             current_score = 0.0
 
     return new_score > current_score
+
+
+def _check_is_best(metrics: dict, key: str = "f1_score") -> bool:
+    """检查新指标是否优于当前 best.json 中的记录。
+
+    T-24: 抽取判断逻辑，供 save_run 在写 registry.json 时一次性设置 is_best。
+    R-11: 委托 _compare_with_best，消除与 update_best 的重复读逻辑。
+    """
+    return _compare_with_best(metrics, key)
 
 
 def _update_registry(run_id: str, run_dir: Path, metadata: dict,
@@ -479,33 +513,9 @@ def update_best(run_id: str, run_dir: Path, metrics: dict, key: str = "f1_score"
 
     T-24: 不再操作 registry.json（is_best 标记已由 _update_registry 统一处理），
           仅更新 best.json 并返回 is_best 标志供调用方传入 _update_registry。
-
-    Args:
-        key: 用于比较的指标键，默认 f1_score
-
-    Returns:
-        True 表示新模型更优（is_best）
+    R-11: 委托 _compare_with_best，消除与 _check_is_best 的重复读逻辑。
     """
-    import json
-    new_score = metrics.get(key, 0.0)
-    if isinstance(new_score, dict):
-        new_score = 0.0
-
-    # 读取当前 best
-    current_best: dict | None = None
-    if BEST_JSON.exists():
-        try:
-            current_best = json.loads(BEST_JSON.read_text(encoding="utf-8"))
-        except (json.JSONDecodeError, OSError):
-            current_best = None
-
-    current_score = 0.0
-    if current_best and "metrics" in current_best:
-        current_score = current_best["metrics"].get(key, 0.0)
-        if isinstance(current_score, dict):
-            current_score = 0.0
-
-    is_best = new_score > current_score
+    is_best = _compare_with_best(metrics, key)
     if is_best:
         best_data = {
             "run_id": run_id,
@@ -622,10 +632,27 @@ def save_model(clf, scaler, label_encoder, path: Path | None = None, feature_col
     logger.info("模型已保存至 %s（特征数: %d）", out, len(artifact["feature_columns"]))
 
 
+def _load_pkl_artifact(p: Path) -> dict | None:
+    """R-11: 统一 pkl 加载逻辑（exists 检查 + joblib.load + dict/非 dict 适配 + 异常处理）。"""
+    import joblib
+    if not p.exists():
+        return None
+    try:
+        artifact = joblib.load(p)
+        if isinstance(artifact, dict):
+            return artifact
+        return {"model": artifact, "scaler": None, "label_encoder": None,
+                "feature_columns": LEGACY_FEATURE_COLUMNS}
+    except Exception as exc:
+        logger.warning("加载模型失败: %s", exc)
+        return None
+
+
 def load_model(path: Path | None = None, which: str = "best") -> dict | None:
     """加载已保存的模型 artifact。
 
     优先从模型注册表加载（best/latest 指针），回退到传统 model.pkl。
+    R-11: 委托 _load_pkl_artifact，消除重复 pkl 加载逻辑。
 
     Args:
         path: 传统 pkl 路径（向后兼容，指定后跳过注册表）
@@ -633,17 +660,7 @@ def load_model(path: Path | None = None, which: str = "best") -> dict | None:
     """
     # 如果显式指定了 path，走传统加载逻辑
     if path is not None:
-        import joblib
-        if not path.exists():
-            return None
-        try:
-            artifact = joblib.load(path)
-            if isinstance(artifact, dict):
-                return artifact
-            return {"model": artifact, "scaler": None, "label_encoder": None, "feature_columns": LEGACY_FEATURE_COLUMNS}
-        except Exception as exc:
-            logger.warning("加载模型失败: %s", exc)
-            return None
+        return _load_pkl_artifact(path)
 
     # 优先从注册表加载
     artifact = load_run(which=which)
@@ -651,18 +668,7 @@ def load_model(path: Path | None = None, which: str = "best") -> dict | None:
         return artifact
 
     # 回退到传统 model.pkl
-    import joblib
-    p = MODEL_PATH
-    if not p.exists():
-        return None
-    try:
-        artifact = joblib.load(p)
-        if isinstance(artifact, dict):
-            return artifact
-        return {"model": artifact, "scaler": None, "label_encoder": None, "feature_columns": LEGACY_FEATURE_COLUMNS}
-    except Exception as exc:
-        logger.warning("加载模型失败: %s", exc)
-        return None
+    return _load_pkl_artifact(MODEL_PATH)
 
 
 # ── 主训练流程 ──────────────────────────────────────────────────────

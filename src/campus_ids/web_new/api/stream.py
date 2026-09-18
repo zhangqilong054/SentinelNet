@@ -40,14 +40,14 @@ _VALID_TOPICS_STR = ", ".join(sorted(VALID_TOPICS))
 
 def _get_event_bus(request: Request) -> EventBus:
     """从应用状态获取事件总线。"""
-    bus = getattr(request.app.state.runtime_state, "event_bus", None)
-    if bus is None:
+    state = getattr(request.app.state, "runtime_state", None)
+    if state is None or getattr(state, "event_bus", None) is None:
         raise ApiError(
             error_code="SERVICE_UNAVAILABLE",
             detail="事件总线未初始化",
             status_code=503,
         )
-    return bus
+    return state.event_bus
 
 
 @router.get("/stream", dependencies=[Public], summary="SSE 实时事件流")

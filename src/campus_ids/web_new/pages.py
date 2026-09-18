@@ -30,11 +30,14 @@ from pathlib import Path
 from fastapi import APIRouter, Form, Request
 from fastapi.responses import HTMLResponse, RedirectResponse, Response
 from fastapi.templating import Jinja2Templates
+from starlette.exceptions import HTTPException
 
 from campus_ids.runtime.db import get_connection
 from campus_ids.runtime.repositories import UserRepository
 from campus_ids.runtime.settings import get_settings
 from campus_ids.web_new.auth import (
+    AuthenticationError,
+    authenticate,
     get_current_user,
     hash_password,
     login_user,
@@ -164,7 +167,7 @@ def login_submit(
 
     try:
         verify_csrf_pair(request.cookies.get(CSRF_COOKIE_NAME), csrf_token)
-    except Exception:
+    except HTTPException:
         return _render(
             request, "login.html",
             error="表单已过期，请重新提交", next=target,
@@ -188,22 +191,19 @@ def login_submit(
         )
 
     with get_connection() as conn:
-        user = UserRepository.get_by_username(conn, username)
-
-    if user is None or not verify_password(password, user.password_hash):
-        logger.info("登录失败: username=%s", username)
-        return _render(
-            request, "login.html",
-            error="用户名或密码错误", username=username, next=target,
-            status_code=401,
-        )
-
-    if not getattr(user, "is_active", 1):
-        return _render(
-            request, "login.html",
-            error="账户已被禁用", username=username, next=target,
-            status_code=403,
-        )
+        try:
+            authenticate(conn, username, password)
+        except AuthenticationError as exc:
+            logger.info("登录失败: username=%s reason=%s", username, exc.reason)
+            if exc.reason == "account_disabled":
+                status = 403
+            else:
+                status = 401
+            return _render(
+                request, "login.html",
+                error=exc.message, username=username, next=target,
+                status_code=status,
+            )
 
     login_user(request, username)
     logger.info("用户 %s 登录成功（页面）", username)
@@ -237,7 +237,7 @@ def logout_submit(request: Request, csrf_token: str = Form("")) -> Response:
     """清除会话并回到登录页。要求 CSRF 双提交。"""
     try:
         verify_csrf_pair(request.cookies.get(CSRF_COOKIE_NAME), csrf_token)
-    except Exception:
+    except HTTPException:
         return _render(
             request, "login.html",
             error="登出请求校验失败，请重试", next="/", status_code=400,
@@ -282,7 +282,7 @@ def change_password_submit(
 
     try:
         verify_csrf_pair(request.cookies.get(CSRF_COOKIE_NAME), csrf_token)
-    except Exception:
+    except HTTPException:
         return _render(
             request, "change_password.html",
             error="表单已过期，请重新提交", message="", status_code=400,

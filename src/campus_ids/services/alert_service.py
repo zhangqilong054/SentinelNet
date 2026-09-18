@@ -13,6 +13,7 @@ import time
 from typing import Any
 
 from campus_ids.runtime.db import get_connection
+from campus_ids.runtime.timeutil import now_str
 from campus_ids.runtime.events import TOPIC_ALERT, EventBus
 from campus_ids.runtime.repositories import AlertRepository
 
@@ -20,6 +21,9 @@ logger = logging.getLogger(__name__)
 
 # 告警冷却窗口（秒）：同一类型在窗口内不重复告警
 ALERT_COOLDOWN_SECONDS = 60
+
+# R-15: 告警级别常量，消除散落在多处的字面量
+ALERT_LEVELS = ("high", "medium", "low")
 
 
 class AlertService:
@@ -49,7 +53,7 @@ class AlertService:
         self._last_alert_time[alert_type] = now
 
         # 落库
-        timestamp = time.strftime("%Y-%m-%d %H:%M:%S")
+        timestamp = now_str()
         with get_connection() as conn:
             alert_id = AlertRepository.insert(
                 conn,
@@ -103,16 +107,13 @@ class AlertService:
         return {"alerts": alerts, "total": total, "limit": limit, "offset": offset}
 
     def get_alert_stats(self) -> dict[str, Any]:
-        """查询告警统计。"""
+        """查询告警统计（R-15: 单次 GROUP BY 替代 4 次 COUNT）。"""
         with get_connection() as conn:
-            total = AlertRepository.count(conn)
+            by_level = AlertRepository.count_by_level(conn)
+            total = sum(by_level.values())
             type_dist = AlertRepository.get_type_distribution(conn)
-            # 按级别统计
-            high = AlertRepository.count(conn, level="high")
-            medium = AlertRepository.count(conn, level="medium")
-            low = AlertRepository.count(conn, level="low")
         return {
             "total_alerts": total,
             "alerts_by_type": {row.attack_type: row.count for row in type_dist},
-            "alerts_by_severity": {"high": high, "medium": medium, "low": low},
+            "alerts_by_severity": {lv: by_level.get(lv, 0) for lv in ALERT_LEVELS},
         }

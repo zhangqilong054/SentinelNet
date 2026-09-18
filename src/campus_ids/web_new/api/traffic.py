@@ -11,6 +11,7 @@ from __future__ import annotations
 from fastapi import APIRouter, Query, Request
 
 from campus_ids.services.traffic_service import TrafficService
+from campus_ids.web_new.deps import get_service
 from campus_ids.web_new.errors import ApiError
 from campus_ids.web_new.security import Readonly
 from campus_ids.web_new.schemas import (
@@ -24,14 +25,7 @@ router = APIRouter(prefix="/api", tags=["traffic"])
 
 def _get_traffic_service(request: Request) -> TrafficService:
     """从应用状态获取流量服务。"""
-    service = getattr(request.app.state, "traffic_service", None)
-    if service is None:
-        raise ApiError(
-            error_code="SERVICE_UNAVAILABLE",
-            detail="流量服务未初始化",
-            status_code=503,
-        )
-    return service
+    return get_service(request, "traffic_service", "流量")
 
 
 @router.get("/traffic", dependencies=[Readonly], summary="获取实时流量统计")

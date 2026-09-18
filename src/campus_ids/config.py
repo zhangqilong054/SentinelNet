@@ -40,13 +40,9 @@ REGISTRY_JSON = MODELS_DIR / "registry.json"
 
 # ── Web 面板配置 ──────────────────────────────────────────────
 WEB_PORT = int(os.environ.get("CAMPUS_IDS_WEB_PORT", "5000"))
-WEB_REFRESH_INTERVAL_MS = int(os.environ.get("CAMPUS_IDS_REFRESH_MS", "2000"))
 
 # 滑动窗口
 WINDOW_SIZE = int(os.environ.get("CAMPUS_IDS_WINDOW_SIZE", "60"))
-
-# 告警 API 返回上限
-MAX_ALERT_API_RETURN = int(os.environ.get("CAMPUS_IDS_MAX_ALERT_API", "20"))
 
 
 # ── 规则检测阈值 ──────────────────────────────────────────────
@@ -96,14 +92,3 @@ DEMO_SYN_MIN, DEMO_SYN_MAX = 0, 150
 DEMO_UDP_MIN, DEMO_UDP_MAX = 0, 250
 DEMO_DNS_MIN, DEMO_DNS_MAX = 0, 50
 DEMO_PKT_MIN, DEMO_PKT_MAX = 10, 50
-
-
-# ── API 认证 ──────────────────────────────────────────────────
-_api_token_env = os.environ.get("CAMPUS_IDS_API_TOKEN", "")
-if not _api_token_env:
-    import logging as _logging
-    _logging.getLogger(__name__).warning(
-        "CAMPUS_IDS_API_TOKEN 未设置，API 认证已禁用。生产环境请设置此环境变量。"
-    )
-API_TOKEN = _api_token_env
-AUTH_ENABLED = bool(_api_token_env) and os.environ.get("CAMPUS_IDS_AUTH_ENABLED", "1") == "1"

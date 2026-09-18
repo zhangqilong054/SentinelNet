@@ -163,8 +163,8 @@ class CaptureService:
                 if pkt.haslayer(TCP) and dst_port in TLS_PORTS:
                     try:
                         self._tls_analyzer.parse_tls_from_packet(pkt)
-                    except Exception:
-                        pass
+                    except Exception as exc:
+                        logger.debug("TLS 解析失败: %s", exc)
 
         try:
             sniff(prn=_on_pkt, store=False,

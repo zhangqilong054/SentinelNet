@@ -17,7 +17,8 @@ import random
 import threading
 import time as _time
 from collections import deque
-from datetime import datetime
+
+from campus_ids.runtime.timeutil import now_str
 from typing import Any
 
 from campus_ids.config import (
@@ -80,7 +81,7 @@ class DetectionService:
             "qps": 200,
             "connections": 80,
             "alert": None,
-            "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            "timestamp": now_str(),
             "packet_count": 0,
             "unique_ports": deque(maxlen=self._window_size),
             "src_ips": deque(maxlen=self._window_size),
@@ -263,7 +264,7 @@ class DetectionService:
         td["syn_packets"] = syn_count
         td["udp_packets"] = udp_count
         td["dns_packets"] = dns_count
-        td["timestamp"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        td["timestamp"] = now_str()
 
         packets_for_ml = self._state.recent_packets if stats is not None else []
 
@@ -341,9 +342,11 @@ class DetectionService:
 
         try:
             from campus_ids.runtime.repositories import UserRepository
+            from campus_ids.runtime.settings import get_settings
+            cleanup_days = get_settings().cleanup_days
             with get_connection() as conn:
                 alerts_deleted, traffic_deleted = UserRepository.cleanup_old_data(
-                    conn, days=30
+                    conn, days=cleanup_days
                 )
                 if alerts_deleted or traffic_deleted:
                     logger.info(
