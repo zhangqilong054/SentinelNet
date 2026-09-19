@@ -3,18 +3,19 @@ import { ref, computed } from 'vue'
 import { getTasks, startTask, stopTask } from '@/api/endpoints'
 import { ElMessage } from 'element-plus'
 
-/** 任务状态 — 对齐后端 TaskStatus 枚举 */
-export type TaskStatus = 'idle' | 'running' | 'finished' | 'failed' | 'cancelled'
+/** 任务状态 — 对齐后端 TaskStatus 枚举（schemas.py: idle|running|stopping|finished|failed） */
+export type TaskStatus = 'idle' | 'running' | 'stopping' | 'finished' | 'failed' | 'cancelled'
 
-/** 任务项 — 对齐 GET /api/tasks 响应 */
+/** 任务项 — 对齐 GET /api/tasks 响应（TaskStatusResponse）：
+ *  后端无 started_at/finished_at/duration 字段，运行时长用 elapsed（秒），
+ *  限时任务默认时长是 default_duration */
 export interface TaskItem {
   name: string
   kind: 'continuous' | 'timed'
   status: TaskStatus
   description?: string
-  duration?: number
-  started_at?: string
-  finished_at?: string
+  elapsed?: number
+  default_duration?: number | null
   error?: string
 }
 

@@ -43,6 +43,7 @@ async function handleStop(name: string) {
 function statusType(status: TaskStatus): 'success' | 'warning' | 'info' | 'danger' {
   switch (status) {
     case 'running': return 'success'
+    case 'stopping': return 'warning'
     case 'idle': return 'info'
     case 'finished': return 'success'
     case 'failed': return 'danger'
@@ -54,6 +55,7 @@ function statusType(status: TaskStatus): 'success' | 'warning' | 'info' | 'dange
 function statusLabel(status: TaskStatus): string {
   switch (status) {
     case 'running': return '运行中'
+    case 'stopping': return '停止中'
     case 'idle': return '空闲'
     case 'finished': return '已完成'
     case 'failed': return '失败'
@@ -62,12 +64,10 @@ function statusLabel(status: TaskStatus): string {
   }
 }
 
-// 运行时长格式化
-function formatDuration(startedAt?: string): string {
-  if (!startedAt) return '-'
-  const start = new Date(startedAt).getTime()
-  const now = Date.now()
-  const sec = Math.floor((now - start) / 1000)
+// 运行时长格式化（后端 elapsed 为已运行秒数）
+function formatDuration(elapsedSec?: number): string {
+  if (elapsedSec == null || elapsedSec < 0) return '-'
+  const sec = Math.floor(elapsedSec)
   if (sec < 60) return `${sec}秒`
   const min = Math.floor(sec / 60)
   if (min < 60) return `${min}分${sec % 60}秒`
@@ -125,8 +125,8 @@ onMounted(() => {
 
       <el-table-column label="运行时长" width="130" align="center">
         <template #default="{ row }">
-          <span v-if="row.status === 'running'">
-            {{ formatDuration(row.started_at) }}
+          <span v-if="row.status === 'running' || row.status === 'stopping'">
+            {{ formatDuration(row.elapsed) }}
           </span>
           <span v-else class="text-muted">-</span>
         </template>
@@ -179,7 +179,7 @@ onMounted(() => {
             {{ selectedTask.description || '无' }}
           </el-descriptions-item>
           <el-descriptions-item label="默认时长" v-if="selectedTask.kind === 'timed'">
-            {{ selectedTask.duration ? `${selectedTask.duration}秒` : '未指定' }}
+            {{ selectedTask.default_duration ? `${selectedTask.default_duration}秒` : '未指定' }}
           </el-descriptions-item>
         </el-descriptions>
 

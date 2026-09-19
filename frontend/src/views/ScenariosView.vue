@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref, onMounted } from 'vue'
-import { getScenarios, startScenario, stopScenario } from '@/api/endpoints'
+import { getScenarios, startScenario, stopScenario, getTasks } from '@/api/endpoints'
 import { ElMessage, ElMessageBox } from 'element-plus'
 
 interface ScenarioInfo {
@@ -22,6 +22,7 @@ async function fetchScenarios() {
       // 支持 { scenarios: [...] } 或直接数组
       scenarios.value = Array.isArray(data) ? data : (data as { scenarios: ScenarioInfo[] }).scenarios ?? []
     }
+    await inferRunningFromTasks()
   } catch {
     ElMessage.error('加载剧本列表失败')
   } finally {
@@ -29,12 +30,38 @@ async function fetchScenarios() {
   }
 }
 
+/** 后端无剧本状态端点：用 /api/tasks 推断 —— 任一子任务运行中即视为剧本运行中 */
+async function inferRunningFromTasks() {
+  try {
+    const data = await getTasks()
+    const tasks = Array.isArray(data) ? data : (data as { tasks: Array<{ name: string; status: string }> }).tasks ?? []
+    const running = new Set(tasks.filter(t => t.status === 'running' || t.status === 'stopping').map(t => t.name))
+    const found = scenarios.value.find(s => s.steps.some(step => running.has(step)))
+    runningScenario.value = found ? found.name : null
+  } catch {
+    /* 推断失败不影响主流程 */
+  }
+}
+
+function scenarioSteps(name: string): string[] {
+  return scenarios.value.find(s => s.name === name)?.steps ?? []
+}
+
 async function handleStart(name: string) {
+  const steps = scenarioSteps(name)
+  // dangerouslyUseHTMLString：steps 为后端内部任务名常量，无注入风险；
+  // 纯文本拼接长行是「确认界面显示不全」的根因之一（无换行无结构）
+  const stepHtml = steps.map(s => `<li>${s}</li>`).join('')
   try {
     await ElMessageBox.confirm(
-      `确定启动剧本 "${name}"？该剧本将依次启动以下任务：${scenarios.value.find(s => s.name === name)?.steps.join(', ')}`,
+      `<p>确定启动剧本 <b>${name}</b>？将按序执行以下 ${steps.length} 个子任务：</p><ul style="margin:8px 0 0;padding-left:20px;">${stepHtml}</ul>`,
       '启动确认',
-      { type: 'info', confirmButtonText: '启动', cancelButtonText: '取消' },
+      {
+        type: 'info',
+        confirmButtonText: '启动',
+        cancelButtonText: '取消',
+        dangerouslyUseHTMLString: true,
+      },
     )
   } catch {
     return
@@ -45,16 +72,22 @@ async function handleStart(name: string) {
     await startScenario({ scenario: name })
     runningScenario.value = name
     ElMessage.success(`剧本 "${name}" 已启动`)
-  } catch {
-    ElMessage.error(`启动剧本 "${name}" 失败`)
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : `启动剧本 "${name}" 失败`
+    ElMessage.error(msg)
   } finally {
     operating.value = false
   }
 }
 
 async function handleStop() {
+  const name = runningScenario.value
+  if (!name) {
+    ElMessage.info('当前没有运行中的剧本')
+    return
+  }
   try {
-    await ElMessageBox.confirm('确定停止当前运行的剧本？', '停止确认', {
+    await ElMessageBox.confirm(`确定停止剧本 "${name}"？（将停止其全部子任务）`, '停止确认', {
       type: 'warning',
       confirmButtonText: '停止',
       cancelButtonText: '取消',
@@ -65,11 +98,13 @@ async function handleStop() {
 
   operating.value = true
   try {
-    await stopScenario()
+    // 后端 ScenarioStopRequest 必选 body：必须带 scenario 字段
+    await stopScenario(name)
     runningScenario.value = null
     ElMessage.success('剧本已停止')
-  } catch {
-    ElMessage.error('停止剧本失败')
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : '停止剧本失败'
+    ElMessage.error(msg)
   } finally {
     operating.value = false
   }

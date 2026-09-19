@@ -56,8 +56,12 @@ export const getAlertStats = () =>
 export const getTasks = () =>
   apiGet<OperationResponse<'/api/tasks', 'get'>>('/api/tasks')
 
-export const startTask = (name: string) =>
-  apiPost<OperationResponse<'/api/tasks/{name}/start', 'post'>>(`/api/tasks/${name}/start`)
+export const startTask = (name: string, duration?: number) =>
+  // 后端 TaskActionRequest 是必选 body（字段全默认也必须传 {}），裸 POST → 422
+  apiPost<OperationResponse<'/api/tasks/{name}/start', 'post'>>(
+    `/api/tasks/${name}/start`,
+    duration ? { duration } : {},
+  )
 
 export const stopTask = (name: string) =>
   apiPost<OperationResponse<'/api/tasks/{name}/stop', 'post'>>(`/api/tasks/${name}/stop`)
@@ -82,8 +86,8 @@ export const getScenarios = () =>
 export const startScenario = (body: OperationRequestBody<'/api/scenarios/start', 'post'>) =>
   apiPost<OperationResponse<'/api/scenarios/start', 'post'>>('/api/scenarios/start', body)
 
-export const stopScenario = () =>
-  apiPost<OperationResponse<'/api/scenarios/stop', 'post'>>('/api/scenarios/stop')
+export const stopScenario = (scenario: string) =>
+  apiPost<OperationResponse<'/api/scenarios/stop', 'post'>>(`/api/scenarios/stop`, { scenario })
 
 // ── TLS 分析 ──────────────────────────────────────────────────
 export const analyzeTls = () =>

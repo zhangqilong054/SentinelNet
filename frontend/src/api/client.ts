@@ -75,7 +75,17 @@ export class ApiError extends Error {
   status: number
   body: string
   constructor(status: number, body: string) {
-    super(`API ${status}: ${body}`)
+    // 后端统一错误结构 {error, detail, status}：优先透出可读的 detail，
+    // 避免把整坨 JSON 甩进 Toast
+    let friendly = body
+    try {
+      const parsed = JSON.parse(body) as { detail?: unknown; error?: unknown }
+      if (typeof parsed.detail === 'string') friendly = parsed.detail
+      else if (parsed.detail) friendly = JSON.stringify(parsed.detail)
+    } catch {
+      /* 非 JSON 响应体，原样保留 */
+    }
+    super(`API ${status}: ${friendly}`)
     this.name = 'ApiError'
     this.status = status
     this.body = body
