@@ -13,7 +13,6 @@ from __future__ import annotations
 import asyncio
 import threading
 
-import pytest
 
 from campus_ids.runtime.events import (
     PLANNED_TOPIC_DETECTION,

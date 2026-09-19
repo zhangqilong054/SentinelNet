@@ -311,7 +311,7 @@ class DualDetector:
             pred_counts = Counter(predictions)
             most_common = pred_counts.most_common(1)[0]
             majority_label = most_common[0]
-            attack_count = sum(c for l, c in pred_counts.items() if l != "Normal")
+            attack_count = sum(c for lab, c in pred_counts.items() if lab != "Normal")
             avg_confidence = sum(confidences) / len(confidences)
 
             result = DualDetectionResult(

@@ -6,7 +6,6 @@
 - hash_password 生成 werkzeug 格式哈希
 - 边界情况：空密码、非哈希字符串
 """
-import pytest
 
 from campus_ids.web_new.auth import verify_password, hash_password
 

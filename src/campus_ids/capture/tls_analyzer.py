@@ -144,7 +144,7 @@ class TLSAnalyzer:
     def parse_tls_from_packet(self, pkt) -> Optional[TLSInfo]:
         """从 Scapy 抓包中解析 TLS ClientHello，返回 TLSInfo 或 None。"""
         try:
-            from scapy.all import IP, TCP, Raw
+            from scapy.all import IP, TCP
 
             if not pkt.haslayer(IP) or not pkt.haslayer(TCP):
                 return None

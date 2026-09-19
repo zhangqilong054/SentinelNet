@@ -115,7 +115,7 @@ def _ensure_consumer_modules_loaded() -> None:
     import campus_ids.model.train
     import campus_ids.model.evaluation
     import campus_ids.model.data_loader
-    import campus_ids.logging_config
+    import campus_ids.logging_config  # noqa: F401 —— 刻意触发加载，使其绑定也参与重定向
 
 
 def _redirect_config_bindings(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> int:

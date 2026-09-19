@@ -134,7 +134,7 @@ def run_schema_gate(app) -> tuple[int, list[str]]:
     类型被改**的情况它看不见 —— 那正是 2026-09-17 补上的第 4、5 层
     （`tests/contract/specdiff.py`）。
     """
-    from tests.contract.specdiff import BREAKING, diff_documents, load_snapshot
+    from tests.contract.specdiff import diff_documents, load_snapshot
 
     old_paths = _old_spec_paths()
     new_paths = _spec_paths(app)

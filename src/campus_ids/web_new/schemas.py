@@ -7,8 +7,6 @@ ADR-0001 §3.2: Pydantic v2 模型，OpenAPI 自动生成。
 """
 from __future__ import annotations
 
-from datetime import datetime
-from enum import Enum
 from typing import Any
 
 from pydantic import BaseModel, Field

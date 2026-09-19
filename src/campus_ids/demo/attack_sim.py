@@ -143,7 +143,7 @@ def load_and_replay(pcap_path: Path, count: int | None = None,
                     interval: float = 0.001) -> int:
     """P0-22: 从 pcap 文件回放攻击流量。"""
     try:
-        from scapy.all import rdpcap, sendp
+        from scapy.all import rdpcap
         packets = rdpcap(str(pcap_path))
         if count:
             packets = packets[:count]

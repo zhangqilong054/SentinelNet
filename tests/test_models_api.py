@@ -597,3 +597,124 @@ class TestDeleteModel:
     def test_requires_write_method(self, client):
         _write_registry([{"run_id": "run-001"}])
         assert client.post("/api/models/run-001").status_code == 405
+
+
+# ══ DELETE 悬挂指针修复（2026-09-19）══════════════════════════════
+
+
+def _read_json(path) -> dict | None:
+    p = _models_dir() / path
+    return json.loads(p.read_text(encoding="utf-8")) if p.exists() else None
+
+
+class TestDeleteModelPointerRecompute:
+    """删除 run 后 latest.json / best.json / is_best 必须重算，不许留悬挂指针。
+
+    期望值来自 `model/train.py` 自身规则（外部真相源）：
+    - latest = 剩余 run 中 created_at 最大者；
+    - best   = 剩余 run 中 f1_score 最大者；无带 f1_score 的 run → 删 best 指针；
+    - registry 的 is_best 与 best 对齐（至多 1 个 True）。
+    """
+
+    def test_delete_latest_run_repoints_latest_to_remaining(self, client):
+        run_dir = get_settings().data_dir / "runs" / "run-new"
+        run_dir.mkdir(parents=True)
+        _write_registry([
+            {"run_id": "run-old", "created_at": "2026-09-01T00:00:00+00:00",
+             "run_dir": str(get_settings().data_dir / "runs" / "run-old")},
+            {"run_id": "run-new", "created_at": "2026-09-18T00:00:00+00:00",
+             "run_dir": str(run_dir)},
+        ])
+        (_models_dir() / "latest.json").write_text(json.dumps(
+            {"run_id": "run-new", "run_dir": str(run_dir),
+             "created_at": "2026-09-18T00:00:00+00:00"}), encoding="utf-8")
+
+        resp = client.delete("/api/models/run-new", headers=_csrf(client))
+
+        assert resp.status_code == 200, resp.text
+        latest = _read_json("latest.json")
+        assert latest is not None and latest["run_id"] == "run-old", (
+            "删除 latest 指向的 run 后指针必须重算到剩余最新 run"
+        )
+
+    def test_delete_best_run_repoints_best_and_realigns_is_best(self, client):
+        _write_registry([
+            {"run_id": "run-a", "created_at": "2026-09-01T00:00:00+00:00",
+             "metrics": {"f1_score": 0.90, "accuracy": 0.91}, "is_best": False},
+            {"run_id": "run-b", "created_at": "2026-09-02T00:00:00+00:00",
+             "metrics": {"f1_score": 0.95, "accuracy": 0.96}, "is_best": True},
+        ])
+        (_models_dir() / "best.json").write_text(json.dumps(
+            {"run_id": "run-b", "metrics": {"f1_score": 0.95}}), encoding="utf-8")
+
+        resp = client.delete("/api/models/run-b", headers=_csrf(client))
+
+        assert resp.status_code == 200, resp.text
+        best = _read_json("best.json")
+        assert best is not None and best["run_id"] == "run-a"
+        assert best["metrics"] == {"f1_score": 0.90, "accuracy": 0.91}, (
+            "best.json 的 metrics 应按 train.py 的 5 键过滤原样保留"
+        )
+        flags = {r["run_id"]: r.get("is_best") for r in _read_registry_file()}
+        assert flags == {"run-a": True}, "registry 的 is_best 必须与新 best 对齐"
+
+    def test_delete_last_run_removes_pointer_files(self, client):
+        _write_registry([{"run_id": "solo", "created_at": "2026-09-01T00:00:00+00:00"}])
+        (_models_dir() / "latest.json").write_text("{}", encoding="utf-8")
+        (_models_dir() / "best.json").write_text("{}", encoding="utf-8")
+
+        resp = client.delete("/api/models/solo", headers=_csrf(client))
+
+        assert resp.status_code == 200, resp.text
+        assert not (_models_dir() / "latest.json").exists()
+        assert not (_models_dir() / "best.json").exists()
+        assert _read_registry_file() == []
+
+    def test_delete_without_scored_runs_removes_best_pointer(self, client):
+        """剩余 run 都没有 f1_score → best.json 删除（train.py 语义：无 best）。"""
+        _write_registry([
+            {"run_id": "run-x", "created_at": "2026-09-01T00:00:00+00:00",
+             "metrics": {"accuracy": 0.9}, "is_best": True},
+        ])
+        (_models_dir() / "best.json").write_text("{}", encoding="utf-8")
+
+        client.delete("/api/models/run-x", headers=_csrf(client))
+
+        assert not (_models_dir() / "best.json").exists()
+
+    def test_delete_unrelated_run_keeps_pointers_valid(self, client):
+        """删除非指针指向的 run → 指针内容保持等价（重算是幂等的）。"""
+        _write_registry([
+            {"run_id": "run-a", "created_at": "2026-09-01T00:00:00+00:00",
+             "metrics": {"f1_score": 0.90}, "is_best": True},
+            {"run_id": "run-b", "created_at": "2026-09-02T00:00:00+00:00",
+             "metrics": {"f1_score": 0.95}, "is_best": False},
+        ])
+        best_before = _read_json("best.json") if (_models_dir() / "best.json").exists() else None
+        if best_before is None:
+            (_models_dir() / "best.json").write_text(json.dumps(
+                {"run_id": "run-b", "metrics": {"f1_score": 0.95}}), encoding="utf-8")
+
+        resp = client.delete("/api/models/run-a", headers=_csrf(client))
+
+        assert resp.status_code == 200, resp.text
+        best = _read_json("best.json")
+        assert best is not None and best["run_id"] == "run-b"
+
+    def test_registry_write_failure_leaves_pointers_untouched(self, client, monkeypatch):
+        """注册表写失败（500）→ 指针文件必须原样保留（不留半更新状态）。"""
+        from pathlib import Path
+
+        _write_registry([{"run_id": "boom", "run_dir": ""}])
+        (_models_dir() / "latest.json").write_text(json.dumps({"run_id": "boom"}), encoding="utf-8")
+        before = (_models_dir() / "latest.json").read_text(encoding="utf-8")
+
+        def _explode(self, *args, **kwargs):
+            raise OSError("磁盘只读")
+
+        monkeypatch.setattr(Path, "write_text", _explode)
+
+        resp = client.delete("/api/models/boom", headers=_csrf(client))
+
+        assert resp.status_code == 500, resp.text
+        assert (_models_dir() / "latest.json").read_text(encoding="utf-8") == before

@@ -9,7 +9,6 @@ from __future__ import annotations
 
 import queue
 
-import pytest
 
 from campus_ids.runtime.events import EventBus
 from campus_ids.runtime.state import RuntimeState

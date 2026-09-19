@@ -5,10 +5,7 @@ T1.2 验收：python -c "import campus_ids.web_new.app" 不建库、不起线程
 """
 from __future__ import annotations
 
-import os
-import sys
 import threading
-import pytest
 
 
 def _collect_route_paths(app) -> list[str]:
@@ -71,7 +68,7 @@ class TestImportNoSideEffects:
         monkeypatch.setenv("CAMPUS_IDS_DATA_DIR", str(tmp_path))
         db_before = set(tmp_path.iterdir()) if tmp_path.exists() else set()
         # 重新导入模块（如果已导入则不会重复执行模块级代码，但模块级代码本身不应有副作用）
-        import campus_ids.web_new.app
+        import campus_ids.web_new.app  # noqa: F401 —— 副作用导入，本测试断言 import 无副作用
         db_after = set(tmp_path.iterdir()) if tmp_path.exists() else set()
         # 不应有新数据库文件
         new_files = db_after - db_before
@@ -81,7 +78,7 @@ class TestImportNoSideEffects:
     def test_import_web_new_app_no_threads(self):
         """import campus_ids.web_new.app 不启动新线程。"""
         threads_before = threading.active_count()
-        import campus_ids.web_new.app
+        import campus_ids.web_new.app  # noqa: F401 —— 副作用导入，本测试断言 import 不起线程
         threads_after = threading.active_count()
         # 允许少量波动（1个），但不应显著增加
         assert threads_after <= threads_before + 1, (

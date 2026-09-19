@@ -6,7 +6,6 @@
 - 仅规则触发 → LEVEL_LOW
 - ML 高/低置信度正确传播
 """
-from unittest.mock import patch, MagicMock, PropertyMock
 
 import pytest
 

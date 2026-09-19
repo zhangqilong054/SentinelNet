@@ -64,6 +64,9 @@ TRAIN_TASK = "train"
 # `epochs <= QUICK_EPOCH_THRESHOLD` 时按 quick 模式训练（沿用旧端点语义）
 QUICK_EPOCH_THRESHOLD = 3
 
+# best.json 只保留这 5 个指标键（与 `model/train.py::_update_registry` 的过滤一致）
+POINTER_METRIC_KEYS = ("accuracy", "precision", "recall", "f1_score", "cv_f1_mean")
+
 
 def _get_models_dir() -> Path:
     """获取 models 目录路径。"""
@@ -81,6 +84,75 @@ def _read_registry() -> list[dict]:
     except Exception as exc:
         logger.error("读取模型注册表失败: %s", exc)
         return []
+
+
+def _atomic_write_json(path: Path, data) -> None:
+    """原子写 JSON：先写 .tmp 再 rename（与 `model/train.py::_atomic_write_json` 同款）。"""
+    tmp = path.with_suffix(".json.tmp")
+    tmp.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+    tmp.replace(path)
+
+
+def _recompute_pointers(runs: list[dict]) -> tuple[dict | None, dict | None]:
+    """删除 run 后按 `model/train.py` 自身规则重算 latest/best 指针（悬挂指针修复）。
+
+    2026-09-19：`delete_model()` 此前只删 run 目录 + registry 条目，不更新
+    `latest.json` / `best.json` —— 删掉被指针指向的 run 会留悬挂指针
+    （`load_run()` 有兜底回退根 `model.pkl` 不崩，但 UI 会显示不存在的「最佳模型」）。
+
+    规则与 train.py 一致：
+    - latest = 剩余 run 中 `created_at` 最大者，形如 `{run_id, run_dir, created_at}`；
+    - best   = 剩余 run 中 `f1_score` 最大者，形如 `{run_id, run_dir, metrics}`；
+      无任何带 `f1_score` 的 run 时删除 best 指针；
+    - registry 的 `is_best` 与 best 对齐（至多 1 个 True）—— 直接就地修改传入的 runs。
+
+    Returns:
+        (latest_data, best_data)；元素为 None 表示对应指针文件应被删除。
+    """
+    if not runs:
+        return None, None
+
+    latest_run = max(runs, key=lambda r: str(r.get("created_at", "")))
+    latest_data = {
+        "run_id": latest_run.get("run_id", ""),
+        "run_dir": latest_run.get("run_dir", ""),
+        "created_at": latest_run.get("created_at", ""),
+    }
+
+    for entry in runs:
+        entry["is_best"] = False
+    scored = [
+        r for r in runs
+        if isinstance(r.get("metrics"), dict)
+        and isinstance(r["metrics"].get("f1_score"), (int, float))
+    ]
+    best_data = None
+    if scored:
+        best_run = max(scored, key=lambda r: r["metrics"]["f1_score"])
+        best_run["is_best"] = True
+        best_data = {
+            "run_id": best_run.get("run_id", ""),
+            "run_dir": best_run.get("run_dir", ""),
+            "metrics": {
+                k: v for k, v in best_run["metrics"].items() if k in POINTER_METRIC_KEYS
+            },
+        }
+    return latest_data, best_data
+
+
+def _write_pointer_files(latest_data: dict | None, best_data: dict | None) -> None:
+    """按 `_recompute_pointers` 的结果落盘指针文件（None = 删除指针）。"""
+    models_dir = _get_models_dir()
+    latest_path = models_dir / "latest.json"
+    best_path = models_dir / "best.json"
+    if latest_data is None:
+        latest_path.unlink(missing_ok=True)
+    else:
+        _atomic_write_json(latest_path, latest_data)
+    if best_data is None:
+        best_path.unlink(missing_ok=True)
+    else:
+        _atomic_write_json(best_path, best_data)
 
 
 def _task_registry(request: Request):
@@ -244,7 +316,12 @@ async def get_train_status(request: Request) -> TrainStatusResponse:
 @router.delete("/models/{name}", dependencies=[Write], summary="删除指定模型")
 @limiter.limit("30/minute")
 async def delete_model(name: str, request: Request) -> MessageResponse:
-    """删除指定模型 — 从 registry.json 移除并删除 run 目录。"""
+    """删除指定模型 — 从 registry.json 移除并删除 run 目录。
+
+    悬挂指针修复（2026-09-19）：删除后按 `model/train.py` 自身规则重算
+    `latest.json` / `best.json`，并把剩余条目的 `is_best` 与 best 对齐；
+    删空后指针文件一并移除。注册表写失败（500）时不动指针文件。
+    """
     runs = _read_registry()
     target_run = None
     for run in runs:
@@ -264,8 +341,9 @@ async def delete_model(name: str, request: Request) -> MessageResponse:
             shutil.rmtree(run_path, ignore_errors=True)
             logger.info("已删除模型目录: %s", run_dir)
 
-    # 从 registry.json 中移除
+    # 从 registry.json 中移除，并按 train.py 规则重算 latest/best 指针
     runs = [r for r in runs if r.get("run_id") != name]
+    latest_data, best_data = _recompute_pointers(runs)
     registry_path = _get_models_dir() / "registry.json"
     try:
         registry_path.write_text(json.dumps(runs, indent=2, ensure_ascii=False), encoding="utf-8")
@@ -276,5 +354,8 @@ async def delete_model(name: str, request: Request) -> MessageResponse:
             detail=f"模型目录已删除但注册表更新失败: {exc}",
             status_code=500,
         )
+
+    # 注册表写成功后再动指针文件 —— 失败路径（500）不留半更新状态
+    _write_pointer_files(latest_data, best_data)
 
     return MessageResponse(message=f"模型 '{name}' 已删除")

@@ -21,7 +21,8 @@ Create Date: 2026-09-17
 `runtime/db.py` 原本就是写成了裸字符串（三张表），
 由 `tests/test_migrations.py` 的双库比对发现，已于 2026-09-17 一并修正。
 ⚠️ 既有库中 `alerts` / `traffic_history` / `users` 的历史行该列仍是文本
-`'CURRENT_TIMESTAMP'`，修复历史数据需要单独的数据迁移（未擅自执行）。
+`'CURRENT_TIMESTAMP'`，历史废值已由数据修复迁移
+`0002_repair_created_at_garbage`（2026-09-19）收敛。
 """
 from __future__ import annotations
 

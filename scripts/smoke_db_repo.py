@@ -1,5 +1,7 @@
 """测试 db.py + repositories.py 的基本 CRUD。"""
-import sys, tempfile, os
+import sys
+import tempfile
+import os
 sys.path.insert(0, "src")
 os.environ["CAMPUS_IDS_DATA_DIR"] = tempfile.mkdtemp()
 

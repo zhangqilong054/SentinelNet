@@ -112,7 +112,7 @@ class EventBus:
         """移除异步队列订阅。"""
         with self._lock:
             self._async_subs[event_type] = [
-                (q, l) for q, l in self._async_subs[event_type] if q is not queue
+                (q, loop) for q, loop in self._async_subs[event_type] if q is not queue
             ]
 
     # ── 事件发布 ──────────────────────────────────────────────────

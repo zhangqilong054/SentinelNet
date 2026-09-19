@@ -12,7 +12,6 @@ from fastapi import APIRouter, Query, Request
 
 from campus_ids.services.traffic_service import TrafficService
 from campus_ids.web_new.deps import get_service
-from campus_ids.web_new.errors import ApiError
 from campus_ids.web_new.security import Readonly
 from campus_ids.web_new.schemas import (
     TrafficHistoryResponse,

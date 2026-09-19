@@ -8,9 +8,7 @@
 """
 from __future__ import annotations
 
-import pytest
 from fastapi import FastAPI, status
-from fastapi.exceptions import RequestValidationError
 from fastapi.testclient import TestClient
 
 from campus_ids.web_new.errors import (

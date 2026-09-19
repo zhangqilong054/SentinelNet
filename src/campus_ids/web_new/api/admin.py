@@ -8,7 +8,6 @@ from __future__ import annotations
 
 import csv
 import logging
-from typing import Any
 
 from fastapi import APIRouter, Request
 from pydantic import BaseModel, Field

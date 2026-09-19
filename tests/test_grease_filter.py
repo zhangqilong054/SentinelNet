@@ -2,7 +2,6 @@
 
 验证 RFC 8701 GREASE 保留值被正确过滤，不影响正常加密套件值。
 """
-import pytest
 
 from campus_ids.capture.tls_analyzer import _filter_grease, GREASE_VALUES
 

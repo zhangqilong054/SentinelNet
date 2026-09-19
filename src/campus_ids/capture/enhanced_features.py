@@ -19,7 +19,7 @@ from typing import Optional
 
 import numpy as np
 
-from campus_ids.config import TRAFFIC_CSV, HIGH_FREQ_IP_THRESHOLD, PORT_SCAN_THRESHOLD
+from campus_ids.config import TRAFFIC_CSV
 
 logger = logging.getLogger(__name__)
 

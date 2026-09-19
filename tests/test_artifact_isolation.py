@@ -18,7 +18,6 @@
 """
 from __future__ import annotations
 
-from pathlib import Path
 
 from tests.conftest import is_under
 
@@ -80,7 +79,7 @@ class TestRepresentativeConsumers:
     def test_runtime_state_paths(self, tmp_path):
         """RuntimeState 的产物路径也应落在 tmp。"""
         from campus_ids.runtime.state import RuntimeState
-        state = RuntimeState()
+        RuntimeState()
         # RuntimeState 不直接持有产物路径常量，但 data_dir 应指向 tmp
         from campus_ids.runtime.settings import get_settings
         assert get_settings().data_dir == tmp_path

@@ -70,7 +70,7 @@ def _save_confusion_matrix(y_test, y_pred, labels, path: Path) -> None:
 
 def _format_report_text(report_dict: dict, labels) -> str:
     """从 classification_report(output_dict=True) 结果生成文本格式（R-12: 避免重复调用）。"""
-    name_w = max(max(len(str(l)) for l in labels), 10)
+    name_w = max(max(len(str(lbl)) for lbl in labels), 10)
     num_w = 9
     lines = []
     lines.append(f"{'':>{name_w}}  {'precision':>{num_w}}  {'recall':>{num_w}}  {'f1-score':>{num_w}}  {'support':>{num_w}}")
@@ -249,7 +249,9 @@ def cross_validate_models(X: pd.DataFrame, y: pd.Series,
                 "roc_auc": roc_auc,
             }
             results.append(metrics)
-            logger.info("%s: CV-F1=%.4f(±%.4f)%s", name, cv_f1.mean(), cv_f1.std(),
+            # F821 修复（2026-09-19，ruff 抓出）：原引用了不存在的 `cv_f1`，
+            # NameError 会被下方 except 吞掉 → 每轮 CV 都误报「交叉验证失败」。
+            logger.info("%s: CV-F1=%.4f(±%.4f)%s", name, cv_f1_mean, cv_f1_std,
                         f"  ROC-AUC={roc_auc:.4f}" if roc_auc else "")
 
         except Exception as exc:

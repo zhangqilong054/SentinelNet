@@ -12,7 +12,6 @@ from fastapi import APIRouter, Query, Request
 
 from campus_ids.services.alert_service import AlertService
 from campus_ids.web_new.deps import get_service
-from campus_ids.web_new.errors import ApiError
 from campus_ids.web_new.security import Readonly
 from campus_ids.web_new.schemas import (
     AlertListResponse,

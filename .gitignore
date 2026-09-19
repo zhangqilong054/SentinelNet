@@ -66,3 +66,4 @@ openapi_new.json
 # Playwright e2e（frontend/）
 frontend/test-results/
 frontend/playwright-report/
+.mypy_cache/

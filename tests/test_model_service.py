@@ -15,7 +15,6 @@ import logging
 import pytest
 
 import campus_ids.model.train as train_mod
-import campus_ids.services.model_service as mod
 from campus_ids.runtime.state import RuntimeState
 from campus_ids.services.model_service import ModelService
 

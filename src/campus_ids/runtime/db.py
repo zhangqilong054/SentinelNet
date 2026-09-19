@@ -32,7 +32,8 @@ logger = logging.getLogger(__name__)
 # create_all × alembic 双库比对发现并修正（此前 `alerts` / `traffic_history` /
 # `users` 三张表的该列全是废值）。
 # ⚠️ **既有数据库的历史行仍是那串文本**，修正只对新库与新增行生效；
-# 既有数据需要单独的数据修复迁移（涉及改写用户数据，未擅自执行）。
+# 历史废值已由迁移 `0002_repair_created_at_garbage`（2026-09-19）收敛：
+# alerts/traffic_history 复用业务时间列 `time`，users 用迁移执行时刻。
 metadata = MetaData()
 
 # ── 表定义 ────────────────────────────────────────────────────────

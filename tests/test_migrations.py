@@ -163,9 +163,8 @@ class TestRevisionGraph:
 
     def test_initial_revision_has_no_parent(self):
         script = ScriptDirectory(str(MIGRATIONS_DIR))
-        head = script.get_heads()[0]
-        revision = script.get_revision(head)
-        assert revision.down_revision is None, "基线迁移不应有父版本"
+        baseline = script.get_revision("0001_initial_schema")
+        assert baseline.down_revision is None, "基线迁移不应有父版本"
 
     def test_all_revisions_are_importable(self):
         """每个版本文件都要能加载（防止语法错误等到生产迁移时才炸）。"""
@@ -174,3 +173,80 @@ class TestRevisionGraph:
         assert revisions, "没有找到任何迁移版本"
         for rev in revisions:
             assert rev.module is not None
+
+
+class TestCreatedAtGarbageRepair:
+    """0002 数据修复迁移：把历史废值 `created_at='CURRENT_TIMESTAMP'` 改为真实值。
+
+    缺陷背景：2026-09-17 之前 `server_default` 写成裸字符串，DDL 渲染成
+    `DEFAULT 'CURRENT_TIMESTAMP'`，不传该列的行存进去的是文本而非时间戳。
+    """
+
+    GARBAGE = "CURRENT_TIMESTAMP"
+
+    def _seed_garbage(self, db_path):
+        """upgrade 到 0001 后插入废值行与正常行。
+
+        ⚠️ 现行 0001 的 server_default 已是修复后的 `text("CURRENT_TIMESTAMP")`，
+        新库不会再产生废值 —— 所以废值行必须**显式**写入字面量文本，
+        模拟运行过旧代码的既有库。
+        """
+        cfg = _alembic_config(db_path)
+        command.upgrade(cfg, "0001_initial_schema")
+        engine = sa.create_engine(f"sqlite:///{db_path}")
+        with engine.begin() as conn:
+            # 正常行（created_at 显式给真实时间）+ 废值行（历史遗留的字面量文本）
+            conn.execute(sa.text(
+                "INSERT INTO alerts (time, level, attack_type, message, created_at) "
+                "VALUES ('2026-09-01 10:00:00', 'high', 'ddos', 'clean', '2026-09-01 10:00:01')"))
+            conn.execute(sa.text(
+                "INSERT INTO alerts (time, level, attack_type, message, created_at) "
+                "VALUES ('2026-09-02 11:00:00', 'high', 'ddos', 'garbage', 'CURRENT_TIMESTAMP')"))
+            conn.execute(sa.text(
+                "INSERT INTO traffic_history (time, qps, created_at) "
+                "VALUES ('2026-09-03 12:00:00', 42, 'CURRENT_TIMESTAMP')"))  # 废值行
+            conn.execute(sa.text(
+                "INSERT INTO users (username, password_hash, created_at) "
+                "VALUES ('legacy', 'x', 'CURRENT_TIMESTAMP')"))  # 废值行
+        engine.dispose()
+        return cfg
+
+    def _created_at_of(self, db_path, table, where):
+        engine = sa.create_engine(f"sqlite:///{db_path}")
+        try:
+            with engine.connect() as conn:
+                return conn.execute(
+                    sa.text(f"SELECT created_at FROM {table} WHERE {where}")
+                ).fetchone()[0]
+        finally:
+            engine.dispose()
+
+    def test_garbage_rows_are_repaired_from_business_time(self, tmp_path):
+        db_path = tmp_path / "repair.db"
+        cfg = self._seed_garbage(db_path)
+
+        command.upgrade(cfg, "head")
+
+        # alerts 废值行：复用业务时间列 time
+        assert self._created_at_of(db_path, "alerts", "message='garbage'") \
+            == "2026-09-02 11:00:00"
+        # traffic_history 废值行：同理
+        assert self._created_at_of(db_path, "traffic_history", "qps=42") \
+            == "2026-09-03 12:00:00"
+        # users 废值行：迁移执行时刻（只断言不再是废值文本）
+        users_fixed = self._created_at_of(db_path, "users", "username='legacy'")
+        assert users_fixed != self.GARBAGE, "users 废值行未被修复"
+        # 正常行原样保留（修复只动废值行）
+        assert self._created_at_of(db_path, "alerts", "message='clean'") \
+            == "2026-09-01 10:00:01"
+
+    def test_repair_is_idempotent(self, tmp_path):
+        db_path = tmp_path / "repair_idem.db"
+        cfg = self._seed_garbage(db_path)
+        command.upgrade(cfg, "head")
+
+        first = self._created_at_of(db_path, "alerts", "message='garbage'")
+        command.upgrade(cfg, "head")  # 重复执行
+        second = self._created_at_of(db_path, "alerts", "message='garbage'")
+
+        assert first == second, "修复迁移重复执行不应改写已修复的行"

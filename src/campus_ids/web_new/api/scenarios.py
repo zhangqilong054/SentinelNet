@@ -16,7 +16,7 @@ from fastapi import APIRouter, Request
 
 from campus_ids.services.scenario_service import ScenarioService
 from campus_ids.web_new.deps import get_service, raise_for_task_result
-from campus_ids.web_new.errors import AlreadyRunningError, ApiError, NotFoundError
+from campus_ids.web_new.errors import NotFoundError
 from campus_ids.web_new.security import Readonly, Write, limiter
 from campus_ids.web_new.schemas import (
     MessageResponse,

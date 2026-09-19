@@ -32,7 +32,7 @@ from campus_ids.config import (
     MODEL_PATH,
     REGISTRY_JSON,
     RUNS_DIR,
-    TRAFFIC_CSV,
+    TRAFFIC_CSV,  # noqa: F401 —— 本模块持有该绑定是隔离夹具的重定向锚点（tests/conftest.py）
 )
 
 # T-27: 直接从子模块导入（移除纯重导出 load_cicids2017 / load_nsl_kdd / _detect_csv_format）
@@ -339,7 +339,8 @@ def train_model(X: pd.DataFrame, y: pd.Series,
 
 def make_run_id() -> str:
     """生成唯一 run_id: YYYYMMDD_HHMMSS_<6位随机>。"""
-    import random, string
+    import random
+    import string
     from datetime import datetime
     ts = datetime.now().strftime("%Y%m%d_%H%M%S")
     suffix = "".join(random.choices(string.ascii_lowercase + string.digits, k=6))
@@ -369,7 +370,8 @@ def save_run(
     Returns:
         (run_id, run_dir) 元组
     """
-    import json, joblib
+    import json
+    import joblib
     from datetime import datetime, timezone
 
     run_id = make_run_id()
@@ -540,7 +542,8 @@ def load_run(run_id: str | None = None, which: str = "best") -> dict | None:
     Returns:
         与 load_model() 相同格式的 artifact dict，额外含 run_id
     """
-    import json, joblib
+    import json
+    import joblib
 
     # 1. 如果指定了 run_id，直接定位
     if run_id is not None:

@@ -1,7 +1,6 @@
 """AttackSimulator 单元测试 — 覆盖注入包字段完整性和基本行为。"""
 import time
 import threading
-import queue
 
 import pytest
 

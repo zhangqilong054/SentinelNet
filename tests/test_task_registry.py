@@ -17,7 +17,6 @@ import pytest
 
 from campus_ids.runtime.tasks import (
     Task,
-    TaskHandle,
     TaskKind,
     TaskRegistry,
     TaskStatus,

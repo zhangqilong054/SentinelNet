@@ -1,5 +1,4 @@
 """enhanced_features.py 单元测试 — 覆盖特征提取与流聚合。"""
-import pytest
 
 from campus_ids.capture.enhanced_features import (
     FEATURE_NAMES,
@@ -40,7 +39,6 @@ class TestComputeEntropy:
         assert _compute_entropy([42]) == 0.0
 
     def test_uniform_distribution(self):
-        import math
         values = [1, 2, 3, 4]
         entropy = _compute_entropy(values)
         assert abs(entropy - 2.0) < 0.01  # log2(4) = 2

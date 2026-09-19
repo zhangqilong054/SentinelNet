@@ -24,7 +24,7 @@ from starlette.types import ASGIApp, Receive, Scope, Send
 from campus_ids.runtime.db import init_db, get_connection
 from campus_ids.runtime.events import EventBus
 from campus_ids.runtime.repositories import ConfigRepository, UserRepository
-from campus_ids.runtime.settings import Settings, get_settings, reset_settings
+from campus_ids.runtime.settings import Settings, get_settings
 from campus_ids.runtime.state import RuntimeState
 from campus_ids.runtime.tasks import Task, TaskKind, TaskRegistry
 from campus_ids.web_new.errors import register_exception_handlers

@@ -3,7 +3,6 @@
 验证流表中超时流被正确回收，活跃流保留。
 """
 import time
-from unittest.mock import patch
 
 import pytest
 
@@ -46,7 +45,7 @@ class TestDrainIdleFlows:
         dual.add_packet(pkt)
 
         # 立即回收（未超时）
-        drained = dual._drain_idle_flows()
+        dual._drain_idle_flows()
         # 流表条目应保留（只有缓冲区包被取出）
         assert len(dual._flow_table) == 1
 
@@ -60,7 +59,7 @@ class TestDrainIdleFlows:
 
         dual.add_packet(pkt2)  # 第二个流刚活跃
 
-        drained = dual._drain_idle_flows()
+        dual._drain_idle_flows()
         # 第一个流应被回收，第二个保留
         remaining_keys = list(dual._flow_table.keys())
         assert len(remaining_keys) == 1
@@ -82,7 +81,7 @@ class TestDrainIdleFlows:
         assert len(dual._flow_table) == 1
 
         time.sleep(0.2)
-        drained = dual._drain_idle_flows()
+        dual._drain_idle_flows()
 
         # 两者都应被清空
         assert len(dual._flow_buffer) == 0

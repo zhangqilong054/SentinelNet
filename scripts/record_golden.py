@@ -276,7 +276,7 @@ def record() -> int:
     print(f"录制 {meta['samples']} 个样本 → {OUT_DIR}")
     print(f"状态分布：{meta['status_breakdown']}")
     print(f"因 CSRF 缺失产生的 400：{csrf_missing}  （旧基线是 20，必须为 0）")
-    print(f"真实产物 6/6 md5 未变 ✅")
+    print("真实产物 6/6 md5 未变 ✅")
     print("=" * 74)
 
     if csrf_missing:

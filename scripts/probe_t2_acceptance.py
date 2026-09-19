@@ -189,7 +189,6 @@ with TestClient(create_app()) as c:
     for p in ["/api/login", "/api/logout", "/api/change-password"]:
         r = c.post(p, json={})
         print(f"     POST {p:<24} -> {r.status_code}（API 版存在，但路径/方法已与旧契约不同）")
-    import pathlib
     has_tpl = (ROOT / "src" / "campus_ids" / "web_new" / "templates").exists()
     has_static = (ROOT / "src" / "campus_ids" / "web_new" / "static").exists()
     verdict("T2.17 web_new 具备页面渲染能力（templates/static）", has_tpl and has_static,
@@ -198,7 +197,6 @@ with TestClient(create_app()) as c:
 # ── ⑥ cleanup days 语义（T2.14）──────────────────────────────────────
 hr("⑥ T2.14 POST /api/admin/cleanup —— days 是否真的生效（造对照数据，不碰真实库）")
 
-import tempfile  # noqa: E402
 from datetime import datetime, timedelta  # noqa: E402
 
 from sqlalchemy import create_engine, insert, select  # noqa: E402

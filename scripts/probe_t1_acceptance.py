@@ -26,7 +26,6 @@ import hashlib
 import hmac
 import json
 import os
-import sys
 import threading
 
 from _probe_safety import bootstrap, guard_no_real_training, install_service_stubs
@@ -42,7 +41,7 @@ print("=" * 74)
 print("A. import 副作用（T1.1 / T1.2）")
 before = set(os.listdir(ROOT))
 threads_before = threading.active_count()
-import campus_ids.web_new.app  # noqa: E402
+import campus_ids.web_new.app  # noqa: E402,F401
 
 after = set(os.listdir(ROOT))
 import campus_ids.web_new.app as _mod  # noqa: E402,F811

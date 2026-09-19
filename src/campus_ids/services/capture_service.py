@@ -134,7 +134,7 @@ class CaptureService:
 
         对应旧实现: helpers._capture_worker()
         """
-        from scapy.all import IP, TCP, UDP, sniff
+        from scapy.all import TCP, UDP, sniff
 
         def _on_pkt(pkt):
             if not self._state.capture_running:
@@ -189,7 +189,9 @@ class CaptureService:
         }
 
         stop_time = _time.time() + duration
-        stop_filter = lambda _: not self._state.enhanced_capture_running or _time.time() >= stop_time
+
+        def stop_filter(_pkt) -> bool:
+            return not self._state.enhanced_capture_running or _time.time() >= stop_time
 
         result = run_enhanced_capture(duration, stop_filter=stop_filter)
 

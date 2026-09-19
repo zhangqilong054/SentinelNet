@@ -1,17 +1,13 @@
 """train.py 单元测试 — 覆盖模型训练、加载、预测核心流程。"""
-import pickle
-import tempfile
 from pathlib import Path
 
 import numpy as np
 import pandas as pd
-import pytest
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.preprocessing import StandardScaler
 
 from campus_ids.model.data_loader import (
     ENHANCED_FEATURE_COLUMNS,
-    LEGACY_FEATURE_COLUMNS,
     _detect_csv_format,
     _load_local_data,
 )

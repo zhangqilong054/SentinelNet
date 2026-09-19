@@ -95,7 +95,6 @@ def _register_test_task(app, name: str = "_test_task", kind: TaskKind = TaskKind
 def _register_timed_test_task(app, name: str = "_test_timed",
                               default_duration: int = 2) -> None:
     """注册一个限时测试任务。"""
-    stop_event = threading.Event()
 
     def _worker(stop_event: threading.Event = None, duration: int = 2, **kwargs):
         deadline = time.monotonic() + duration
