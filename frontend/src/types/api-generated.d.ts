@@ -356,6 +356,10 @@ export interface paths {
         /**
          * 删除指定模型
          * @description 删除指定模型 — 从 registry.json 移除并删除 run 目录。
+         *
+         *     悬挂指针修复（2026-09-19）：删除后按 `model/train.py` 自身规则重算
+         *     `latest.json` / `best.json`，并把剩余条目的 `is_best` 与 best 对齐；
+         *     删空后指针文件一并移除。注册表写失败（500）时不动指针文件。
          */
         delete: operations["delete_model_api_models__name__delete"];
         options?: never;
@@ -793,10 +797,9 @@ export interface components {
         CleanupRequest: {
             /**
              * Days
-             * @description 保留最近N天的数据
-             * @default 7
+             * @description 保留最近N天的数据（默认取 Settings.cleanup_days）
              */
-            days: number;
+            days?: number | null;
         };
         /**
          * CleanupResponse
@@ -965,6 +968,11 @@ export interface components {
             metrics?: {
                 [key: string]: unknown;
             };
+            /**
+             * Is Best
+             * @default false
+             */
+            is_best: boolean;
         };
         /**
          * ModelListResponse
