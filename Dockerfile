@@ -46,6 +46,8 @@ COPY --from=frontend-builder /frontend/dist /app/frontend/dist
 # 复制项目源码
 COPY src/ src/
 COPY pyproject.toml .
+# 入口与 CLI（reset-password 在容器内同样可用：docker exec <容器> python main.py reset-password）
+COPY main.py .
 
 # 安装项目包（纯 Python，无需编译）
 RUN pip install --no-cache-dir --no-deps -e .

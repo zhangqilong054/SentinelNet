@@ -1,4 +1,5 @@
-# 构建上下文瘦身：镜像只需要 src/ + frontend/ + pyproject.toml + requirements.txt
+# 构建上下文瘦身：镜像只需要 main.py + src/ + frontend/ + pyproject.toml + requirements.txt
+# main.py 2026-09-19 起放行：容器内 reset-password CLI 需要（docker exec <容器> python main.py reset-password）
 .git
 .workbuddy
 backup/
@@ -21,5 +22,4 @@ frontend/playwright-report/
 frontend/e2e/smoke.spec.ts-snapshots/
 openapi_new.json
 apispec_check.json
-main.py
 test_endpoints.bat
