@@ -69,6 +69,10 @@ python main.py
 
 > 启动后访问 http://localhost:8000 ，所有功能（环境自检、抓包、训练、检测、攻击模拟）均通过 Web 面板操作。
 
+> **前端模式**（`CAMPUS_IDS_FRONTEND`，2026-09-19 起默认 `new`）：
+> `new` = Vue3 SPA（`frontend/dist`，完整交互界面，推荐）；`legacy` = Jinja2 只读壳（无操作按钮，仅作 API 冒烟与安全兜底）。
+> 默认模式要求 `frontend/dist` 已构建（Docker 镜像与仓库内已含）；裸环境若未构建会启动报错并提示先执行 `cd frontend && npm install --legacy-peer-deps && npm run build`。
+
 ## 四、使用方法
 
 启动 Web 面板：

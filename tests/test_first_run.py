@@ -4,11 +4,15 @@
 覆盖：
 - `_ensure_env_file`：缺失生成 / 幂等 / 显式密钥跳过（期望值来自 U1 规格，
   非被测代码自洽——判据是「跑完 run_app 后 create_app 不再因 secret_key 拒启」）。
+- 单例重置回归（2026-09-19 冷启动实测 P0）：main.py import 期经 config.py
+  兼容层提前物化单例后，_ensure_env_file 必须重置单例。
 - `Settings.frontend`：.env/环境变量收编后可经 Settings 生效（P2 修复回归）。
 - SPA 模式 `GET /logout` → 405（与 legacy 口径对齐）。
 - `cli.reset_password`：建/改密码 + 校验哈希 + 参数防线。
 """
 from __future__ import annotations
+
+import os
 
 import pytest
 from fastapi.testclient import TestClient
@@ -35,6 +39,9 @@ def test_ensure_env_file_generates_with_random_secret(tmp_path, monkeypatch):
     assert secret and secret != "change-me-in-production"
     assert len(secret) >= 32  # token_hex(32) = 64 hex chars
 
+    # 2026-09-19 Web 交互化：首启引导生成的 .env 应显式写入 SPA 模式
+    assert "CAMPUS_IDS_FRONTEND=new" in content
+
 
 def test_ensure_env_file_idempotent(tmp_path, monkeypatch):
     monkeypatch.delenv("CAMPUS_IDS_SECRET_KEY", raising=False)
@@ -53,19 +60,55 @@ def test_ensure_env_file_skips_when_secret_env_set(tmp_path, monkeypatch):
     assert not env_path.exists()
 
 
-# ── Settings.frontend（P2：.env 静默忽略修复）─────────────────────
+def test_ensure_env_file_resets_materialized_singleton(tmp_path, monkeypatch):
+    """回归（2026-09-19 冷启动实测 P0）：单例被提前物化后引导必须重置。
 
-def test_frontend_field_default_and_env_override(monkeypatch):
+    真实链路：main.py import 期 → setup_logging → config.py 兼容层
+    `_s = get_settings()`，单例此时缓存默认密钥；若 _ensure_env_file 只写
+    os.environ 不重置单例，随后 create_app() 仍读到默认密钥 → 拒绝启动。
+    """
+    from campus_ids.runtime.settings import get_settings, reset_settings
+
+    monkeypatch.delenv("CAMPUS_IDS_SECRET_KEY", raising=False)
+    monkeypatch.chdir(tmp_path)  # 脱离项目根 .env（env_file 相对 CWD 解析）
+    reset_settings()
+    get_settings()  # 模拟 import 期物化：缓存的是默认密钥
+    assert get_settings().secret_key == "change-me-in-production"
+
+    env_path = tmp_path / ".env"
+    assert _ensure_env_file(env_path) is True
+
+    try:
+        # 引导后 get_settings() 必须拿到新生成的随机密钥（单例已被重置重建）
+        assert get_settings().secret_key != "change-me-in-production"
+        assert get_settings().secret_key == os.environ["CAMPUS_IDS_SECRET_KEY"]
+    finally:
+        monkeypatch.delenv("CAMPUS_IDS_SECRET_KEY", raising=False)
+        reset_settings()
+
+
+# ── Settings.frontend（P2：.env 静默忽略修复；2026-09-19 默认值翻转为 new）──
+
+def test_frontend_field_default_and_env_override(monkeypatch, tmp_path):
+    """字段默认值与环境变量覆盖。
+
+    判据说明：默认值断言必须**同时脱离**环境变量与项目根 .env 文件
+    （Settings 的 env_file=".env" 相对 CWD 解析，conftest 又 setdefault 了
+    FRONTEND=legacy 压制 .env 泄漏）——chdir 到无 .env 的临时目录 + delenv，
+    才能测到 settings.py 里真实的字段默认值。
+    """
     reset_settings()
     try:
-        assert get_settings().frontend == "legacy"
+        monkeypatch.delenv("CAMPUS_IDS_FRONTEND", raising=False)
+        monkeypatch.chdir(tmp_path)  # 脱离项目根 .env
+        assert get_settings().frontend == "new"
     finally:
         reset_settings()
 
-    monkeypatch.setenv("CAMPUS_IDS_FRONTEND", "new")
+    monkeypatch.setenv("CAMPUS_IDS_FRONTEND", "legacy")
     reset_settings()
     try:
-        assert get_settings().frontend == "new"
+        assert get_settings().frontend == "legacy"
     finally:
         reset_settings()
 

@@ -24,7 +24,7 @@ from starlette.types import ASGIApp, Message, Receive, Scope, Send
 from campus_ids.runtime.db import init_db, get_connection
 from campus_ids.runtime.events import EventBus
 from campus_ids.runtime.repositories import ConfigRepository, UserRepository
-from campus_ids.runtime.settings import Settings, get_settings
+from campus_ids.runtime.settings import Settings, get_settings, reset_settings
 from campus_ids.runtime.state import RuntimeState
 from campus_ids.runtime.tasks import Task, TaskKind, TaskRegistry
 from campus_ids.web_new.errors import register_exception_handlers
@@ -508,6 +508,9 @@ _ENV_TEMPLATE = """\
 
 # 会话密钥（随机生成，泄露等同账号被接管；更换后所有已登录会话失效）
 CAMPUS_IDS_SECRET_KEY={secret}
+
+# 前端模式：new=Vue3 SPA（完整交互界面，默认）/ legacy=Jinja2 只读壳
+CAMPUS_IDS_FRONTEND=new
 """
 
 
@@ -523,8 +526,10 @@ def _ensure_env_file(env_path: Path | None = None) -> bool:
     - 显式设置过 CAMPUS_IDS_SECRET_KEY 环境变量 → 不生成（用户已自行配置）；
     - 其余情况生成 .env 并写入随机密钥（返回 True）。
 
-    同时把密钥写入 os.environ：Settings 单例可能在引导前已被物化
-    （config.py 兼容层 import 期即调用 get_settings()），仅写文件救不了本次进程。
+    同时把密钥写入 os.environ 并**重置 Settings 单例**：单例可能在引导前已被
+    物化（main.py import 期 → setup_logging → config.py 兼容层调用 get_settings()，
+    缓存的是默认密钥），仅写文件/环境变量救不了已缓存的实例——
+    2026-09-19 冷启动实测抓出该 P0 后补 reset_settings()。
 
     Returns:
         是否新生成了 .env。
@@ -546,8 +551,12 @@ def _ensure_env_file(env_path: Path | None = None) -> bool:
         ),
         encoding="utf-8",
     )
-    # 兜底：当前进程内立即生效（不依赖 Settings 单例的物化时机）
+    # 兜底：当前进程内立即生效。但仅写 os.environ **救不了已物化的单例**——
+    # main.py 的 import 期链路（setup_logging → config.py 兼容层 `_s = get_settings()`）
+    # 会在本函数之前就把 Settings 单例缓存为默认密钥（2026-09-19 冷启动实测 P0）。
+    # 必须重置单例，让 run_app() 随后的 get_settings() 重新从 env/.env 读取。
     os.environ["CAMPUS_IDS_SECRET_KEY"] = secret
+    reset_settings()
     logger.warning(
         "已生成配置文件 %s（含随机生成的 CAMPUS_IDS_SECRET_KEY）。"
         "首次启动引导完成；如需自定义端口/阈值等，参见 .env.example。",

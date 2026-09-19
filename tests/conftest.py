@@ -31,6 +31,12 @@ os.environ["CAMPUS_IDS_LOG_DIR"] = str(_SESSION_TMP / "logs")
 # ERROR。仅靠 per-test 的 _test_debug_mode 夹具来不及：夹具 setup 时单例可能
 # 已被夹具链条中的模块导入提前创建。测试进程视为开发上下文，全局开启。
 os.environ.setdefault("CAMPUS_IDS_DEBUG", "1")
+# 前端模式测试期固定为 legacy（2026-09-19 Web 交互化翻转后）：
+# Settings 默认值已翻转为 new（SPA），而 env_file=".env" 相对 CWD 解析——
+# 测试恰好在项目根跑，项目 .env 的 CAMPUS_IDS_FRONTEND=new 会漏进测试。
+# 环境变量优先级高于 .env 文件，这里 setdefault 压住，让 test_pages 等
+# legacy 页面路由用例继续测 SSR 壳；SPA 用例自行显式 setenv("...","new")。
+os.environ.setdefault("CAMPUS_IDS_FRONTEND", "legacy")
 
 
 # ── 产物路径重定向表 ──────────────────────────────────────────────
@@ -62,6 +68,7 @@ ISOLATION_ENV_VARS = frozenset({
     "CAMPUS_IDS_DATA_DIR",
     "CAMPUS_IDS_LOG_DIR",
     "CAMPUS_IDS_DEBUG",
+    "CAMPUS_IDS_FRONTEND",
 })
 
 

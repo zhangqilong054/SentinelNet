@@ -48,10 +48,11 @@ class Settings(BaseSettings):
                     "导致抓包永远 0 包，故提供显式配置。",
     )
     frontend: str = Field(
-        default="legacy",
-        description="前端模式：new=Vue3 SPA（frontend/dist）/ legacy=Jinja2 模板。"
-        "2026-09-19 收编进 Settings：此前 app.py 直接 os.environ.get 读取，"
-        "写进 .env 会被静默忽略（pydantic-settings 不回注 os.environ）。",
+        default="new",
+        description="前端模式：new=Vue3 SPA（frontend/dist，完整交互，默认）/ legacy=Jinja2 只读壳（API 冒烟与安全兜底）。"
+        "2026-09-19 默认值翻转为 new（Web 交互化）：dist 缺失时启动报错并提示 npm run build，"
+        "legacy 改为显式 opt-in。同日已收编进 Settings（此前 app.py 直接 os.environ.get 读取，"
+        "写进 .env 会被静默忽略）。",
     )
     web_refresh_interval_ms: int = Field(
         default=2000,
