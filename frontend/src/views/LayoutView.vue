@@ -11,8 +11,12 @@ import {
   InfoFilled,
   SwitchButton,
   Film,
+  Moon,
+  Sunny,
+  RefreshRight,
 } from '@element-plus/icons-vue'
 import { ElMessageBox, ElMessage } from 'element-plus'
+import { isDark, toggleTheme } from '@/theme'
 
 
 const route = useRoute()
@@ -20,9 +24,23 @@ const router = useRouter()
 const sseStore = useSseStore()
 const authStore = useAuthStore()
 
-// SSE 连接控制 — 登录后自动连接
+// SSE 连接控制 — 登录后自动连接；保留 open 供底部状态标签手动重连
 const sseEnabled = ref(true)
-useSSE(sseEnabled)
+const sse = useSSE(sseEnabled)
+
+/** 底部 SSE 状态标签可点击：未连接时手动重连（免等自动退避） */
+function handleSseClick() {
+  if (sseStore.status !== 'connected') {
+    sse.open()
+    ElMessage.info('正在尝试重新连接…')
+  }
+}
+
+// ── 暗色模式 ──────────────────────────────────────────
+const darkMode = ref(isDark())
+function handleToggleTheme() {
+  darkMode.value = toggleTheme()
+}
 
 const activeMenu = computed(() => {
   const path = route.path
@@ -92,16 +110,30 @@ onMounted(() => {
         </el-menu-item>
       </el-menu>
 
-      <!-- 底部：SSE 状态 + 用户信息 -->
+      <!-- 底部：主题开关 + SSE 状态 + 用户信息 -->
       <div class="aside-footer">
-        <div class="sse-status">
-          <el-tag
-            :type="sseStore.status === 'connected' ? 'success' : sseStore.status === 'reconnecting' ? 'warning' : 'danger'"
+        <div class="footer-row">
+          <span class="footer-label">外观</span>
+          <el-button
+            :icon="darkMode ? Sunny : Moon"
             size="small"
-            effect="dark"
-          >
-            {{ sseStore.statusText }}
-          </el-tag>
+            text
+            @click="handleToggleTheme"
+          >{{ darkMode ? '亮色' : '暗色' }}</el-button>
+        </div>
+        <div class="sse-status">
+          <el-tooltip content="未连接时点击可立即重连" :disabled="sseStore.status === 'connected'">
+            <el-tag
+              :type="sseStore.status === 'connected' ? 'success' : sseStore.status === 'reconnecting' ? 'warning' : 'danger'"
+              size="small"
+              effect="dark"
+              :class="{ 'sse-clickable': sseStore.status !== 'connected' }"
+              @click="handleSseClick"
+            >
+              {{ sseStore.statusText }}
+              <el-icon v-if="sseStore.status !== 'connected'" class="sse-retry-icon"><RefreshRight /></el-icon>
+            </el-tag>
+          </el-tooltip>
         </div>
         <div class="user-info" v-if="authStore.isLoggedIn">
           <span class="username">{{ authStore.user }}</span>
@@ -118,7 +150,11 @@ onMounted(() => {
 
     <!-- 主内容区 -->
     <el-main class="layout-main">
-      <router-view />
+      <router-view v-slot="{ Component }">
+        <transition name="route-fade" mode="out-in">
+          <component :is="Component" />
+        </transition>
+      </router-view>
     </el-main>
   </el-container>
 </template>
@@ -152,9 +188,26 @@ onMounted(() => {
   padding: 12px 16px;
   border-top: 1px solid rgba(255, 255, 255, 0.1);
 }
+.footer-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 8px;
+}
+.footer-label {
+  color: #bfcbd9;
+  font-size: 12px;
+}
 .sse-status {
   text-align: center;
   margin-bottom: 8px;
+}
+.sse-clickable {
+  cursor: pointer;
+}
+.sse-retry-icon {
+  margin-left: 2px;
+  vertical-align: -2px;
 }
 .user-info {
   display: flex;
@@ -169,8 +222,22 @@ onMounted(() => {
   white-space: nowrap;
 }
 .layout-main {
-  background-color: #f0f2f5;
+  /* 语义变量：暗色模式下自动切换为页面底色 */
+  background-color: var(--el-bg-color-page);
   overflow-y: auto;
   padding: 20px;
+}
+
+/* 路由切换过渡 */
+.route-fade-enter-active,
+.route-fade-leave-active {
+  transition: opacity 0.15s ease, transform 0.15s ease;
+}
+.route-fade-enter-from {
+  opacity: 0;
+  transform: translateY(4px);
+}
+.route-fade-leave-to {
+  opacity: 0;
 }
 </style>

@@ -204,10 +204,14 @@
         "properties": {
           "days": {
             "anyOf": [
-              {"minimum": 1.0, "title": "Days", "type": "integer"},
-              {"type": "null"}
+              {
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
             ],
-            "default": null,
             "description": "保留最近N天的数据（默认取 Settings.cleanup_days）",
             "title": "Days"
           }
@@ -410,6 +414,11 @@
           "created_at": {
             "title": "Created At",
             "type": "string"
+          },
+          "is_best": {
+            "default": false,
+            "title": "Is Best",
+            "type": "boolean"
           },
           "metrics": {
             "additionalProperties": true,
@@ -1578,7 +1587,7 @@
     },
     "/api/models/{name}": {
       "delete": {
-        "description": "删除指定模型 — 从 registry.json 移除并删除 run 目录。",
+        "description": "删除指定模型 — 从 registry.json 移除并删除 run 目录。\n\n悬挂指针修复（2026-09-19）：删除后按 `model/train.py` 自身规则重算\n`latest.json` / `best.json`，并把剩余条目的 `is_best` 与 best 对齐；\n删空后指针文件一并移除。注册表写失败（500）时不动指针文件。",
         "operationId": "delete_model_api_models__name__delete",
         "parameters": [
           {

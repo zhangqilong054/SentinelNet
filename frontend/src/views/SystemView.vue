@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, onMounted, onUnmounted } from 'vue'
+import { ref, watch, onMounted, onUnmounted } from 'vue'
 import { useIntervalFn } from '@vueuse/core'
 import { getHealth, getModels, trainModel, getTrainStatus, deleteModel, analyzeTls } from '@/api/endpoints'
 import { usePolling } from '@/composables/usePolling'
@@ -8,6 +8,7 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 // ── 健康状态 ──────────────────────────────────────────
 // 后端契约 HealthResponse：{ status, timestamp, uptime_seconds, components? }（无 version 字段）
 const health = ref<{ status: string; timestamp: string; uptime_seconds: number } | null>(null)
+const healthLoading = ref(true)
 
 // 运行时间实时显示：以最近一次成功拉取为锚点（服务器值 + 本机流逝秒），
 // 每秒本地推算刷新，每 30s 向服务器校准一次——避免逐秒打 /api/health。
@@ -15,6 +16,7 @@ const uptimeAnchor = ref<{ seconds: number; at: number } | null>(null)
 const uptimeText = ref('')
 
 async function fetchHealth() {
+  healthLoading.value = true
   try {
     const data = await getHealth()
     if (data) {
@@ -23,7 +25,15 @@ async function fetchHealth() {
     }
   } catch {
     health.value = null
+  } finally {
+    healthLoading.value = false
   }
+}
+
+/** ISO 时间戳 → 本地可读格式（zh-CN，24 小时制） */
+function formatDatetime(iso: string): string {
+  const d = new Date(iso)
+  return Number.isNaN(d.getTime()) ? iso : d.toLocaleString('zh-CN', { hour12: false })
 }
 
 function formatUptime(seconds: number): string {
@@ -54,8 +64,35 @@ const { pause: pauseUptimeTick, resume: resumeUptimeTick } = useIntervalFn(
 )
 
 // ── 模型管理 ──────────────────────────────────────────
-const models = ref<Array<{ name: string; version: string; created_at: string; metrics?: Record<string, unknown> }>>([])
+const models = ref<Array<{ name: string; version: string; created_at: string; metrics?: Record<string, unknown>; is_best?: boolean }>>([])
 const modelsLoading = ref(false)
+
+/** 指标展示顺序与中文标签（顺序即展示顺序，其余键追加在后） */
+const METRIC_LABELS: Record<string, string> = {
+  f1_score: 'F1',
+  accuracy: '准确率',
+  precision: '精确率',
+  recall: '召回率',
+  cv_f1_mean: 'CV-F1',
+}
+
+/** 格式化单个指标值：0-1 之间按百分比显示，其余保留原值 */
+function formatMetric(v: unknown): string {
+  if (typeof v === 'number' && Number.isFinite(v)) {
+    return v >= 0 && v <= 1 ? `${(v * 100).toFixed(1)}%` : String(v)
+  }
+  return String(v)
+}
+
+/** 归一化模型 metrics 为 [{label, value}] 列表 */
+function metricEntries(metrics?: Record<string, unknown>): Array<{ key: string; label: string; value: string }> {
+  if (!metrics) return []
+  const keys = [
+    ...Object.keys(METRIC_LABELS).filter(k => k in metrics),
+    ...Object.keys(metrics).filter(k => !(k in METRIC_LABELS)),
+  ]
+  return keys.map(k => ({ key: k, label: METRIC_LABELS[k] ?? k, value: formatMetric(metrics[k]) }))
+}
 
 async function fetchModels() {
   modelsLoading.value = true
@@ -98,6 +135,11 @@ const { pause: pauseTrainPolling, resume: resumeTrainPolling } = usePolling(
   3000,
   { immediate: false },
 )
+
+// 终态（completed/failed）后停止轮询但保留面板展示
+watch(() => trainStatus.value?.status, (s) => {
+  if (s === 'completed' || s === 'failed') pauseTrainPolling()
+})
 
 async function handleTrain() {
   if (!trainForm.value.dataset.trim()) {
@@ -172,10 +214,11 @@ onUnmounted(() => {
               {{ health.status === 'ok' || health.status === 'healthy' ? '正常' : health.status }}
             </el-tag>
           </el-descriptions-item>
-          <el-descriptions-item label="时间戳">{{ health.timestamp }}</el-descriptions-item>
+          <el-descriptions-item label="时间戳">{{ formatDatetime(health.timestamp) }}</el-descriptions-item>
           <el-descriptions-item label="运行时间">{{ uptimeText || formatUptime(health.uptime_seconds) }}</el-descriptions-item>
         </el-descriptions>
       </div>
+      <el-skeleton v-else-if="healthLoading" :rows="2" animated />
       <el-empty v-else description="无法获取系统状态" />
     </el-card>
 
@@ -189,16 +232,39 @@ onUnmounted(() => {
       </template>
 
       <el-table :data="models" stripe v-loading="modelsLoading" empty-text="暂无模型">
-        <el-table-column prop="name" label="名称" min-width="120" />
+        <el-table-column label="名称" min-width="180">
+          <template #default="{ row }">
+            <span>{{ row.name }}</span>
+            <el-tag v-if="row.is_best" size="small" type="warning" effect="light" style="margin-left: 6px">当前最佳</el-tag>
+          </template>
+        </el-table-column>
         <el-table-column prop="version" label="版本" width="100" />
         <el-table-column label="创建时间" width="170">
           <template #default="{ row }">
-            {{ new Date(row.created_at).toLocaleString('zh-CN', { hour12: false }) }}
+            {{ formatDatetime(row.created_at) }}
           </template>
         </el-table-column>
-        <el-table-column label="指标" min-width="150">
+        <el-table-column label="指标" min-width="220">
           <template #default="{ row }">
-            <span v-if="row.metrics">{{ JSON.stringify(row.metrics) }}</span>
+            <template v-if="metricEntries(row.metrics).length">
+              <el-tag
+                v-for="m in metricEntries(row.metrics).slice(0, 4)"
+                :key="m.key"
+                size="small"
+                type="info"
+                effect="plain"
+                style="margin-right: 6px; margin-bottom: 2px"
+              >
+                {{ m.label }} {{ m.value }}
+              </el-tag>
+              <el-tooltip
+                v-if="metricEntries(row.metrics).length > 4"
+                :content="metricEntries(row.metrics).slice(4).map(m => `${m.label}: ${m.value}`).join('，')"
+                placement="top"
+              >
+                <el-tag size="small" type="info" effect="plain">+{{ metricEntries(row.metrics).length - 4 }}</el-tag>
+              </el-tooltip>
+            </template>
             <el-tag v-else size="small" type="info">无</el-tag>
           </template>
         </el-table-column>
@@ -299,10 +365,10 @@ onUnmounted(() => {
 .tls-result h4 {
   margin: 0 0 8px;
   font-size: 14px;
-  color: #303133;
+  color: var(--el-text-color-primary);
 }
 .json-summary {
-  background: #f5f7fa;
+  background: var(--el-fill-color-light);
   padding: 8px 12px;
   border-radius: 4px;
   font-size: 12px;

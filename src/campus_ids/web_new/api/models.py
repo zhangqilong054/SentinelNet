@@ -204,6 +204,7 @@ async def list_models(request: Request) -> ModelListResponse:
             version=run.get("model_type", "unknown"),
             created_at=run.get("created_at", ""),
             metrics=run.get("metrics", {}),
+            is_best=bool(run.get("is_best", False)),
         ))
     return ModelListResponse(models=models)
 

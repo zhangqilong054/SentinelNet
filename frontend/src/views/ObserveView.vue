@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onMounted, computed, ref } from 'vue'
+import { onMounted, onUnmounted, computed, ref, watch } from 'vue'
 import { useTrafficStore } from '@/stores/traffic'
 import { useAlertStore } from '@/stores/alert'
 import { getTraffic, getAlerts } from '@/api/endpoints'
@@ -23,6 +23,37 @@ const alertStore = useAlertStore()
 
 // 告警级别过滤
 const alertLevelFilter = ref('all')
+
+// ── 新告警高亮动效 ────────────────────────────────────
+// 首载 REST 告警视为「已读」不触发；此后 SSE 新推的告警 5s 内高亮渐隐。
+const seenAlertIds = new Set<string>()
+const newAlertIds = ref(new Set<string>())
+let flashTimers: ReturnType<typeof setTimeout>[] = []
+let bootstrapping = true // 首载 REST 告警视为已读
+
+watch(() => alertStore.alerts.length, (newLen, oldLen) => {
+  if (oldLen === undefined) return
+  for (let i = Math.max(oldLen, 0); i < newLen; i++) {
+    const a = alertStore.alerts[i]
+    if (!a || seenAlertIds.has(a.id)) continue
+    seenAlertIds.add(a.id)
+    if (bootstrapping) continue
+    newAlertIds.value.add(a.id)
+    flashTimers.push(setTimeout(() => {
+      newAlertIds.value.delete(a.id)
+      // 触发 Set 的响应式更新
+      newAlertIds.value = new Set(newAlertIds.value)
+    }, 5000))
+  }
+})
+
+function alertRowClass({ row }: { row: { id: string } }): string {
+  return newAlertIds.value.has(row.id) ? 'alert-row-new' : ''
+}
+
+onUnmounted(() => {
+  flashTimers.forEach(clearTimeout)
+})
 
 const filteredAlerts = computed(() => {
   const alerts = alertStore.recentAlerts
@@ -120,33 +151,35 @@ onMounted(() => {
     if (Array.isArray(data)) {
       data.forEach(a => alertStore.addAlert(a))
     }
-  }).catch(() => {})
+  }).catch(() => {}).finally(() => {
+    bootstrapping = false
+  })
 })
 </script>
 
 <template>
   <div class="observe-view">
-    <!-- 指标卡片 -->
+    <!-- 指标卡片（xs 半宽 / sm+ 四分之一宽） -->
     <el-row :gutter="16" class="metric-cards">
-      <el-col :span="6">
+      <el-col :xs="12" :sm="6">
         <el-card shadow="hover" class="metric-card">
           <div class="metric-value">{{ trafficStore.packetsPerSec }}</div>
           <div class="metric-label">包/秒</div>
         </el-card>
       </el-col>
-      <el-col :span="6">
+      <el-col :xs="12" :sm="6">
         <el-card shadow="hover" class="metric-card">
           <div class="metric-value">{{ formatBytes(trafficStore.bytesPerSec) }}</div>
           <div class="metric-label">字节/秒</div>
         </el-card>
       </el-col>
-      <el-col :span="6">
+      <el-col :xs="12" :sm="6">
         <el-card shadow="hover" class="metric-card">
           <div class="metric-value">{{ trafficStore.activeFlows }}</div>
           <div class="metric-label">活跃流</div>
         </el-card>
       </el-col>
-      <el-col :span="6">
+      <el-col :xs="12" :sm="6">
         <el-card shadow="hover" class="metric-card">
           <div class="metric-value" :class="{ 'text-danger': alertStore.activeAlertCount > 0 }">
             {{ alertStore.activeAlertCount }}
@@ -180,7 +213,7 @@ onMounted(() => {
         </div>
       </template>
 
-      <el-table :data="filteredAlerts.slice().reverse()" stripe max-height="400" empty-text="暂无告警">
+      <el-table :data="filteredAlerts.slice().reverse()" stripe max-height="400" empty-text="暂无告警" :row-class-name="alertRowClass">
         <el-table-column label="时间" width="170">
           <template #default="{ row }">
             {{ new Date(row.timestamp).toLocaleString('zh-CN', { hour12: false }) }}
@@ -219,7 +252,8 @@ onMounted(() => {
 .metric-value {
   font-size: 28px;
   font-weight: 600;
-  color: #303133;
+  /* 语义变量：暗色模式下自动切换 */
+  color: var(--el-text-color-primary);
   line-height: 1.2;
 }
 .metric-label {
@@ -235,6 +269,19 @@ onMounted(() => {
 }
 .alert-card {
   margin-bottom: 16px;
+}
+
+/* 新告警高亮渐隐（5s 内，由 alertRowClass 控制） */
+:deep(.alert-row-new) {
+  animation: alert-flash 3s ease-out;
+}
+@keyframes alert-flash {
+  0% {
+    background-color: var(--el-color-danger-light-7);
+  }
+  100% {
+    background-color: transparent;
+  }
 }
 .alert-header {
   display: flex;

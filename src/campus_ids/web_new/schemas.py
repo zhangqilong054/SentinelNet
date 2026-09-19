@@ -224,6 +224,8 @@ class ModelInfoResponse(BaseModel):
     version: str
     created_at: str
     metrics: dict[str, Any] = Field(default_factory=dict)
+    # registry 的 is_best 透出（2026-09-19）：前端据此显示「当前最佳」徽标
+    is_best: bool = False
 
 
 class ModelListResponse(BaseModel):

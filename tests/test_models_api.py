@@ -139,12 +139,28 @@ class TestListModels:
         models = client.get("/api/models").json()["models"]
 
         assert len(models) == 1
+        # is_best：2026-09-19 UI 优化新增透出（前端「当前最佳」徽标），缺省 False
         assert models[0] == {
             "name": "run-001",
             "version": "random_forest",
             "created_at": "2026-09-17 10:00:00",
             "metrics": {"accuracy": 0.97},
+            "is_best": False,
         }
+
+    def test_is_best_passthrough_from_registry(self, client):
+        """registry 的 is_best 逐条透出（至多一个 True 由 train.py 保证）。"""
+        _write_registry([
+            {"run_id": "run-a", "model_type": "rf", "created_at": "2026-09-18 10:00:00",
+             "metrics": {"f1_score": 0.99}, "is_best": True},
+            {"run_id": "run-b", "model_type": "rf", "created_at": "2026-09-19 10:00:00",
+             "metrics": {"f1_score": 0.97}, "is_best": False},
+        ])
+
+        models = client.get("/api/models").json()["models"]
+
+        by_name = {m["name"]: m["is_best"] for m in models}
+        assert by_name == {"run-a": True, "run-b": False}
 
     def test_missing_fields_fall_back_to_unknown(self, client):
         """字段缺失不得让整个列表 500 —— 单条脏数据不该毁掉整个端点。"""
