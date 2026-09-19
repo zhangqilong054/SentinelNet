@@ -498,7 +498,7 @@ def run_app() -> None:
     logger.info("访问地址: http://localhost:%s", port)
 
     uvicorn.run(
-        "campus_ids.web_new.app:create_app()",
+        "campus_ids.web_new.app:create_app",
         host=host,
         port=port,
         workers=1,

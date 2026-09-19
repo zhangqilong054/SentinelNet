@@ -24,6 +24,13 @@ import pytest
 _SESSION_TMP = Path(tempfile.mkdtemp(prefix="sn_pytest_session_"))
 os.environ["CAMPUS_IDS_DATA_DIR"] = str(_SESSION_TMP)
 os.environ["CAMPUS_IDS_LOG_DIR"] = str(_SESSION_TMP / "logs")
+# DEBUG 必须在 import 期就设好（2026-09-19）：config.py 的兼容委托层在模块顶层
+# 执行 `_s = get_settings()`，任何 campus_ids 模块的首次 import 都会缓存 Settings
+# 单例——若此时 DEBUG 未设，缓存的是 debug=False，随后 create_app() 的
+# secret_key 断言（非 debug + 默认密钥 → RuntimeError）会让全部用 app 的测试
+# ERROR。仅靠 per-test 的 _test_debug_mode 夹具来不及：夹具 setup 时单例可能
+# 已被夹具链条中的模块导入提前创建。测试进程视为开发上下文，全局开启。
+os.environ.setdefault("CAMPUS_IDS_DEBUG", "1")
 
 
 # ── 产物路径重定向表 ──────────────────────────────────────────────
