@@ -262,9 +262,14 @@ frontend/
 ├── src/views/                # 观测 / 任务中心 / 剧本 / 配置 / 系统 / 登录
 ├── src/api/                  # client.ts（CSRF 双提交 + 403 重试）+ endpoints.ts
 ├── src/composables/useSSE.ts # SSE：/api/stream 命名帧（alert/traffic）
+├── src/theme.ts              # 暗色模式开关（html.dark + localStorage 持久化）
 ├── dist/                     # 构建产物（npm run build；后端默认从这里托管）
 └── e2e/                      # Playwright 真机冒烟（npm run e2e，9 用例）
 ```
+
+界面特性：暗色模式开关（侧栏底部）、系统页运行时间整秒逐秒刷新、
+模型指标标签化展示 + best 模型「当前最佳」徽标、观测页新告警高亮动效、
+SSE 状态标签未连接时可点击立即重连、指标卡响应式两档布局。
 
 ## 六、检测能力
 
@@ -546,7 +551,6 @@ python main.py
 #    - 增强抓包（60s）→ 模型训练 → ML 检测启动
 #    - 或使用「一键全流程」自动完成
 # 3. 攻击模拟 → 验证检测效果
-```
 
 # Docker 一键部署
 docker compose up --build
