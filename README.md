@@ -190,7 +190,7 @@ Task-main/
 ├── Dockerfile                     # Docker 容器构建
 ├── docker-compose.yml             # Docker Compose 一键部署
 ├── traffic_data.csv               # 增强抓包数据（运行时生成）
-├── model.pkl                      # 当前模型（synthetic_demo 合成数据，仅演示用途）
+├── model.pkl                      # 当前模型（2026-09-19 起为 CICIDS2017 真实数据训练产物）
 ├── confusion_matrix.png           # 混淆矩阵图（训练时生成）
 ├── evaluation_report.txt          # 评估报告（训练时生成）
 ├── tests/                         # 单元测试（144 个，12 个文件）
@@ -244,8 +244,8 @@ Task-main/
         │   ├── tasks.py           # 任务统一端点
         │   ├── tls.py             # TLS 分析
         │   └── traffic.py         # 流量查询
-        ├── templates/             # Jinja 模板
-        └── static/                # 静态资源
+        ├── templates/             # Jinja 模板（legacy 只读壳；默认前端为 frontend/dist 的 Vue3 SPA）
+        └── static/                # 静态资源（legacy 模式）
             ├── css/dashboard.css  # 设计 token + 组件样式
             └── js/
                 ├── alerts.js      # 告警面板逻辑
@@ -253,6 +253,17 @@ Task-main/
                 ├── charts.js      # 图表渲染
                 ├── controls.js    # 控制面板逻辑
                 └── chart.umd.min.js  # Chart.js 4.4.4（本地托管，断网可用）
+```
+
+## 五点五、前端（Vue3 SPA）
+
+```
+frontend/
+├── src/views/                # 观测 / 任务中心 / 剧本 / 配置 / 系统 / 登录
+├── src/api/                  # client.ts（CSRF 双提交 + 403 重试）+ endpoints.ts
+├── src/composables/useSSE.ts # SSE：/api/stream 命名帧（alert/traffic）
+├── dist/                     # 构建产物（npm run build；后端默认从这里托管）
+└── e2e/                      # Playwright 真机冒烟（npm run e2e，9 用例）
 ```
 
 ## 六、检测能力
@@ -421,7 +432,7 @@ curl -X POST http://localhost:8000/api/cleanup \
 
 ### 算法对比（CICIDS2017 DDoS 数据集，2026-09-12 实测）
 
-> **注意**：当前交付的 `model.pkl` 来自 `synthetic_demo` 合成数据（200 样本），仅用于演示，不具备实际检测能力。如需生产级模型，请使用 CICIDS2017 或其他真实数据集重新训练（通过 Web 面板 → 模型管理 → 训练模型，选择 `cicids2017` 数据源）。以下 CICIDS2017 指标为历史训练记录。
+> **注意**：~~当前交付的 `model.pkl` 来自 `synthetic_demo` 合成数据~~ **已于 2026-09-19 更新**：根目录 `model.pkl` 为 CICIDS2017 完整数据集（16 万样本）真实训练产物（RF，f1≈0.998，run `20260919_133750_xosxdw`）；`models/best.json` 仍指向 2026-09-12 的 f1=0.9998 run（按分数保留）。重新训练请通过 Web 面板 → 任务中心/系统 → 模型训练（入口需 `confirm=true` 且自动备份产物）。以下 CICIDS2017 指标为历史训练记录。
 
 | 模型 | F1 | Attack F1 | FPR | 备注 |
 |------|-----|-----------|-----|------|
