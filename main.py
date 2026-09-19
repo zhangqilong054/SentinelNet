@@ -30,10 +30,15 @@ def main(argv: list[str] | None = None) -> int:
         run_app()
         return 0
 
+    if args[0].lower() == "reset-password":
+        from campus_ids.web_new.cli import reset_password
+        return reset_password(args[1:])
+
     print(
         "用法:\n"
-        "  python main.py app     启动 Web 面板\n\n"
-        "所有功能均通过 Web 面板操作，无需额外命令行参数。\n"
+        "  python main.py app               启动 Web 面板\n"
+        "  python main.py reset-password    重置/创建管理员密码（--user admin）\n\n"
+        "其余功能均通过 Web 面板操作，无需额外命令行参数。\n"
     )
     return 1
 

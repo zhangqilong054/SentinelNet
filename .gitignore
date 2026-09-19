@@ -67,3 +67,6 @@ openapi_new.json
 frontend/test-results/
 frontend/playwright-report/
 .mypy_cache/
+
+# 首次启动引导生成的本地配置（含随机密钥，禁止入库）
+.env

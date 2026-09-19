@@ -431,12 +431,14 @@ def create_app() -> FastAPI:
     app.include_router(auth_routes.router, tags=["auth"])
 
     # ── 页面路由与静态资源（T3.1 新增前端模式切换）────────────────
-    # CAMPUS_IDS_FRONTEND=new → Vue3 SPA（frontend/dist/）
-    # CAMPUS_IDS_FRONTEND=legacy 或未设置 → 旧 Jinja2 模板（T2.17 pages）
+    # settings.frontend=new → Vue3 SPA（frontend/dist/）
+    # settings.frontend=legacy 或未设置 → 旧 Jinja2 模板（T2.17 pages）
+    # 2026-09-19 起从 Settings 读取（支持 .env）；此前直接 os.environ.get，
+    # 写进 .env 的 CAMPUS_IDS_FRONTEND 会被静默忽略。
     from fastapi.staticfiles import StaticFiles
     from campus_ids.web_new import pages
 
-    frontend_mode = os.environ.get("CAMPUS_IDS_FRONTEND", "legacy").lower()
+    frontend_mode = (settings.frontend or "legacy").lower()
 
     if frontend_mode == "new":
         # ── Vue3 SPA 模式 ──────────────────────────────────────
@@ -454,6 +456,20 @@ def create_app() -> FastAPI:
                 StaticFiles(directory=str(_frontend_dist / "assets")),
                 name="frontend-assets",
             )
+
+            # GET /logout 守卫（2026-09-19）：与 legacy 口径对齐。
+            # 此前 SPA 回退会把它吃掉返回 200 index.html，登出语义丢失；
+            # 实际登出走 POST /api/logout，这里只拦 GET（防跨站强制登出）。
+            # 必须注册在下方 /{path:path} 回退之前才能优先生效。
+            from fastapi.responses import JSONResponse
+
+            @app.get("/logout", include_in_schema=False)
+            def spa_logout_guard() -> JSONResponse:
+                return JSONResponse(
+                    {"detail": "Method Not Allowed（登出走 POST /api/logout）"},
+                    status_code=405,
+                )
+
             # SPA 回退：所有非 API/非静态路由返回 index.html
             _index_html = _frontend_dist / "index.html"
 
@@ -482,6 +498,63 @@ def create_app() -> FastAPI:
     return app
 
 
+# ── 首次启动引导（2026-09-19，可用性 P0-U1）──────────────────────
+
+_ENV_TEMPLATE = """\
+# SentinelNet 配置（由首次启动引导自动生成 —— {created_at}）
+# 完整可配置项与说明见项目根目录 .env.example。
+# 注意：修改本文件后需重启应用生效。
+
+# 会话密钥（随机生成，泄露等同账号被接管；更换后所有已登录会话失效）
+CAMPUS_IDS_SECRET_KEY={secret}
+"""
+
+
+def _ensure_env_file(env_path: Path | None = None) -> bool:
+    """首次启动引导：无 .env 且未显式提供密钥时，自动生成含随机密钥的 .env。
+
+    背景（可用性 P0）：非 DEBUG 模式 + 默认 secret_key 会被 create_app() 拒绝启动，
+    而新环境既没有 .env 也没有环境变量 → 按操作手册执行 `python main.py app`
+    直接崩溃。本引导让"开箱即启动"与"密钥安全防线"同时成立。
+
+    幂等语义：
+    - .env 已存在 → 不动（返回 False）；
+    - 显式设置过 CAMPUS_IDS_SECRET_KEY 环境变量 → 不生成（用户已自行配置）；
+    - 其余情况生成 .env 并写入随机密钥（返回 True）。
+
+    同时把密钥写入 os.environ：Settings 单例可能在引导前已被物化
+    （config.py 兼容层 import 期即调用 get_settings()），仅写文件救不了本次进程。
+
+    Returns:
+        是否新生成了 .env。
+    """
+    import secrets
+    from datetime import datetime
+
+    path = env_path if env_path is not None else Path.cwd() / ".env"
+    if path.exists():
+        return False
+    if os.environ.get("CAMPUS_IDS_SECRET_KEY"):
+        return False
+
+    secret = secrets.token_hex(32)
+    path.write_text(
+        _ENV_TEMPLATE.format(
+            secret=secret,
+            created_at=datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        ),
+        encoding="utf-8",
+    )
+    # 兜底：当前进程内立即生效（不依赖 Settings 单例的物化时机）
+    os.environ["CAMPUS_IDS_SECRET_KEY"] = secret
+    logger.warning(
+        "已生成配置文件 %s（含随机生成的 CAMPUS_IDS_SECRET_KEY）。"
+        "首次启动引导完成；如需自定义端口/阈值等，参见 .env.example。",
+        path,
+    )
+    return True
+
+
 def run_app() -> None:
     """启动 SentinelNet Web 应用（uvicorn 单 worker）。
 
@@ -489,6 +562,10 @@ def run_app() -> None:
     ADR-0001 §4.1：强制单 worker，多 worker 启动会被 create_app() 拒绝。
     """
     import uvicorn
+
+    # 首次启动引导必须在 get_settings() 之前执行：
+    # 单例一旦物化，.env 的新增内容对本次进程不可见。
+    _ensure_env_file()
 
     settings = get_settings()
     port = settings.web_port

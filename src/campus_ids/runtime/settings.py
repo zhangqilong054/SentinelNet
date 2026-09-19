@@ -41,6 +41,12 @@ class Settings(BaseSettings):
 
     # ── Web 面板 ──────────────────────────────────────────────────
     web_port: int = Field(default=5000, description="Web 面板端口")
+    frontend: str = Field(
+        default="legacy",
+        description="前端模式：new=Vue3 SPA（frontend/dist）/ legacy=Jinja2 模板。"
+        "2026-09-19 收编进 Settings：此前 app.py 直接 os.environ.get 读取，"
+        "写进 .env 会被静默忽略（pydantic-settings 不回注 os.environ）。",
+    )
     web_refresh_interval_ms: int = Field(
         default=2000,
         validation_alias=AliasChoices(
