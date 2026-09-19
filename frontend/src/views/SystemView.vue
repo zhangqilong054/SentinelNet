@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { ref, onMounted, onUnmounted } from 'vue'
+import { useIntervalFn } from '@vueuse/core'
 import { getHealth, getModels, trainModel, getTrainStatus, deleteModel, analyzeTls } from '@/api/endpoints'
 import { usePolling } from '@/composables/usePolling'
 import { ElMessage, ElMessageBox } from 'element-plus'
@@ -8,23 +9,49 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 // 后端契约 HealthResponse：{ status, timestamp, uptime_seconds, components? }（无 version 字段）
 const health = ref<{ status: string; timestamp: string; uptime_seconds: number } | null>(null)
 
+// 运行时间实时显示：以最近一次成功拉取为锚点（服务器值 + 本机流逝秒），
+// 每秒本地推算刷新，每 30s 向服务器校准一次——避免逐秒打 /api/health。
+const uptimeAnchor = ref<{ seconds: number; at: number } | null>(null)
+const uptimeText = ref('')
+
 async function fetchHealth() {
   try {
     const data = await getHealth()
-    if (data) health.value = data
+    if (data) {
+      health.value = data
+      uptimeAnchor.value = { seconds: Math.floor(data.uptime_seconds), at: Date.now() }
+    }
   } catch {
     health.value = null
   }
 }
 
 function formatUptime(seconds: number): string {
-  const h = Math.floor(seconds / 3600)
-  const m = Math.floor((seconds % 3600) / 60)
-  const s = seconds % 60
+  const total = Math.floor(seconds) // 后端返回浮点秒，取整避免长小数
+  const h = Math.floor(total / 3600)
+  const m = Math.floor((total % 3600) / 60)
+  const s = total % 60
   if (h > 0) return `${h}时${m}分${s}秒`
   if (m > 0) return `${m}分${s}秒`
   return `${s}秒`
 }
+
+// 服务器校准轮询（30s，与 usePolling 注释约定的健康检查频率一致）
+const { pause: pauseHealthPolling, resume: resumeHealthPolling } = usePolling(
+  fetchHealth,
+  30000,
+  { immediate: false },
+)
+// 本地逐秒推算显示值
+const { pause: pauseUptimeTick, resume: resumeUptimeTick } = useIntervalFn(
+  () => {
+    if (uptimeAnchor.value) {
+      uptimeText.value = formatUptime(uptimeAnchor.value.seconds + (Date.now() - uptimeAnchor.value.at) / 1000)
+    }
+  },
+  1000,
+  { immediate: false },
+)
 
 // ── 模型管理 ──────────────────────────────────────────
 const models = ref<Array<{ name: string; version: string; created_at: string; metrics?: Record<string, unknown> }>>([])
@@ -115,6 +142,8 @@ async function handleTlsAnalyze() {
 // ── 初始化 ────────────────────────────────────────────
 onMounted(() => {
   fetchHealth()
+  resumeHealthPolling()
+  resumeUptimeTick()
   fetchModels()
   getTrainStatus().then(data => {
     if (data && data.status === 'training') {
@@ -126,6 +155,8 @@ onMounted(() => {
 
 onUnmounted(() => {
   pauseTrainPolling()
+  pauseHealthPolling()
+  pauseUptimeTick()
 })
 </script>
 
@@ -142,7 +173,7 @@ onUnmounted(() => {
             </el-tag>
           </el-descriptions-item>
           <el-descriptions-item label="时间戳">{{ health.timestamp }}</el-descriptions-item>
-          <el-descriptions-item label="运行时间">{{ formatUptime(health.uptime_seconds) }}</el-descriptions-item>
+          <el-descriptions-item label="运行时间">{{ uptimeText || formatUptime(health.uptime_seconds) }}</el-descriptions-item>
         </el-descriptions>
       </div>
       <el-empty v-else description="无法获取系统状态" />
