@@ -66,9 +66,11 @@ MAPPING: dict[str, dict] = {
     "login_form": {
         "kind": "page", "old": "POST /login", "new": "POST /login",
         "method": "POST", "path": "/login",
-        "expect_status": [400],
-        "note": "路径不变；旧为 Flask-WTF form + flash，新为双提交 cookie 表单域，失败渲染页面而非裸 4xx。"
-                "回放发空 body（无 CSRF）→ 400 是错误的**正常**表达，不是崩溃",
+        "expect_status": [400, 405],
+        "note": "**随前端默认模式切换的有意变更（2026-09-19 翻转 FRONTEND 默认值后由回放门禁抓出）**："
+                "legacy 模式挂 pages.router，空 body POST /login → 400（双提交表单校验，失败渲染页面）；"
+                "SPA 模式（现为默认）不挂 pages.router，登录走 POST /api/login，POST /login 无路由 → 405。"
+                "两种模式均为设计内行为，期望值并列。",
     },
 
     # ── 路径与方法都不变的端点 ─────────────────────────────────
