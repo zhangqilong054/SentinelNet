@@ -15,8 +15,8 @@ from typing import Any, TYPE_CHECKING
 from werkzeug.security import check_password_hash, generate_password_hash
 
 if TYPE_CHECKING:
-    from sqlalchemy.engine import Connection
-    from campus_ids.runtime.repositories import UserRepository as _UserRow
+    from sqlalchemy.engine import Connection, Row
+    _UserRow = Row  # UserRepository.get_by_username 实际返回 Row（非实体类）
 
 
 # ── 密码哈希 ──────────────────────────────────────────────────────

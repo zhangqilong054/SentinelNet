@@ -41,6 +41,12 @@ class Settings(BaseSettings):
 
     # ── Web 面板 ──────────────────────────────────────────────────
     web_port: int = Field(default=5000, description="Web 面板端口")
+    capture_iface: str = Field(
+        default="",
+        description="基础抓包网卡（scapy 接口名或系统友好名如 WLAN；空=用 scapy 默认）。"
+                    "2026-09-19 真机实测：Windows 下 scapy conf.iface 常指向非活动适配器，"
+                    "导致抓包永远 0 包，故提供显式配置。",
+    )
     frontend: str = Field(
         default="legacy",
         description="前端模式：new=Vue3 SPA（frontend/dist）/ legacy=Jinja2 模板。"

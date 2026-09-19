@@ -59,8 +59,10 @@ class FakeSniff:
         self.raises = raises
         self.prn_calls = 0
         self.stop_filters: list = []
+        self.kwargs_list: list[dict] = []  # 记录 sniff 收到的额外 kwargs（iface 等）
 
-    def __call__(self, prn=None, store=None, stop_filter=None):
+    def __call__(self, prn=None, store=None, stop_filter=None, **kwargs):
+        self.kwargs_list.append(kwargs)
         self.stop_filters.append(stop_filter)
         if self.raises is not None:
             raise self.raises
@@ -433,3 +435,66 @@ class TestEnhancedCaptureWorker:
 
         assert captured["running_flag"] is True, "前提：求值时仍标记为运行中"
         assert captured["stop"] is True, "duration 到期后应停止"
+
+
+# ══ 网卡选择（2026-09-19 真机缺陷修复）════════════════════════════
+#
+# 缺陷：`sniff()` 不传 iface → scapy 用 conf.iface（Windows 上常为非活动
+# 适配器）→ 抓包永远 0 包（原生 pcap 同机同协议 8s 可抓 548 包）。
+# 修复：`start_capture(interface=...)` / `Settings.capture_iface` 解析后
+# 显式传给 `sniff(iface=...)`。以下用例断言透传链路真实存在。
+
+
+class TestCaptureIface:
+    def test_friendly_name_resolved_and_passed_to_sniff(
+        self, svc, state, patch_sniff, monkeypatch
+    ):
+        """友好名（如 WLAN）应被解析成 scapy 接口名并显式传给 sniff。"""
+        fake = patch_sniff([])
+        monkeypatch.setattr(
+            "scapy.all.get_if_list",
+            lambda: [r"\\Device\\NPF_Loopback", r"\\Device\\NPF_{WXYZ}"],
+        )
+        monkeypatch.setattr(
+            "scapy.arch.windows.get_windows_if_list",
+            lambda: [{"name": r"\\Device\\NPF_{WXYZ}", "description": "WLAN", "ips": []}],
+        )
+
+        svc.start_capture(interface="WLAN")
+        _wait_for_thread(state)
+
+        assert fake.kwargs_list, "sniff 未被调用"
+        assert fake.kwargs_list[0].get("iface") == r"\\Device\\NPF_{WXYZ}"
+
+    def test_scapy_native_name_used_directly(self, svc, state, patch_sniff, monkeypatch):
+        """已是 scapy 接口名的输入直接透传，不再做友好名匹配。"""
+        fake = patch_sniff([])
+        monkeypatch.setattr(
+            "scapy.all.get_if_list", lambda: [r"\\Device\\NPF_Loopback"]
+        )
+
+        svc.start_capture(interface=r"\\Device\\NPF_Loopback")
+        _wait_for_thread(state)
+
+        assert fake.kwargs_list[0].get("iface") == r"\\Device\\NPF_Loopback"
+
+    def test_unresolvable_name_falls_back_to_none(self, svc, state, patch_sniff, monkeypatch):
+        """无法解析的网卡名回退 None（scapy 默认）并告警，不阻断启动。"""
+        fake = patch_sniff([])
+        monkeypatch.setattr("scapy.all.get_if_list", lambda: [r"\\Device\\NPF_Loopback"])
+        monkeypatch.setattr("scapy.arch.windows.get_windows_if_list", lambda: [])
+
+        assert svc.start_capture(interface="NoSuchNic") == {"status": "started"}
+        _wait_for_thread(state)
+
+        assert fake.kwargs_list[0].get("iface", "missing") is None
+
+    def test_no_config_uses_scapy_default(self, svc, state, patch_sniff, monkeypatch):
+        """未配置任何网卡 → iface=None（与旧行为兼容，显式可见）。"""
+        fake = patch_sniff([])
+        monkeypatch.setattr("scapy.all.get_if_list", lambda: [])
+
+        svc.start_capture()
+        _wait_for_thread(state)
+
+        assert fake.kwargs_list[0].get("iface", "missing") is None

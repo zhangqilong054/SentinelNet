@@ -105,7 +105,13 @@ def get_engine() -> Engine:
         _engine = create_engine(
             db_url,
             echo=False,
-            connect_args={"check_same_thread": False},  # SQLite 多线程
+            connect_args={
+                "check_same_thread": False,  # SQLite 多线程
+                # busy_timeout（秒）：并发写时 SQLITE_BUSY 前的等待上限。
+                # 2026-09-19 600s 并发实测出现 1 次瞬时 database is locked
+                # （36 万+写入，≈0.0003%），默认 5s 太短 → 放宽到 15s。
+                "timeout": 15,
+            },
         )
         logger.info("数据库引擎创建: %s", db_url)
     return _engine

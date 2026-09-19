@@ -71,11 +71,13 @@ class AlertRepository:
         返回 {level: count} 字典，未出现的级别不包含在结果中。
         """
         stmt = (
-            select(alerts.c.level, func.count().label("count"))
+            select(alerts.c.level, func.count().label("level_count"))
             .group_by(alerts.c.level)
         )
         rows = conn.execute(stmt).fetchall()
-        return {row.level: row.count for row in rows}
+        # 注意：不能用 row.count —— 会撞上 tuple.count() 方法（mypy 与部分
+        # SQLAlchemy 版本下行为二义），改用独立标签 level_count。
+        return {row.level: row.level_count for row in rows}
 
 
 # ── TrafficRepository ──────────────────────────────────────────────

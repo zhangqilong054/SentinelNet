@@ -55,11 +55,14 @@ def reset_password(argv: list[str] | None = None) -> int:
         print("错误：密码长度至少 6 位", file=sys.stderr)
         return 2
 
-    from campus_ids.runtime.db import get_connection
+    from campus_ids.runtime.db import get_connection, init_db
     from campus_ids.runtime.repositories import UserRepository
     from campus_ids.web_new.auth import hash_password
 
     try:
+        # 全新数据目录（目录不存在 / 空库）也要能用：先建目录与表，
+        # 否则首次部署 + 密码找回会在 sqlite 连接期报 unable to open database file。
+        init_db()
         with get_connection() as conn:
             existed = UserRepository.get_by_username(conn, username) is not None
             if existed:

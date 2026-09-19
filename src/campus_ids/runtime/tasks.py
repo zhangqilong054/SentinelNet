@@ -133,6 +133,7 @@ class TaskRegistry:
             task = self._tasks[name]
             if task.target is None:
                 return {"status": "error", "message": f"任务 {name} 尚未接入工作函数（阶段1空壳）"}
+            target = task.target  # 锁内收窄为非 None，供闭包调用（mypy 可判定）
 
         # 在锁外启动线程
         stop_event = threading.Event()
@@ -143,9 +144,9 @@ class TaskRegistry:
             try:
                 if task.kind == TaskKind.TIMED and actual_duration:
                     # 限时任务：工作函数需检查 stop_requested
-                    task.target(stop_event=stop_event, duration=actual_duration, **kwargs)
+                    target(stop_event=stop_event, duration=actual_duration, **kwargs)
                 else:
-                    task.target(stop_event=stop_event, **kwargs)
+                    target(stop_event=stop_event, **kwargs)
             except Exception as exc:
                 logger.exception("任务 %s 异常退出", name)
                 if handle:
@@ -222,7 +223,7 @@ class TaskRegistry:
     def status_all(self) -> list[dict]:
         """查询所有已注册任务的状态。"""
         with self._lock:
-            result = []
+            result: list[dict[str, str | int | float | None]] = []
             for name, task in self._tasks.items():
                 handle = self._handles.get(name)
                 if handle is None:

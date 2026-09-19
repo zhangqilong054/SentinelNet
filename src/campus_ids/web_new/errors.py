@@ -170,5 +170,5 @@ def _generic_error_handler(request: Request, exc: Exception) -> JSONResponse:
 def register_exception_handlers(app: FastAPI) -> None:
     """注册全局异常处理器到 FastAPI 应用。"""
     app.add_exception_handler(ApiError, _api_error_handler)  # type: ignore[arg-type]
-    app.add_exception_handler(RequestValidationError, _validation_error_handler)
+    app.add_exception_handler(RequestValidationError, _validation_error_handler)  # type: ignore[arg-type]
     app.add_exception_handler(Exception, _generic_error_handler)

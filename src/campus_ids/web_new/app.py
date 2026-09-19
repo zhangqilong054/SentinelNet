@@ -19,7 +19,7 @@ from slowapi import _rate_limit_exceeded_handler
 from slowapi.middleware import SlowAPIMiddleware
 from starlette.middleware.sessions import SessionMiddleware
 from starlette.responses import FileResponse
-from starlette.types import ASGIApp, Receive, Scope, Send
+from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 from campus_ids.runtime.db import init_db, get_connection
 from campus_ids.runtime.events import EventBus
@@ -128,10 +128,11 @@ class SecurityHeadersMiddleware:
             await self.app(scope, receive, send)
             return
 
-        async def send_with_headers(message: dict) -> None:
+        async def send_with_headers(message: Message) -> None:
             if message["type"] == "http.response.start":
                 headers = dict(message.get("headers", []))
-                for key, value in SecurityHeadersMiddleware._SECURE_HEADERS.items():
+                secure_headers = SecurityHeadersMiddleware._SECURE_HEADERS or {}
+                for key, value in secure_headers.items():
                     if key not in headers:
                         headers[key] = value
                 message["headers"] = list(headers.items())
@@ -413,7 +414,7 @@ def create_app() -> FastAPI:
     # ── 限流（ADR-0001 §6 #4）─────────────────────────────────────
     app.state.limiter = limiter
     app.add_middleware(SlowAPIMiddleware)  # 必须注册中间件，否则 @limiter.limit 不生效
-    app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+    app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)  # type: ignore[arg-type]
 
     # ── 注册路由 ──────────────────────────────────────────────
     from campus_ids.web_new.api import system, traffic, alerts, tasks, models, scenarios, tls, payload, stream, admin, auth_routes
