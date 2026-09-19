@@ -26,6 +26,8 @@ export const useTaskStore = defineStore('task', () => {
   const loading = ref(false)
   const error = ref<string | null>(null)
   const operating = ref<string | null>(null)  // 当前正在操作的任务名
+  /** 最近一次成功拉取任务列表的本地时间戳（ms）— 运行时长锚点推算用 */
+  const fetchedAt = ref(Date.now())
 
   // ── 计算属性 ──────────────────────────────────────────
   const runningTasks = computed(() =>
@@ -45,6 +47,7 @@ export const useTaskStore = defineStore('task', () => {
       const data = await getTasks()
       // API 返回 { tasks: [...] } 或直接数组
       tasks.value = Array.isArray(data) ? data : (data as Record<string, unknown>).tasks as TaskItem[] ?? []
+      fetchedAt.value = Date.now()
     } catch (e) {
       error.value = e instanceof Error ? e.message : '加载任务失败'
     } finally {
@@ -95,6 +98,7 @@ export const useTaskStore = defineStore('task', () => {
     loading,
     error,
     operating,
+    fetchedAt,
     runningTasks,
     runningCount,
     taskCount,

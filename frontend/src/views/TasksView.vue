@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { onMounted, ref } from 'vue'
+import { useIntervalFn } from '@vueuse/core'
 import { useTaskStore } from '@/stores/task'
 import { usePolling } from '@/composables/usePolling'
 import type { TaskItem, TaskStatus } from '@/stores/task'
@@ -7,15 +8,29 @@ import {
   VideoPlay,
   VideoPause,
   Refresh,
+  Timer,
 } from '@element-plus/icons-vue'
 
 const taskStore = useTaskStore()
 
-// 轮询兜底 — 每 5s 刷新任务状态
+// 轮询兜底 — 每 5s 刷新任务状态（同时校准运行时长锚点）
 usePolling(
   () => taskStore.fetchTasks(),
   5000,
 )
+
+// 本地逐秒 tick — 运行时长在两次轮询之间也能跳动
+const now = ref(Date.now())
+useIntervalFn(() => {
+  now.value = Date.now()
+}, 1000)
+
+/** 显示用运行时长 = 服务器 elapsed + 本地推算增量 */
+function displayElapsed(row: TaskItem): number {
+  if (row.elapsed == null || row.elapsed < 0) return -1
+  const drift = Math.max(0, (now.value - taskStore.fetchedAt) / 1000)
+  return row.elapsed + drift
+}
 
 // 启动抽屉
 const drawerVisible = ref(false)
@@ -75,6 +90,19 @@ function formatDuration(elapsedSec?: number): string {
   return `${hr}时${min % 60}分`
 }
 
+/** 限时任务进度百分比 */
+function progressPercent(row: TaskItem): number {
+  if (!row.default_duration || row.default_duration <= 0) return 0
+  return Math.min(100, Math.round((displayElapsed(row) / row.default_duration) * 100))
+}
+
+/** 表格行类名 — 运行中/停止中整行高亮 */
+function rowClassName({ row }: { row: TaskItem }): string {
+  if (row.status === 'running') return 'task-row-running'
+  if (row.status === 'stopping') return 'task-row-stopping'
+  return ''
+}
+
 onMounted(() => {
   taskStore.fetchTasks()
 })
@@ -86,7 +114,8 @@ onMounted(() => {
     <div class="page-header">
       <h2>任务中心</h2>
       <div class="header-actions">
-        <el-tag type="success" v-if="taskStore.runningCount > 0">
+        <el-tag type="success" v-if="taskStore.runningCount > 0" class="status-tag">
+          <span class="pulse-dot" />
           {{ taskStore.runningCount }} 个运行中
         </el-tag>
         <el-button
@@ -103,6 +132,7 @@ onMounted(() => {
     <el-table
       :data="taskStore.tasks"
       v-loading="taskStore.loading"
+      :row-class-name="rowClassName"
       stripe
       style="width: 100%"
     >
@@ -115,19 +145,30 @@ onMounted(() => {
         </template>
       </el-table-column>
 
-      <el-table-column prop="status" label="状态" width="120" align="center">
+      <el-table-column prop="status" label="状态" width="130" align="center">
         <template #default="{ row }">
-          <el-tag :type="statusType(row.status)" size="small">
+          <el-tag :type="statusType(row.status)" size="small" class="status-tag">
+            <span v-if="row.status === 'running' || row.status === 'stopping'" class="pulse-dot" />
             {{ statusLabel(row.status) }}
           </el-tag>
         </template>
       </el-table-column>
 
-      <el-table-column label="运行时长" width="130" align="center">
+      <el-table-column label="运行时长" width="170" align="center">
         <template #default="{ row }">
-          <span v-if="row.status === 'running' || row.status === 'stopping'">
-            {{ formatDuration(row.elapsed) }}
-          </span>
+          <div v-if="row.status === 'running' || row.status === 'stopping'" class="elapsed-cell">
+            <span class="elapsed-text">
+              <el-icon class="elapsed-icon"><Timer /></el-icon>
+              {{ formatDuration(displayElapsed(row as TaskItem)) }}
+            </span>
+            <el-progress
+              v-if="row.kind === 'timed' && row.default_duration"
+              :percentage="progressPercent(row as TaskItem)"
+              :stroke-width="4"
+              :show-text="false"
+              class="elapsed-progress"
+            />
+          </div>
           <span v-else class="text-muted">-</span>
         </template>
       </el-table-column>
@@ -220,7 +261,7 @@ onMounted(() => {
 .page-header h2 {
   margin: 0;
   font-size: 20px;
-  color: #303133;
+  color: var(--el-text-color-primary);
 }
 .header-actions {
   display: flex;
@@ -235,6 +276,51 @@ onMounted(() => {
 }
 .text-muted {
   color: #c0c4cc;
+}
+/* ── 运行中视觉反馈 ─────────────────────────────── */
+.status-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+.pulse-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: currentColor;
+  flex-shrink: 0;
+  animation: task-pulse 1.2s ease-in-out infinite;
+}
+@keyframes task-pulse {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.3; transform: scale(0.7); }
+}
+/* 运行中整行高亮（语义变量，暗色模式自动适配） */
+:deep(.task-row-running td.el-table__cell) {
+  background-color: var(--el-color-success-light-9) !important;
+}
+:deep(.task-row-stopping td.el-table__cell) {
+  background-color: var(--el-color-warning-light-9) !important;
+}
+.elapsed-cell {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 0;
+}
+.elapsed-text {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-variant-numeric: tabular-nums;
+  color: var(--el-text-color-primary);
+}
+.elapsed-icon {
+  color: var(--el-color-success);
+}
+.elapsed-progress {
+  width: 90%;
 }
 .drawer-content {
   padding: 0 20px 20px;
