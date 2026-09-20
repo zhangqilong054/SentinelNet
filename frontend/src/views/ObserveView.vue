@@ -2,7 +2,7 @@
 import { onMounted, onUnmounted, computed, ref, watch } from 'vue'
 import { useTrafficStore } from '@/stores/traffic'
 import { useAlertStore } from '@/stores/alert'
-import { getTraffic, getAlerts } from '@/api/endpoints'
+import { getTraffic, getAlerts, getHealth } from '@/api/endpoints'
 import VChart from 'vue-echarts'
 import { use } from 'echarts/core'
 import { LineChart } from 'echarts/charts'
@@ -18,6 +18,67 @@ use([LineChart, TitleComponent, TooltipComponent, LegendComponent, GridComponent
 
 const trafficStore = useTrafficStore()
 const alertStore = useAlertStore()
+
+// ── M1.2: 抓包状态徽标条 ───────────────────────────────────
+interface CaptureStatus {
+  status: string
+  iface: string | null
+  iface_source: string
+  filter: string
+  resolved: boolean
+  dropped_packets: number
+  queue_size: number
+  queue_capacity: number
+  queue_usage: number
+  backlog_level: 'ok' | 'warn' | 'critical'
+}
+const captureStatus = ref<CaptureStatus | null>(null)
+let healthTimer: ReturnType<typeof setInterval> | null = null
+
+async function pollCaptureStatus() {
+  try {
+    const data = await getHealth() as { components?: { capture?: CaptureStatus } }
+    captureStatus.value = data.components?.capture ?? null
+  } catch {
+    // 轮询失败不影响主界面
+  }
+}
+
+// M1.2: iface_source 徽标颜色
+function ifaceSourceColor(source: string): string {
+  switch (source) {
+    case 'config': return '#67c23a'       // 绿 — 用户显式配置
+    case 'auto:route': return '#409eff'   // 蓝 — 默认路由自动识别
+    case 'auto:active': return '#e6a23c'  // 橙 — 活动网卡打分
+    case 'fallback': return '#909399'     // 灰 — 兜底（可能 0 包）
+    default: return '#909399'
+  }
+}
+
+// M1.2: iface_source 显示文本
+function ifaceSourceLabel(source: string): string {
+  switch (source) {
+    case 'config': return '配置'
+    case 'auto:route': return '路由'
+    case 'auto:active': return '活动'
+    case 'fallback': return '兜底'
+    case 'unset': return '未设置'
+    default: return source
+  }
+}
+
+// M1.3: 积压/丢包警示
+const prevDropped = ref(0)
+const droppedDelta = computed(() => {
+  if (!captureStatus.value) return 0
+  const delta = captureStatus.value.dropped_packets - prevDropped.value
+  return delta > 0 ? delta : 0
+})
+watch(captureStatus, (val) => {
+  if (val && val.dropped_packets > prevDropped.value) {
+    prevDropped.value = val.dropped_packets
+  }
+})
 
 // SSE 实时推送为主，无需轮询兜底（流量数据由 SSE traffic 事件驱动）
 
@@ -53,6 +114,10 @@ function alertRowClass({ row }: { row: { id: string } }): string {
 
 onUnmounted(() => {
   flashTimers.forEach(clearTimeout)
+  if (healthTimer) {
+    clearInterval(healthTimer)
+    healthTimer = null
+  }
 })
 
 const filteredAlerts = computed(() => {
@@ -61,14 +126,17 @@ const filteredAlerts = computed(() => {
   return alerts.filter(a => a.severity === alertLevelFilter.value)
 })
 
-// 流量图表选项
+// 流量图表选项 — M1.1: 新增包速率曲线
 const trafficChartOption = computed(() => {
   const chartData = trafficStore.chartData
+  const isDemo = trafficStore.dataSource === 'demo'
+  // M1.1: demo 模式下曲线降透明度
+  const seriesOpacity = isDemo ? 0.45 : 1
   return {
     title: { text: '流量趋势', left: 'center', textStyle: { fontSize: 14 } },
     tooltip: { trigger: 'axis' },
-    legend: { data: ['包/秒', '字节/秒'], top: 30 },
-    grid: { left: 60, right: 30, top: 70, bottom: 30 },
+    legend: { data: ['包/秒', '字节/秒', '包速率'], top: 30 },
+    grid: { left: 60, right: 60, top: 70, bottom: 30 },
     xAxis: {
       type: 'category',
       data: chartData.timestamps.map(t => {
@@ -92,6 +160,8 @@ const trafficChartOption = computed(() => {
         smooth: true,
         showSymbol: false,
         yAxisIndex: 0,
+        itemStyle: { opacity: seriesOpacity },
+        lineStyle: { opacity: seriesOpacity },
       },
       {
         name: '字节/秒',
@@ -100,6 +170,18 @@ const trafficChartOption = computed(() => {
         smooth: true,
         showSymbol: false,
         yAxisIndex: 1,
+        itemStyle: { opacity: seriesOpacity },
+        lineStyle: { opacity: seriesOpacity },
+      },
+      {
+        name: '包速率',
+        type: 'line',
+        data: chartData.packetRates,
+        smooth: true,
+        showSymbol: false,
+        yAxisIndex: 0,
+        lineStyle: { type: 'dashed', opacity: seriesOpacity },
+        itemStyle: { opacity: seriesOpacity, color: '#e6a23c' },
       },
     ],
   }
@@ -138,13 +220,14 @@ onMounted(() => {
   // 初始加载 — REST 契约 TrafficStatsResponse：{ qps, connections, data_source, ... }，与 SSE traffic 帧字段不同
   getTraffic().then(data => {
     if (data && typeof data === 'object' && 'qps' in data) {
-      const stats = data as { qps: number; connections: number; data_source?: string }
+      const stats = data as { qps: number; connections: number; data_source?: string; packet_count?: number }
       trafficStore.updateTraffic({
         timestamp: new Date().toISOString(),
         packets_per_sec: stats.qps,
         bytes_per_sec: 0,
         active_flows: stats.connections,
         data_source: stats.data_source,
+        packet_count: stats.packet_count,
       })
     }
   }).catch(() => {})
@@ -155,6 +238,9 @@ onMounted(() => {
   }).catch(() => {}).finally(() => {
     bootstrapping = false
   })
+  // M1.2: 轮询抓包状态（5s 间隔）
+  pollCaptureStatus()
+  healthTimer = setInterval(pollCaptureStatus, 5000)
 })
 </script>
 
@@ -202,6 +288,65 @@ onMounted(() => {
         <span>当前显示模拟数据（未启动抓包或无真实流量）</span>
       </template>
     </el-alert>
+
+    <!-- M1.2: 抓包状态徽标条 -->
+    <el-card v-if="captureStatus" shadow="never" class="capture-badge-bar">
+      <div class="badge-row">
+        <span class="badge-label">抓包</span>
+        <el-tag :type="captureStatus.status === 'running' ? 'success' : 'info'" size="small" effect="dark">
+          {{ captureStatus.status === 'running' ? '运行中' : '已停止' }}
+        </el-tag>
+
+        <template v-if="captureStatus.iface">
+          <span class="badge-sep">|</span>
+          <span class="badge-label">网卡</span>
+          <el-tooltip :content="captureStatus.iface" placement="top">
+            <span class="iface-name">{{ captureStatus.iface.replace(/\\Device\\NPF_/, '') }}</span>
+          </el-tooltip>
+          <el-tag
+            size="small"
+            :color="ifaceSourceColor(captureStatus.iface_source)"
+            effect="dark"
+            style="color: #fff; border: none;"
+          >
+            {{ ifaceSourceLabel(captureStatus.iface_source) }}
+          </el-tag>
+        </template>
+
+        <template v-if="!captureStatus.resolved">
+          <el-tag type="info" size="small" effect="plain">预览</el-tag>
+        </template>
+
+        <template v-if="captureStatus.filter">
+          <span class="badge-sep">|</span>
+          <span class="badge-label">BPF</span>
+          <el-tooltip :content="captureStatus.filter" placement="top">
+            <span class="bpf-text">{{ captureStatus.filter.length > 30 ? captureStatus.filter.slice(0, 30) + '…' : captureStatus.filter }}</span>
+          </el-tooltip>
+        </template>
+
+        <!-- M1.3: 积压水位 -->
+        <template v-if="captureStatus.backlog_level !== 'ok'">
+          <span class="badge-sep">|</span>
+          <el-tag
+            :type="captureStatus.backlog_level === 'critical' ? 'danger' : 'warning'"
+            size="small"
+            effect="dark"
+          >
+            队列 {{ captureStatus.backlog_level === 'critical' ? '危险' : '警告' }}
+            ({{ (captureStatus.queue_usage * 100).toFixed(1) }}%)
+          </el-tag>
+        </template>
+
+        <!-- M1.3: 丢包计数 -->
+        <template v-if="captureStatus.dropped_packets > 0">
+          <span class="badge-sep">|</span>
+          <el-tag type="danger" size="small" effect="dark">
+            丢包 {{ captureStatus.dropped_packets }}
+          </el-tag>
+        </template>
+      </div>
+    </el-card>
 
     <!-- 流量图表 -->
     <el-card shadow="hover" class="chart-card">
@@ -261,6 +406,42 @@ onMounted(() => {
 }
 .demo-watermark {
   margin-bottom: 16px;
+}
+.capture-badge-bar {
+  margin-bottom: 16px;
+  padding: 4px 0;
+}
+.capture-badge-bar :deep(.el-card__body) {
+  padding: 8px 16px;
+}
+.badge-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+.badge-label {
+  font-size: 12px;
+  color: #909399;
+  font-weight: 500;
+}
+.badge-sep {
+  color: #dcdfe6;
+  margin: 0 2px;
+}
+.iface-name {
+  font-family: 'Courier New', monospace;
+  font-size: 12px;
+  color: var(--el-text-color-primary);
+  max-width: 200px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.bpf-text {
+  font-family: 'Courier New', monospace;
+  font-size: 11px;
+  color: #606266;
 }
 .metric-card {
   text-align: center;

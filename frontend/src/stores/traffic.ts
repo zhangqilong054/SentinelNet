@@ -9,6 +9,7 @@ export interface TrafficPoint {
   active_flows: number
   protocol_breakdown?: Record<string, number>
   data_source?: string  // T2: "capture"=真实抓包 / "demo"=模拟兜底
+  packet_count?: number  // M1.1: 累计包计数（SSE history_entry 已有此字段）
 }
 
 /** 流量 store — 管理实时流量数据与历史趋势 */
@@ -26,11 +27,26 @@ export const useTrafficStore = defineStore('traffic', () => {
   const activeFlows = computed(() => current.value?.active_flows ?? 0)
 
   /** ECharts 友好的时间序列数据 */
-  const chartData = computed(() => ({
-    timestamps: history.value.map(p => p.timestamp),
-    packetsPerSec: history.value.map(p => p.packets_per_sec),
-    bytesPerSec: history.value.map(p => p.bytes_per_sec),
-  }))
+  const chartData = computed(() => {
+    // M1.1: 计算 packet_count 速率（相邻点差分）
+    const packetCounts = history.value.map(p => p.packet_count ?? 0)
+    const packetRates: number[] = []
+    for (let i = 0; i < packetCounts.length; i++) {
+      if (i === 0 || packetCounts[i] === 0) {
+        packetRates.push(history.value[i]?.packets_per_sec ?? 0)
+      } else {
+        const diff = packetCounts[i] - packetCounts[i - 1]
+        packetRates.push(diff > 0 ? diff : 0)
+      }
+    }
+    return {
+      timestamps: history.value.map(p => p.timestamp),
+      packetsPerSec: history.value.map(p => p.packets_per_sec),
+      bytesPerSec: history.value.map(p => p.bytes_per_sec),
+      packetRates,  // M1.1: 包速率（packet_count 差分或 qps 兜底）
+      packetCounts, // M1.1: 累计包计数
+    }
+  })
 
   // ── 动作 ──────────────────────────────────────────────
   function updateTraffic(point: TrafficPoint) {

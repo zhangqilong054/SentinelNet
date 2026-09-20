@@ -78,9 +78,34 @@ async def health_check(request: Request) -> HealthResponse:
     if capture_service is not None and hasattr(capture_service, "capture_status"):
         try:
             snap = capture_service.capture_status()
-            capture_comp["iface"] = snap.get("iface")
-            capture_comp["iface_source"] = snap.get("iface_source")
-            capture_comp["filter"] = snap.get("filter")
+            if snap.get("running"):
+                # R3.1: 抓包运行中 → service 快照为单一真相源，resolved=true
+                capture_comp["iface"] = snap.get("iface")
+                capture_comp["iface_source"] = snap.get("iface_source")
+                capture_comp["filter"] = snap.get("filter")
+                capture_comp["resolved"] = True
+            else:
+                # R3.1: 抓包未运行 → 回退到候选口径（与 /api/check 同源），resolved=false
+                capture_comp["resolved"] = False
+                settings = get_settings()
+                cfg_iface = settings.capture_iface
+                if cfg_iface:
+                    capture_comp["iface"] = cfg_iface
+                    capture_comp["iface_source"] = "config"
+                else:
+                    try:
+                        from campus_ids.services.capture_service import autodetect_iface
+                        iface, source = autodetect_iface()
+                        capture_comp["iface"] = iface
+                        capture_comp["iface_source"] = source
+                    except Exception:  # noqa: BLE001
+                        capture_comp["iface"] = None
+                        capture_comp["iface_source"] = "fallback"
+                try:
+                    from campus_ids.services.capture_service import build_capture_filter
+                    capture_comp["filter"] = build_capture_filter() or ""
+                except Exception:  # noqa: BLE001
+                    capture_comp["filter"] = settings.capture_filter or ""
         except Exception:  # noqa: BLE001 —— 状态快照失败不影响健康检查
             pass
     # F4 修复：暴露增强抓包诊断信息（packets/flows/error/iface/filter）
@@ -103,6 +128,20 @@ async def health_check(request: Request) -> HealthResponse:
             })
         except Exception:  # noqa: BLE001
             pass
+    # R3.2: 积压水位暴露 — queue_capacity / queue_usage / backlog_level
+    queue_capacity = state.packet_queue.maxsize  # 20000
+    queue_size = capture_comp.get("queue_size", 0)
+    queue_usage = round(queue_size / queue_capacity, 4) if queue_capacity > 0 else 0.0
+    if queue_usage >= 0.8:
+        backlog_level = "critical"
+    elif queue_usage >= 0.5:
+        backlog_level = "warn"
+    else:
+        backlog_level = "ok"
+    capture_comp["queue_capacity"] = queue_capacity
+    capture_comp["queue_usage"] = queue_usage
+    capture_comp["backlog_level"] = backlog_level
+
     capture_comp["enhanced"] = enhanced_comp
     health["components"]["capture"] = capture_comp
 

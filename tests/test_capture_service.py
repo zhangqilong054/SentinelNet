@@ -863,3 +863,184 @@ class TestValidateBpf:
         result = svc.start_enhanced(duration=10)
         assert result["status"] == "error"
         assert state.enhanced_capture_running is False
+
+
+# ══ R3.3: dropped_packets 原子性回归 ══════════════════════════════════════
+
+
+class TestDroppedPacketsAtomicity:
+    """R3.3: 验证 dropped_packets 在多读单写下的一致性。
+
+    CPython GIL 保证 int += 1 原子性（单写者 capture 线程），
+    此测试确认：并发读取不会读到半写值，且最终计数准确。
+    """
+
+    def test_concurrent_read_while_dropping(self, state):
+        """多线程并发读 dropped_packets，单线程写入，最终值必须一致。"""
+        import threading
+
+        state.dropped_packets = 0
+        N_WRITES = 5000
+        reads: list[int] = []
+
+        def writer() -> None:
+            for _ in range(N_WRITES):
+                state.dropped_packets += 1
+
+        def reader() -> None:
+            for _ in range(N_WRITES):
+                reads.append(state.dropped_packets)
+
+        w = threading.Thread(target=writer)
+        r = threading.Thread(target=reader)
+        w.start()
+        r.start()
+        w.join()
+        r.join()
+
+        # 最终值必须精确
+        assert state.dropped_packets == N_WRITES
+        # 所有读取值必须在 [0, N_WRITES] 范围内（不会读到半写值）
+        assert all(0 <= v <= N_WRITES for v in reads)
+
+
+# ══ R3.1/R3.2: health 端点 capture 段新字段 ═══════════════════════════════
+
+
+class TestHealthCaptureFields:
+    """R3.1/R3.2: 验证 /api/health capture 段新增字段。
+
+    - R3.1: resolved 标记 + 未启动时回退显示候选口径
+    - R3.2: queue_capacity / queue_usage / backlog_level
+    """
+
+    def test_stopped_capture_shows_resolved_false_and_preview(
+        self, svc, state, monkeypatch
+    ):
+        """抓包未启动时：resolved=false，显示候选口径（autodetect/config）。"""
+        from campus_ids.web_new.api.system import health_check
+        from unittest.mock import MagicMock
+
+        # 确保 capture_service 存在且 capture_status 返回 running=False
+        state.capture_running = False
+        monkeypatch.setattr(
+            svc, "capture_status",
+            lambda: {
+                "running": False, "dropped_packets": 0,
+                "iface": None, "iface_source": "unset", "filter": "",
+                "queue_size": 0,
+            },
+        )
+
+        # mock autodetect_iface / build_capture_filter（源模块级函数）
+        monkeypatch.setattr(
+            "campus_ids.services.capture_service.autodetect_iface",
+            lambda: ("\\Device\\NPF_ETH", "auto:route"),
+        )
+        monkeypatch.setattr(
+            "campus_ids.services.capture_service.build_capture_filter",
+            lambda: "tcp or udp",
+        )
+
+        # 构造 mock request
+        mock_request = MagicMock()
+        mock_request.app.state.runtime_state = state
+        mock_request.app.state.capture_service = svc
+
+        import asyncio
+        result = asyncio.run(health_check(mock_request))
+
+        cap = result.components.get("capture", {})
+        assert cap.get("resolved") is False, "未启动时应 resolved=false"
+        assert cap.get("iface") == "\\Device\\NPF_ETH"
+        assert cap.get("iface_source") == "auto:route"
+        assert cap.get("filter") == "tcp or udp"
+
+    def test_running_capture_shows_resolved_true(self, svc, state, monkeypatch):
+        """抓包运行中：resolved=true，显示 service 快照口径。"""
+        from campus_ids.web_new.api.system import health_check
+        from unittest.mock import MagicMock
+
+        state.capture_running = True
+        monkeypatch.setattr(
+            svc, "capture_status",
+            lambda: {
+                "running": True, "dropped_packets": 0,
+                "iface": "\\Device\\NPF_REAL", "iface_source": "config",
+                "filter": "tcp port 80", "queue_size": 5,
+            },
+        )
+
+        mock_request = MagicMock()
+        mock_request.app.state.runtime_state = state
+        mock_request.app.state.capture_service = svc
+
+        import asyncio
+        result = asyncio.run(health_check(mock_request))
+
+        cap = result.components.get("capture", {})
+        assert cap.get("resolved") is True, "运行中应 resolved=true"
+        assert cap.get("iface") == "\\Device\\NPF_REAL"
+        assert cap.get("iface_source") == "config"
+
+    def test_backlog_level_ok_when_queue_low(self, state, monkeypatch):
+        """R3.2: 队列占用 <50% 时 backlog_level=ok。"""
+        from campus_ids.web_new.api.system import health_check
+        from unittest.mock import MagicMock
+
+        # queue_size=10, capacity=20000 → usage=0.05% → ok
+        state.packet_queue = queue.Queue(maxsize=20000)
+        for _ in range(10):
+            state.packet_queue.put_nowait({"test": True})
+
+        mock_request = MagicMock()
+        mock_request.app.state.runtime_state = state
+        mock_request.app.state.capture_service = None
+
+        import asyncio
+        result = asyncio.run(health_check(mock_request))
+
+        cap = result.components.get("capture", {})
+        assert cap.get("queue_capacity") == 20000
+        assert cap.get("queue_usage") == 10 / 20000
+        assert cap.get("backlog_level") == "ok"
+
+    def test_backlog_level_warn_when_queue_half(self, state, monkeypatch):
+        """R3.2: 队列占用 >=50% 时 backlog_level=warn。"""
+        from campus_ids.web_new.api.system import health_check
+        from unittest.mock import MagicMock
+
+        # queue_size=10001, capacity=20000 → usage=50.005% → warn
+        state.packet_queue = queue.Queue(maxsize=20000)
+        for _ in range(10001):
+            state.packet_queue.put_nowait({"test": True})
+
+        mock_request = MagicMock()
+        mock_request.app.state.runtime_state = state
+        mock_request.app.state.capture_service = None
+
+        import asyncio
+        result = asyncio.run(health_check(mock_request))
+
+        cap = result.components.get("capture", {})
+        assert cap.get("backlog_level") == "warn"
+
+    def test_backlog_level_critical_when_queue_near_full(self, state, monkeypatch):
+        """R3.2: 队列占用 >=80% 时 backlog_level=critical。"""
+        from campus_ids.web_new.api.system import health_check
+        from unittest.mock import MagicMock
+
+        # queue_size=16001, capacity=20000 → usage=80.005% → critical
+        state.packet_queue = queue.Queue(maxsize=20000)
+        for _ in range(16001):
+            state.packet_queue.put_nowait({"test": True})
+
+        mock_request = MagicMock()
+        mock_request.app.state.runtime_state = state
+        mock_request.app.state.capture_service = None
+
+        import asyncio
+        result = asyncio.run(health_check(mock_request))
+
+        cap = result.components.get("capture", {})
+        assert cap.get("backlog_level") == "critical"

@@ -380,6 +380,8 @@ class CaptureService:
                         "timestamp": timestamp,
                     })
                 except queue.Full:
+                    # R3.3: 单写者（capture 线程）+=1，CPython GIL 保证原子性；
+                    # 若未来多线程写入需改用 Lock 或 atomic 原语。
                     self._state.dropped_packets += 1
 
                 # TLS 解析
