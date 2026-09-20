@@ -1,14 +1,34 @@
 <script setup lang="ts">
 import { ref, watch, onMounted, onUnmounted } from 'vue'
 import { useIntervalFn } from '@vueuse/core'
-import { getHealth, getModels, trainModel, getTrainStatus, deleteModel, analyzeTls } from '@/api/endpoints'
+import { getHealth, getModels, trainModel, getTrainStatus, deleteModel, analyzeTls, getCheck } from '@/api/endpoints'
 import { usePolling } from '@/composables/usePolling'
 import { ElMessage, ElMessageBox } from 'element-plus'
 
 // ── 健康状态 ──────────────────────────────────────────
 // 后端契约 HealthResponse：{ status, timestamp, uptime_seconds, components? }（无 version 字段）
-const health = ref<{ status: string; timestamp: string; uptime_seconds: number } | null>(null)
+const health = ref<{ status: string; timestamp: string; uptime_seconds: number; components?: Record<string, unknown> } | null>(null)
 const healthLoading = ref(true)
+
+// ── 抓包诊断（T3）──────────────────────────────────────────
+// 从 /api/health.components.capture 和 /api/check.capture 聚合
+interface CaptureDiagnostics {
+  status: string
+  iface?: string
+  iface_source?: string
+  filter?: string
+  queue_size?: number
+  dropped_packets?: number
+  is_admin?: boolean
+  candidate_count?: number
+  enhanced?: {
+    status?: string
+    packets?: number
+    flows?: number
+    error?: string
+  }
+}
+const captureDiag = ref<CaptureDiagnostics | null>(null)
 
 // 运行时间实时显示：以最近一次成功拉取为锚点（服务器值 + 本机流逝秒），
 // 每秒本地推算刷新，每 30s 向服务器校准一次——避免逐秒打 /api/health。
@@ -22,6 +42,19 @@ async function fetchHealth() {
     if (data) {
       health.value = data
       uptimeAnchor.value = { seconds: Math.floor(data.uptime_seconds), at: Date.now() }
+      // T3: 从 health.components.capture 提取抓包诊断
+      const captureComp = (data.components as Record<string, Record<string, unknown>> | undefined)?.?.capture
+      if (captureComp) {
+        captureDiag.value = {
+          status: String(captureComp.status ?? 'unknown'),
+          iface: captureComp.iface as string | undefined,
+          iface_source: captureComp.iface_source as string | undefined,
+          filter: captureComp.filter as string | undefined,
+          queue_size: captureComp.queue_size as number | undefined,
+          dropped_packets: captureComp.dropped_packets as number | undefined,
+          enhanced: captureComp.enhanced as CaptureDiagnostics['enhanced'],
+        }
+      }
     }
   } catch {
     health.value = null
@@ -193,6 +226,25 @@ onMounted(() => {
       resumeTrainPolling()
     }
   }).catch(() => {})
+  // T3: 从 /api/check 补充 is_admin 和候选网卡数
+  getCheck().then(data => {
+    if (data?.capture) {
+      const cap = data.capture as Record<string, unknown>
+      if (captureDiag.value) {
+        captureDiag.value.is_admin = cap.is_admin as boolean | undefined
+        captureDiag.value.candidate_count = (cap.candidate_ifaces as unknown[])?.length
+      } else {
+        captureDiag.value = {
+          status: cap.ok ? 'available' : 'unavailable',
+          is_admin: cap.is_admin as boolean | undefined,
+          iface: cap.iface as string | undefined,
+          iface_source: cap.iface_source as string | undefined,
+          filter: cap.filter as string | undefined,
+          candidate_count: (cap.candidate_ifaces as unknown[])?.length,
+        }
+      }
+    }
+  }).catch(() => {})
 })
 
 onUnmounted(() => {
@@ -220,6 +272,65 @@ onUnmounted(() => {
       </div>
       <el-skeleton v-else-if="healthLoading" :rows="2" animated />
       <el-empty v-else description="无法获取系统状态" />
+    </el-card>
+
+    <!-- T3: 抓包诊断卡片 -->
+    <el-card shadow="hover" class="system-card">
+      <template #header><span>抓包诊断</span></template>
+      <div v-if="captureDiag" class="capture-diag">
+        <el-descriptions :column="2" border>
+          <el-descriptions-item label="抓包状态">
+            <el-tag :type="captureDiag.status === 'running' ? 'success' : 'info'" size="small">
+              {{ captureDiag.status === 'running' ? '运行中' : captureDiag.status === 'stopped' ? '已停止' : captureDiag.status }}
+            </el-tag>
+          </el-descriptions-item>
+          <el-descriptions-item label="管理员权限">
+            <el-tag v-if="captureDiag.is_admin != null" :type="captureDiag.is_admin ? 'success' : 'warning'" size="small">
+              {{ captureDiag.is_admin ? '是' : '否' }}
+            </el-tag>
+            <span v-else class="text-muted">-</span>
+          </el-descriptions-item>
+          <el-descriptions-item label="生效网卡" :span="2">
+            <code v-if="captureDiag.iface" class="iface-code">{{ captureDiag.iface }}</code>
+            <span v-else class="text-muted">未指定</span>
+            <el-tag v-if="captureDiag.iface_source" size="small" type="info" effect="plain" style="margin-left: 6px">
+              {{ captureDiag.iface_source }}
+            </el-tag>
+          </el-descriptions-item>
+          <el-descriptions-item label="BPF 过滤" :span="2">
+            <code v-if="captureDiag.filter" class="filter-code">{{ captureDiag.filter }}</code>
+            <span v-else class="text-muted">无</span>
+          </el-descriptions-item>
+          <el-descriptions-item label="队列长度">
+            {{ captureDiag.queue_size ?? '-' }}
+          </el-descriptions-item>
+          <el-descriptions-item label="丢弃包数">
+            <span :class="{ 'text-danger': (captureDiag.dropped_packets ?? 0) > 0 }">
+              {{ captureDiag.dropped_packets ?? 0 }}
+            </span>
+          </el-descriptions-item>
+          <el-descriptions-item label="候选网卡数" v-if="captureDiag.candidate_count != null">
+            {{ captureDiag.candidate_count }}
+          </el-descriptions-item>
+        </el-descriptions>
+        <!-- 增强抓包子面板 -->
+        <div v-if="captureDiag.enhanced" class="enhanced-section">
+          <el-divider content-position="left">增强抓包</el-divider>
+          <el-descriptions :column="3" border size="small">
+            <el-descriptions-item label="状态">
+              <el-tag :type="captureDiag.enhanced.status === 'running' ? 'success' : 'info'" size="small">
+                {{ captureDiag.enhanced.status === 'running' ? '运行中' : captureDiag.enhanced.status === 'stopped' ? '已停止' : captureDiag.enhanced.status ?? '-' }}
+              </el-tag>
+            </el-descriptions-item>
+            <el-descriptions-item label="捕获包数">{{ captureDiag.enhanced.packets ?? 0 }}</el-descriptions-item>
+            <el-descriptions-item label="流数">{{ captureDiag.enhanced.flows ?? 0 }}</el-descriptions-item>
+            <el-descriptions-item v-if="captureDiag.enhanced.error" label="错误" :span="3">
+              <span class="text-danger">{{ captureDiag.enhanced.error }}</span>
+            </el-descriptions-item>
+          </el-descriptions>
+        </div>
+      </div>
+      <el-empty v-else description="暂无抓包诊断数据" />
     </el-card>
 
     <!-- 模型管理 -->
@@ -355,6 +466,20 @@ onUnmounted(() => {
 }
 .health-info {
   margin-bottom: 8px;
+}
+.capture-diag {
+  margin-bottom: 8px;
+}
+.enhanced-section {
+  margin-top: 4px;
+}
+.iface-code, .filter-code {
+  font-family: 'Courier New', monospace;
+  font-size: 12px;
+  background: var(--el-fill-color-light);
+  padding: 2px 6px;
+  border-radius: 3px;
+  word-break: break-all;
 }
 .train-progress {
   margin-top: 8px;

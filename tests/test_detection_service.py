@@ -331,7 +331,7 @@ class TestUpdateTrafficData:
 
         entry = h.bus.published[0][1]
         assert set(entry) == {"time", "qps", "connections", "packet_count",
-                              "port_count", "src_ip_count", "alert"}
+                              "port_count", "src_ip_count", "alert", "data_source"}
         assert entry["time"] == h.state.traffic_data["timestamp"]
 
     def test_history_is_persisted_to_db(self):

@@ -90,10 +90,11 @@ function formatDuration(elapsedSec?: number): string {
   return `${hr}时${min % 60}分`
 }
 
-/** 限时任务进度百分比 */
+/** 限时任务进度百分比 — T1: 优先用 duration（实际启动时长），回落 default_duration */
 function progressPercent(row: TaskItem): number {
-  if (!row.default_duration || row.default_duration <= 0) return 0
-  return Math.min(100, Math.round((displayElapsed(row) / row.default_duration) * 100))
+  const total = row.duration ?? row.default_duration
+  if (!total || total <= 0) return 0
+  return Math.min(100, Math.round((displayElapsed(row) / total) * 100))
 }
 
 /** 表格行类名 — 运行中/停止中整行高亮 */
@@ -220,7 +221,7 @@ onMounted(() => {
             {{ selectedTask.description || '无' }}
           </el-descriptions-item>
           <el-descriptions-item label="默认时长" v-if="selectedTask.kind === 'timed'">
-            {{ selectedTask.default_duration ? `${selectedTask.default_duration}秒` : '未指定' }}
+            {{ (selectedTask.duration ?? selectedTask.default_duration) ? `${selectedTask.duration ?? selectedTask.default_duration}秒` : '未指定' }}
           </el-descriptions-item>
         </el-descriptions>
 

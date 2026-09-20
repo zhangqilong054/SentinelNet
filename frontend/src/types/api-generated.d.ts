@@ -1152,6 +1152,9 @@ export interface components {
         /**
          * TaskStatusResponse
          * @description 单个任务状态响应。
+         *
+         *     F5 修复：新增 duration 字段，暴露启动时实际使用的窗口时长。
+         *     前端进度条应使用 `duration ?? default_duration` 计算进度。
          */
         TaskStatusResponse: {
             /** Name */
@@ -1183,6 +1186,11 @@ export interface components {
              * @description 限时任务默认时长(秒)
              */
             default_duration?: number | null;
+            /**
+             * Duration
+             * @description 限时任务实际启动时长(秒)，前端进度条应用此值
+             */
+            duration?: number | null;
         };
         /**
          * ThresholdUpdateRequest
@@ -1262,6 +1270,10 @@ export interface components {
         /**
          * TrafficStatsResponse
          * @description 流量统计响应。
+         *
+         *     F2 修复：新增 data_source 字段，标记数据来源：
+         *     - "capture": 真实抓包数据
+         *     - "demo": 模拟兜底数据（无抓包时随机生成，不触发告警）
          * @example {
          *       "alert": "",
          *       "connections": 42,
@@ -1326,6 +1338,11 @@ export interface components {
              * @default 0
              */
             dns_packets: number;
+            /**
+             * Data Source
+             * @default demo
+             */
+            data_source: string;
         };
         /**
          * TrainRequest

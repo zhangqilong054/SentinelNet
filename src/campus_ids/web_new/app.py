@@ -68,7 +68,14 @@ def _register_default_tasks(registry: TaskRegistry, *, capture_service, detectio
 
     # ── attack: 攻击模拟（TIMED） ──────────────────────────────────
     def attack_target(stop_event: threading.Event, duration: int = 30, **kwargs) -> None:
-        attack_simulator.start_all(duration=duration)
+        # T4: 使用 autodetect_iface 与抓包同源，避免 Windows 上 scapy conf.iface 选错网卡
+        iface: str | None = None
+        try:
+            from campus_ids.services.capture_service import autodetect_iface
+            iface, _ = autodetect_iface()
+        except Exception:
+            pass
+        attack_simulator.start_all(duration=duration, iface=iface)
         stop_event.wait()
         attack_simulator.stop()
 

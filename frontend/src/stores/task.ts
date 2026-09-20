@@ -16,6 +16,7 @@ export interface TaskItem {
   description?: string
   elapsed?: number
   default_duration?: number | null
+  duration?: number | null   // T1: F5 后端已透出，前端进度条应用此值
   error?: string
 }
 

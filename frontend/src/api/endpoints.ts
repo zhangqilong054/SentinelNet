@@ -25,6 +25,10 @@ type OperationRequestBody<T extends keyof paths, M extends keyof paths[T]> =
 export const getHealth = () =>
   apiGet<OperationResponse<'/api/health', 'get'>>('/api/health')
 
+// ── 环境自检 ──────────────────────────────────────────────────
+export const getCheck = () =>
+  apiGet<OperationResponse<'/api/check', 'get'>>('/api/check')
+
 // ── 配置 ──────────────────────────────────────────────────────
 export const getSettings = () =>
   apiGet<OperationResponse<'/api/settings', 'get'>>('/api/settings')

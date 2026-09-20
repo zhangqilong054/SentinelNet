@@ -332,6 +332,7 @@ class DetectionService:
             "port_count": current_port_count,
             "src_ip_count": len(set(td.get("src_ips", []))),
             "alert": td["alert"],
+            "data_source": td.get("data_source", "demo"),  # T2: SSE 历史帧也透出数据来源
         }
         try:
             with get_connection() as conn:

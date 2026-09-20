@@ -135,15 +135,16 @@ function severityLabel(severity: string): string {
 }
 
 onMounted(() => {
-  // 初始加载 — REST 契约 TrafficStatsResponse：{ qps, connections, ... }，与 SSE traffic 帧字段不同
+  // 初始加载 — REST 契约 TrafficStatsResponse：{ qps, connections, data_source, ... }，与 SSE traffic 帧字段不同
   getTraffic().then(data => {
     if (data && typeof data === 'object' && 'qps' in data) {
-      const stats = data as { qps: number; connections: number }
+      const stats = data as { qps: number; connections: number; data_source?: string }
       trafficStore.updateTraffic({
         timestamp: new Date().toISOString(),
         packets_per_sec: stats.qps,
         bytes_per_sec: 0,
         active_flows: stats.connections,
+        data_source: stats.data_source,
       })
     }
   }).catch(() => {})
@@ -188,6 +189,19 @@ onMounted(() => {
         </el-card>
       </el-col>
     </el-row>
+
+    <!-- T2: 模拟数据水印 — data_source 为 demo 时显示 -->
+    <el-alert
+      v-if="trafficStore.dataSource === 'demo'"
+      type="warning"
+      :closable="false"
+      show-icon
+      class="demo-watermark"
+    >
+      <template #title>
+        <span>当前显示模拟数据（未启动抓包或无真实流量）</span>
+      </template>
+    </el-alert>
 
     <!-- 流量图表 -->
     <el-card shadow="hover" class="chart-card">
@@ -243,6 +257,9 @@ onMounted(() => {
   max-width: 1200px;
 }
 .metric-cards {
+  margin-bottom: 16px;
+}
+.demo-watermark {
   margin-bottom: 16px;
 }
 .metric-card {
