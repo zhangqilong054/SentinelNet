@@ -43,9 +43,22 @@ class Settings(BaseSettings):
     web_port: int = Field(default=5000, description="Web 面板端口")
     capture_iface: str = Field(
         default="",
-        description="基础抓包网卡（scapy 接口名或系统友好名如 WLAN；空=用 scapy 默认）。"
+        description="基础抓包网卡（scapy 接口名或系统友好名如 WLAN；空=自动挑选活动网卡）。"
                     "2026-09-19 真机实测：Windows 下 scapy conf.iface 常指向非活动适配器，"
-                    "导致抓包永远 0 包，故提供显式配置。",
+                    "导致抓包永远 0 包，故提供显式配置；"
+                    "2026-09-20 起留空不再回退 conf.iface，而是走默认路由/活动网卡自动识别。",
+    )
+    capture_filter: str = Field(
+        default="tcp or udp",
+        description="抓包 BPF 过滤表达式（内核态过滤，减少用户态开销）。"
+                    "默认只抓 TCP/UDP（检测器只用到这两类，ARP/STP 等是纯噪声）；"
+                    "置空字符串表示不过滤、抓全部。",
+    )
+    capture_exclude_web_port: bool = Field(
+        default=True,
+        description="是否把面板自身流量（web_port 的 TCP 会话）排除出抓包。"
+                    "开启可避免前端轮询/SSE 心跳被当成真实流量污染统计与检测；"
+                    "如需检测针对面板端口的攻击，请关闭。",
     )
     frontend: str = Field(
         default="new",

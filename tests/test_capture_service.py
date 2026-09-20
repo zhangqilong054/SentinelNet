@@ -116,6 +116,18 @@ def _wait_for_thread(state: RuntimeState, timeout: float = 2.0) -> None:
         state.capture_thread.join(timeout=timeout)
 
 
+def _wait_enhanced(state: RuntimeState, timeout: float = 2.0) -> None:
+    """等待增强抓包线程跑完。
+
+    🔴 2026-09-20：增强抓包 worker 是**真线程**（基础抓包的 sniff 被换成同步假实现，
+    这里没有）。只 `start_enhanced()` 不 join 就断言结果是**竞态**：单跑常绿，
+    全量套件下线程调度被拖慢就整片变红（本轮实测 7 红）。凡断言 worker 产物
+    （结果字典 / 捕获到的调用参数）必须先进本函数。
+    """
+    if state.enhanced_capture_thread is not None:
+        state.enhanced_capture_thread.join(timeout=timeout)
+
+
 # ══ 基础抓包生命周期 ══════════════════════════════════════════════
 
 
@@ -123,7 +135,15 @@ class TestBasicLifecycle:
     def test_start_then_status_then_stop(self, svc, state, patch_sniff):
         patch_sniff([])  # 不喂任何包，只检查状态机
 
-        assert svc.capture_status() == {"running": False, "dropped_packets": 0}
+        # 2026-09-20：状态新增 iface/iface_source/filter/queue_size（排障自证用）
+        assert svc.capture_status() == {
+            "running": False,
+            "dropped_packets": 0,
+            "iface": None,
+            "iface_source": "unset",
+            "filter": "",
+            "queue_size": 0,
+        }
 
         assert svc.start_capture() == {"status": "started"}
         assert state.capture_running is True
@@ -166,7 +186,7 @@ class TestEnhancedLifecycle:
         默认实现只是把 enhanced_capture_running 置回 False（模拟"跑完了"）。
         """
 
-        def _fake(duration, stop_filter=None, iface=None):
+        def _fake(duration, stop_filter=None, iface=None, bpf=""):
             return (0, 0)
 
         monkeypatch.setattr(
@@ -175,6 +195,7 @@ class TestEnhancedLifecycle:
 
     def test_start_initialises_result_and_marks_running(self, svc, state):
         assert svc.start_enhanced(duration=15) == {"status": "started"}
+        _wait_enhanced(state)
         assert state.enhanced_capture_running is False, "worker 跑完后必须复位"
         result = state.enhanced_capture_result
         assert result["status"] == "completed" and result["duration"] == 15
@@ -200,7 +221,8 @@ class TestEnhancedLifecycle:
         assert status["packets"] == 3
 
     def test_status_on_empty_result_is_just_running(self, svc, state):
-        assert svc.enhanced_status() == {"running": False}
+        # 2026-09-20：状态新增 iface/filter（增强抓包同样要能自证用哪张卡）
+        assert svc.enhanced_status() == {"running": False, "iface": None, "filter": ""}
 
     def test_status_does_not_mutate_stored_result(self, svc, state):
         """`enhanced_status` 必须拷贝 —— 否则调用方改返回值会污染运行状态。"""
@@ -345,7 +367,7 @@ class TestEnhancedCaptureWorker:
     def _install(self, monkeypatch, result) -> None:
         monkeypatch.setattr(
             "campus_ids.capture.enhanced_features.run_enhanced_capture",
-            lambda duration, stop_filter=None, iface=None: result,
+            lambda duration, stop_filter=None, iface=None, bpf="": result,
         )
 
     def test_worker_passes_resolved_iface_to_capture(self, monkeypatch, state):
@@ -356,7 +378,7 @@ class TestEnhancedCaptureWorker:
         """
         captured: dict = {}
 
-        def _fake(duration, stop_filter=None, iface=None):
+        def _fake(duration, stop_filter=None, iface=None, bpf=""):
             captured["iface"] = iface
             return (1, 1)
 
@@ -366,12 +388,14 @@ class TestEnhancedCaptureWorker:
         svc = self._svc(state)
         monkeypatch.setattr(svc, "_resolve_iface", lambda _req: "\\Device\\NPF_FAKE")
         svc.start_enhanced(duration=5)
+        _wait_enhanced(state)
 
         assert captured["iface"] == "\\Device\\NPF_FAKE"
 
     def test_result_tuple_becomes_completed_status(self, monkeypatch, state):
         self._install(monkeypatch, (1500, 42))
         self._svc(state).start_enhanced(duration=5)
+        _wait_enhanced(state)
 
         result = state.enhanced_capture_result
         assert result == {
@@ -387,6 +411,7 @@ class TestEnhancedCaptureWorker:
         """`run_enhanced_capture` 返回 None = 抓包失败 → 必须报 error 而不是 completed。"""
         self._install(monkeypatch, None)
         self._svc(state).start_enhanced(duration=5)
+        _wait_enhanced(state)
 
         result = state.enhanced_capture_result
         assert result["status"] == "error"
@@ -398,7 +423,7 @@ class TestEnhancedCaptureWorker:
         """`run_enhanced_capture` 调用期间，结果必须是 `running` —— 否则前端进度条无起点。"""
         seen: dict = {}
 
-        def _fake(duration, stop_filter=None, iface=None):
+        def _fake(duration, stop_filter=None, iface=None, bpf=""):
             seen["during"] = dict(state.enhanced_capture_result)
             seen["running_flag_during"] = state.enhanced_capture_running
             return (5, 6)
@@ -407,6 +432,7 @@ class TestEnhancedCaptureWorker:
             "campus_ids.capture.enhanced_features.run_enhanced_capture", _fake
         )
         self._svc(state).start_enhanced(duration=30)
+        _wait_enhanced(state)
 
         assert seen["during"]["status"] == "running"
         assert seen["during"]["duration"] == 30
@@ -419,7 +445,7 @@ class TestEnhancedCaptureWorker:
         """`stop_enhanced()` 把标志置 False 后，stop_filter 必须立刻返回 True。"""
         captured: dict = {}
 
-        def _fake(duration, stop_filter=None, iface=None):
+        def _fake(duration, stop_filter=None, iface=None, bpf=""):
             captured["stop_filter"] = stop_filter
             captured["during_running"] = stop_filter(None)
             return (1, 1)
@@ -428,6 +454,7 @@ class TestEnhancedCaptureWorker:
             "campus_ids.capture.enhanced_features.run_enhanced_capture", _fake
         )
         self._svc(state).start_enhanced(duration=60)
+        _wait_enhanced(state)
 
         # 抓包期间：运行中且未到期 → False
         assert captured["during_running"] is False
@@ -443,7 +470,7 @@ class TestEnhancedCaptureWorker:
         """
         captured: dict = {}
 
-        def _fake(duration, stop_filter=None, iface=None):
+        def _fake(duration, stop_filter=None, iface=None, bpf=""):
             captured["running_flag"] = state.enhanced_capture_running
             captured["stop"] = stop_filter(None)
             return (1, 1)
@@ -453,6 +480,7 @@ class TestEnhancedCaptureWorker:
         )
         # duration=0 → stop_time = now → 立即到期
         self._svc(state).start_enhanced(duration=0)
+        _wait_enhanced(state)
 
         assert captured["running_flag"] is True, "前提：求值时仍标记为运行中"
         assert captured["stop"] is True, "duration 到期后应停止"
@@ -519,3 +547,212 @@ class TestCaptureIface:
         _wait_for_thread(state)
 
         assert fake.kwargs_list[0].get("iface", "missing") is None
+
+
+# ══ 网卡自动识别 / BPF 过滤（2026-09-20 抓包方案） ═════════════════
+
+
+class TestAutodetectIface:
+    """`autodetect_iface()` —— 用户不配置网卡时的兜底，取代 conf.iface。
+
+    2026-09-19 实测教训：scapy `conf.iface` 在 Windows 上常指向非活动适配器，
+    不传 iface 的 sniff 抓包永远 0 包。自动识别是「零配置也能抓到包」的关键。
+    """
+
+    def test_prefers_default_route_iface(self, monkeypatch):
+        from campus_ids.services.capture_service import autodetect_iface
+
+        monkeypatch.setattr("scapy.all.get_if_list", lambda: ["\\Device\\NPF_ETH", "WLAN"])
+        monkeypatch.setattr(
+            "scapy.all.conf.route.route",
+            lambda _dst: ("\\Device\\NPF_ETH", "10.36.158.159", "10.36.158.194"),
+        )
+
+        assert autodetect_iface() == ("\\Device\\NPF_ETH", "auto:route")
+
+    def test_falls_back_to_active_adapter_scoring(self, monkeypatch):
+        """无默认路由（或路由网卡不在 scapy 列表）时按活动度打分。"""
+        pytest.importorskip("scapy.arch.windows")
+        from campus_ids.services.capture_service import autodetect_iface
+
+        monkeypatch.setattr("scapy.all.get_if_list", lambda: ["eth"])
+        monkeypatch.setattr(
+            "scapy.all.conf.route.route",
+            lambda _dst: (_ for _ in ()).throw(OSError("no route")),
+        )
+        monkeypatch.setattr(
+            "scapy.arch.windows.get_windows_if_list",
+            lambda: [
+                {
+                    "name": "eth",
+                    "description": "Realtek PCIe GbE Family Controller",
+                    "ips": ["10.36.158.159"],
+                }
+            ],
+        )
+
+        assert autodetect_iface() == ("eth", "auto:active")
+
+    def test_skips_virtual_and_link_local_only_adapters(self, monkeypatch):
+        """虚拟网卡（VMware/Hyper-V/蓝牙）与只有 169.254 链路本地地址的网卡一律跳过。"""
+        pytest.importorskip("scapy.arch.windows")
+        from campus_ids.services.capture_service import autodetect_iface
+
+        monkeypatch.setattr("scapy.all.get_if_list", lambda: ["vmnet8", "eth", "wlan"])
+        monkeypatch.setattr(
+            "scapy.all.conf.route.route",
+            lambda _dst: (_ for _ in ()).throw(OSError("no route")),
+        )
+        monkeypatch.setattr(
+            "scapy.arch.windows.get_windows_if_list",
+            lambda: [
+                {
+                    "name": "vmnet8",
+                    "description": "VMware Virtual Ethernet Adapter for VMnet8",
+                    "ips": ["192.168.190.1"],
+                },
+                {
+                    "name": "eth",
+                    "description": "Realtek PCIe GbE Family Controller",
+                    "ips": ["169.254.45.76"],
+                },
+                {
+                    "name": "wlan",
+                    "description": "Intel(R) Wi-Fi 6 AX203",
+                    "ips": ["2408:8421:b173:2b88::1"],
+                },
+            ],
+        )
+
+        assert autodetect_iface() == ("wlan", "auto:active")
+
+    def test_returns_fallback_when_nothing_usable(self, monkeypatch):
+        pytest.importorskip("scapy.arch.windows")
+        from campus_ids.services.capture_service import autodetect_iface
+
+        monkeypatch.setattr("scapy.all.get_if_list", lambda: [])
+        monkeypatch.setattr(
+            "scapy.all.conf.route.route",
+            lambda _dst: (_ for _ in ()).throw(OSError("no route")),
+        )
+        monkeypatch.setattr("scapy.arch.windows.get_windows_if_list", lambda: [])
+
+        assert autodetect_iface() == (None, "fallback")
+
+
+class TestCaptureFilter:
+    """BPF 过滤表达式构造 —— 内核态过滤 + 排除面板自身流量。"""
+
+    def test_default_filter_excludes_web_port(self, monkeypatch):
+        from campus_ids.runtime.settings import get_settings
+        from campus_ids.services.capture_service import build_capture_filter
+
+        s = get_settings()
+        monkeypatch.setattr(s, "capture_filter", "tcp or udp")
+        monkeypatch.setattr(s, "capture_exclude_web_port", True)
+        monkeypatch.setattr(s, "web_port", 5000)
+
+        assert build_capture_filter() == "(tcp or udp) and not port 5000"
+
+    def test_exclude_web_port_can_be_disabled(self, monkeypatch):
+        """关闭该开关后必须原样返回用户表达式（检测面板端口攻击的场景）。"""
+        from campus_ids.runtime.settings import get_settings
+        from campus_ids.services.capture_service import build_capture_filter
+
+        s = get_settings()
+        monkeypatch.setattr(s, "capture_filter", "tcp or udp")
+        monkeypatch.setattr(s, "capture_exclude_web_port", False)
+
+        assert build_capture_filter() == "tcp or udp"
+
+    def test_empty_filter_means_no_bpf(self, monkeypatch):
+        """空表达式 = 不过滤，不得凭空拼出残句 ` and not port X`。"""
+        from campus_ids.runtime.settings import get_settings
+        from campus_ids.services.capture_service import build_capture_filter
+
+        s = get_settings()
+        monkeypatch.setattr(s, "capture_filter", "")
+        monkeypatch.setattr(s, "capture_exclude_web_port", True)
+
+        assert build_capture_filter() == ""
+
+
+class TestFilterWiring:
+    """过滤表达式必须真的抵达 sniff —— 否则只是配置摆设。"""
+
+    def test_base_capture_passes_iface_and_filter_to_sniff(
+        self, svc, state, patch_sniff, monkeypatch
+    ):
+        fake = patch_sniff([])
+        monkeypatch.setattr(svc, "_resolve_iface", lambda _req: "\\Device\\NPF_FAKE")
+        monkeypatch.setattr(svc, "_build_filter", lambda: "tcp or udp")
+
+        svc.start_capture()
+        _wait_for_thread(state)
+
+        kwargs = fake.kwargs_list[0]
+        assert kwargs["iface"] == "\\Device\\NPF_FAKE"
+        assert kwargs["filter"] == "tcp or udp"
+
+    def test_capture_status_exposes_iface_and_filter(
+        self, svc, state, patch_sniff, monkeypatch
+    ):
+        """状态接口要能自证「到底在用哪张卡、什么过滤」—— 排障入口。
+
+        走真实解析路径（只钉住设置与 scapy 接口枚举），这样 `iface_source`
+        才会被真实标注 —— 直接 patch `_resolve_iface` 会让来源标签永远 unset。
+        """
+        from campus_ids.runtime.settings import get_settings
+
+        patch_sniff([])
+        monkeypatch.setattr(get_settings(), "capture_iface", "WLAN")
+        monkeypatch.setattr("scapy.all.get_if_list", lambda: ["WLAN"])
+        monkeypatch.setattr(svc, "_build_filter", lambda: "(tcp or udp) and not port 5000")
+
+        svc.start_capture()
+        _wait_for_thread(state)
+
+        status = svc.capture_status()
+        assert status["iface"] == "WLAN"
+        assert status["filter"] == "(tcp or udp) and not port 5000"
+        assert status["iface_source"] == "config"
+
+    def test_capture_status_marks_autodetected_source(
+        self, svc, state, patch_sniff, monkeypatch
+    ):
+        """未配置网卡时，来源必须标成 auto:* —— 让「零配置抓包」可被证实。"""
+        from campus_ids.runtime.settings import get_settings
+
+        patch_sniff([])
+        monkeypatch.setattr(get_settings(), "capture_iface", "")
+        monkeypatch.setattr("scapy.all.get_if_list", lambda: ["\\Device\\NPF_ETH"])
+        monkeypatch.setattr(
+            "scapy.all.conf.route.route",
+            lambda _dst: ("\\Device\\NPF_ETH", "10.0.0.2", "10.0.0.1"),
+        )
+
+        svc.start_capture()
+        _wait_for_thread(state)
+
+        status = svc.capture_status()
+        assert status["iface"] == "\\Device\\NPF_ETH"
+        assert status["iface_source"] == "auto:route"
+
+    def test_enhanced_capture_passes_filter(self, monkeypatch, state):
+        captured: dict = {}
+
+        def _fake(duration, stop_filter=None, iface=None, bpf=""):
+            captured["bpf"] = bpf
+            return (1, 1)
+
+        monkeypatch.setattr(
+            "campus_ids.capture.enhanced_features.run_enhanced_capture", _fake
+        )
+        svc = CaptureService(
+            state=state, dual_detector=MagicMock(), tls_analyzer=FakeTlsAnalyzer()
+        )
+        monkeypatch.setattr(svc, "_build_filter", lambda: "tcp or udp")
+        svc.start_enhanced(duration=5)
+        _wait_enhanced(state)
+
+        assert captured["bpf"] == "tcp or udp"

@@ -67,13 +67,23 @@ async def health_check(request: Request) -> HealthResponse:
         health["components"]["database"] = {"status": "error", "message": str(e)}
         health["status"] = "degraded"
 
-    # 抓包线程状态
+    # 抓包线程状态（含生效网卡/过滤，抓不到包时一眼定位是选卡还是过滤问题）
     state = request.app.state.runtime_state
-    health["components"]["capture"] = {
+    capture_service = getattr(request.app.state, "capture_service", None)
+    capture_comp: dict = {
         "status": "running" if state.capture_running else "stopped",
         "dropped_packets": state.dropped_packets,
         "queue_size": state.packet_queue.qsize(),
     }
+    if capture_service is not None and hasattr(capture_service, "capture_status"):
+        try:
+            snap = capture_service.capture_status()
+            capture_comp["iface"] = snap.get("iface")
+            capture_comp["iface_source"] = snap.get("iface_source")
+            capture_comp["filter"] = snap.get("filter")
+        except Exception:  # noqa: BLE001 —— 状态快照失败不影响健康检查
+            pass
+    health["components"]["capture"] = capture_comp
 
     # ML 模型状态
     try:
@@ -180,7 +190,10 @@ async def environment_check() -> CheckResponse:
             opt_results.append({"package": pkg, "installed": False})
     result["dependencies"] = {"required": req_results, "optional": opt_results}
 
-    # 3. Npcap / libpcap
+    # 3. Npcap / libpcap + 抓包自证诊断（2026-09-20 增补）
+    #    只报「Npcap 可用」不足以解释抓不到包 —— 把生效网卡、权限、
+    #    过滤表达式、候选网卡一并暴露，排障时无需登机器。
+    capture_info: dict = {}
     try:
         from scapy.arch import get_if_addr  # noqa: F401
         capture_ok = True
@@ -188,7 +201,67 @@ async def environment_check() -> CheckResponse:
     except Exception:
         capture_ok = False
         capture_msg = "Npcap/libpcap 不可用 — 抓包功能受限，仍可使用模拟数据"
-    result["capture"] = {"ok": capture_ok, "message": capture_msg}
+
+    try:
+        import ctypes
+
+        is_admin = bool(ctypes.windll.shell32.IsUserAnAdmin())
+    except Exception:
+        is_admin = None  # 非 Windows
+
+    settings = get_settings()
+    capture_iface = settings.capture_iface
+    if capture_iface:
+        iface_source = "config"
+    else:
+        try:
+            from campus_ids.services.capture_service import autodetect_iface
+
+            capture_iface, iface_source = autodetect_iface()
+        except Exception:  # noqa: BLE001 —— 诊断失败不影响自检结论
+            capture_iface, iface_source = None, "fallback"
+
+    # 生效的 BPF：与实际抓包共用同一构造逻辑（避免诊断口径漂移）
+    try:
+        from campus_ids.services.capture_service import build_capture_filter
+
+        effective_filter = build_capture_filter() or "<无>"
+    except Exception:  # noqa: BLE001
+        effective_filter = settings.capture_filter or "<无>"
+
+    candidates = []
+    if capture_ok:
+        try:
+            from scapy.arch.windows import get_windows_if_list
+
+            for itf in get_windows_if_list():
+                ips = [i for i in (itf.get("ips") or []) if i not in ("0.0.0.0", "::")]
+                if not ips:
+                    continue
+                candidates.append({
+                    "name": itf.get("name", ""),
+                    "description": itf.get("description", ""),
+                    "ips": ips[:3],
+                })
+        except Exception:  # noqa: BLE001 —— 非 Windows 无此枚举
+            try:
+                from scapy.all import get_if_list
+
+                candidates = [{"name": n, "description": "", "ips": []} for n in get_if_list()]
+            except Exception:
+                candidates = []
+
+    capture_info = {
+        "ok": capture_ok,
+        "message": capture_msg,
+        "is_admin": is_admin,
+        "iface": capture_iface,
+        "iface_source": iface_source,
+        "filter": effective_filter,
+        "exclude_web_port": settings.capture_exclude_web_port,
+        "candidate_ifaces": candidates[:12],
+    }
+    result["capture"] = capture_info
 
     # 4. 模型文件
     model_results = []

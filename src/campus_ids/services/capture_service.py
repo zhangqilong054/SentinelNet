@@ -23,6 +23,90 @@ from campus_ids.runtime.settings import get_settings
 logger = logging.getLogger(__name__)
 
 
+def autodetect_iface() -> tuple[str | None, str]:
+    """自动挑选活动网卡（用户未显式配置时的兜底）。
+
+    2026-09-20：不再回退 scapy `conf.iface`（Windows 上常指向非活动适配器
+    → 抓包永远 0 包）。按两级策略推导：
+
+    1. 默认路由网卡：`conf.route.route("0.0.0.0")[0]`，即真正承载上网流量的
+       适配器（本机实测 3s 169 包）；
+    2. 活动网卡打分：排除环回/虚拟/隧道适配器（VMware/Hyper-V/蓝牙/Wi-Fi
+       Direct 等），按「有全局 IPv4 > 有全局 IPv6」挑第一个。
+
+    模块级函数：`/api/check` 需要在不构造 CaptureService 的情况下复用同一逻辑，
+    避免诊断口径与实际选卡逻辑各写一套而漂移。
+
+    Returns:
+        (scapy 接口名 或 None, 来源标记 auto:route | auto:active | fallback)
+    """
+    try:
+        from scapy.all import conf, get_if_list
+
+        scapy_names = set(get_if_list())
+    except Exception as exc:  # noqa: BLE001 —— scapy 不可用
+        logger.debug("scapy 接口枚举失败: %s", exc)
+        return None, "fallback"
+
+    try:
+        route_iface = conf.route.route("0.0.0.0")[0]
+        if route_iface in scapy_names:
+            return route_iface, "auto:route"
+    except Exception as exc:  # noqa: BLE001 —— 无路由表时降级到打分
+        logger.debug("默认路由网卡解析失败: %s", exc)
+
+    try:
+        from scapy.arch.windows import get_windows_if_list
+
+        skip_keywords = (
+            "loopback", "vmware", "hyper-v", "virtual", "wifi direct",
+            "bluetooth", "wan miniport", "tap-", "tunnel", "vpn",
+            "npcap packet driver", "qos packet scheduler",
+        )
+        best: tuple[int, str] | None = None
+        for itf in get_windows_if_list():
+            name = itf.get("name") or ""
+            if name not in scapy_names:
+                continue
+            desc = f"{name} {itf.get('description') or ''}".lower()
+            if any(k in desc for k in skip_keywords):
+                continue
+            ips = itf.get("ips") or []
+            has_v4 = any(
+                ip.count(".") == 3 and not ip.startswith(("127.", "169.254."))
+                for ip in ips
+            )
+            has_v6 = any(":" in ip and not ip.lower().startswith("fe80") for ip in ips)
+            score = 2 if has_v4 else (1 if has_v6 else 0)
+            if score == 0:
+                continue
+            if best is None or score > best[0]:
+                best = (score, name)
+        if best is not None:
+            return best[1], "auto:active"
+    except Exception as exc:  # noqa: BLE001 —— 非 Windows 或枚举失败
+        logger.debug("活动网卡打分失败: %s", exc)
+
+    return None, "fallback"
+
+
+def build_capture_filter() -> str:
+    """构造 BPF 过滤表达式（内核态过滤，减轻用户态回调压力）。
+
+    默认 `tcp or udp`：检测器只消费 TCP/UDP，ARP/STP/IPv6-ND 等是纯噪声。
+    开启 `capture_exclude_web_port` 时追加 `and not port <web_port>`，
+    避免面板自身轮询/SSE 心跳被当成真实流量污染统计与检测。
+
+    模块级函数：`/api/check` 与会话服务共用同一算法，避免口径漂移。
+    """
+    settings = get_settings()
+    expr = (settings.capture_filter or "").strip()
+    if expr and settings.capture_exclude_web_port:
+        port = int(settings.web_port)
+        expr = f"({expr}) and not port {port}"
+    return expr
+
+
 class CaptureService:
     """抓包服务 — 管理基础抓包和增强抓包的生命周期。
 
@@ -43,8 +127,16 @@ class CaptureService:
         self._alert_service = alert_service
         self._traffic_service = traffic_service
         self._capture_iface: str | None = None  # start_capture() 时解析，_capture_worker 消费
+        self._capture_iface_source: str = "unset"  # config | auto:route | auto:active | fallback
+        self._capture_filter: str = ""          # start_capture() 时构造，_capture_worker 消费
+        self._enhanced_iface: str | None = None
+        self._enhanced_filter: str = ""
 
     # ── 网卡解析 ──────────────────────────────────────────────────
+
+    def _autodetect_iface(self) -> tuple[str | None, str]:
+        """自动挑选活动网卡 —— 委托模块级 `autodetect_iface()`（供 /api/check 复用）。"""
+        return autodetect_iface()
 
     def _resolve_iface(self, requested: str | None) -> str | None:
         """把用户可读的网卡名解析为 scapy 可用的接口名。
@@ -52,12 +144,27 @@ class CaptureService:
         2026-09-19 真机发现：`sniff()` 不传 iface 时用 scapy `conf.iface`，
         Windows 上常指向非活动适配器 → 抓包永远 0 包（原生 pcap 同设备可抓到）。
         接受：scapy 完整接口名（\\Device\\NPF_*）或系统友好名（如 WLAN / 以太网）。
-        解析失败回退 None（scapy 默认）并告警，不阻断启动。
+        显式配置解析失败仍回退 None（scapy 默认）并告警，不阻断启动。
+        未显式配置时改为自动识别（默认路由 → 活动网卡打分），不再用 conf.iface。
+
+        Returns:
+            scapy 接口名，或 None（调用方应视为「无法确认网卡」）。
         """
-        name = requested or getattr(self, "_requested_iface", "") \
+        name = (
+            requested
+            or getattr(self, "_requested_iface", "")
             or get_settings().capture_iface
+        )
         if not name:
-            return None
+            iface, source = self._autodetect_iface()
+            self._capture_iface_source = source
+            if iface:
+                logger.info("抓包网卡未配置，自动识别为 %s（%s）", iface, source)
+            else:
+                logger.warning("抓包网卡未配置且自动识别失败，回退 scapy 默认网卡（可能 0 包）")
+            return iface
+        self._capture_iface_source = "config"
+
         from scapy.all import get_if_list
 
         scapy_names = set(get_if_list())
@@ -75,6 +182,12 @@ class CaptureService:
         logger.warning("抓包网卡 %r 无法解析为 scapy 接口，回退 scapy 默认网卡", name)
         return None
 
+    # ── BPF 过滤 ──────────────────────────────────────────────────
+
+    def _build_filter(self) -> str:
+        """构造 BPF 过滤表达式 —— 委托模块级 `build_capture_filter()`。"""
+        return build_capture_filter()
+
     # ── 基础抓包 ──────────────────────────────────────────────────
 
     def start_capture(self, interface: str | None = None) -> dict:
@@ -82,7 +195,7 @@ class CaptureService:
 
         Args:
             interface: 网卡名（scapy 接口名或系统友好名如 WLAN）。
-                None 时使用 Settings.capture_iface，仍为空则用 scapy 默认。
+                None 时使用 Settings.capture_iface，仍为空则自动识别活动网卡。
 
         对应旧实现: helpers.start_capture_thread()
         """
@@ -92,10 +205,15 @@ class CaptureService:
             self._state.capture_running = True
 
         self._capture_iface = self._resolve_iface(interface)
+        self._capture_filter = self._build_filter()
         if self._capture_iface:
-            logger.info("基础抓包已启动（网卡: %s）", self._capture_iface)
+            logger.info(
+                "基础抓包已启动（网卡: %s, 来源: %s, 过滤: %s）",
+                self._capture_iface, self._capture_iface_source,
+                self._capture_filter or "<无>",
+            )
         else:
-            logger.info("基础抓包已启动（scapy 默认网卡）")
+            logger.info("基础抓包已启动（scapy 默认网卡，未确认网卡可能 0 包）")
         thread = threading.Thread(target=self._capture_worker, daemon=True)
         self._state.capture_thread = thread
         thread.start()
@@ -112,10 +230,14 @@ class CaptureService:
         return {"status": "stopped"}
 
     def capture_status(self) -> dict:
-        """查询基础抓包状态。"""
+        """查询基础抓包状态 — 含生效网卡与过滤表达式，便于排障自证。"""
         return {
             "running": self._state.capture_running,
             "dropped_packets": self._state.dropped_packets,
+            "iface": self._capture_iface,
+            "iface_source": self._capture_iface_source,
+            "filter": self._capture_filter,
+            "queue_size": self._state.packet_queue.qsize(),
         }
 
     # ── 增强抓包 ──────────────────────────────────────────────────
@@ -141,19 +263,24 @@ class CaptureService:
         # 与基础抓包同一套网卡解析：不解析时 scapy 回退 conf.iface，
         # Windows 上常指向非活动适配器 → 增强抓包 0 包（2026-09-19 实测）。
         enhanced_iface = self._resolve_iface(None)
+        enhanced_filter = self._build_filter()
         if enhanced_iface:
-            logger.info("增强抓包已启动 (duration=%ds, 网卡: %s)", duration, enhanced_iface)
+            logger.info(
+                "增强抓包已启动 (duration=%ds, 网卡: %s, 过滤: %s)",
+                duration, enhanced_iface, enhanced_filter or "<无>",
+            )
         else:
             logger.info("增强抓包已启动 (duration=%ds, scapy 默认网卡)", duration)
 
+        self._enhanced_iface = enhanced_iface
+        self._enhanced_filter = enhanced_filter
         thread = threading.Thread(
             target=self._enhanced_capture_worker,
-            args=(duration, enhanced_iface),
+            args=(duration, enhanced_iface, enhanced_filter),
             daemon=True,
         )
         self._state.enhanced_capture_thread = thread
         thread.start()
-        logger.info("增强抓包已启动 (duration=%ds)", duration)
         return {"status": "started"}
 
     def stop_enhanced(self) -> dict:
@@ -174,6 +301,8 @@ class CaptureService:
         running = self._state.enhanced_capture_running
         result = dict(self._state.enhanced_capture_result) if self._state.enhanced_capture_result else {}
         result["running"] = running
+        result["iface"] = self._enhanced_iface
+        result["filter"] = self._enhanced_filter
         return result
 
     # ── 内部工作函数 ──────────────────────────────────────────────
@@ -218,12 +347,16 @@ class CaptureService:
         try:
             # iface 必须显式传递：不传时 scapy 用 conf.iface，Windows 上常是
             # 非活动适配器（2026-09-19 实测 8s 0 包，原生 pcap 同机 548 包）。
+            # filter 走 BPF 内核态过滤，减少用户态回调压力（2026-09-20）。
             sniff(prn=_on_pkt, store=False, iface=self._capture_iface,
+                  filter=self._capture_filter or None,
                   stop_filter=lambda _: not self._state.capture_running)
         except Exception as exc:
             logger.error("后台抓包线程异常退出: %s", exc)
 
-    def _enhanced_capture_worker(self, duration: int, iface: str | None = None) -> None:
+    def _enhanced_capture_worker(
+        self, duration: int, iface: str | None = None, bpf: str = ""
+    ) -> None:
         """后台增强抓包线程：提取 18 维流特征 + TLS 分析，保存 CSV。
 
         对应旧实现: helpers._enhanced_capture_worker()
@@ -244,7 +377,9 @@ class CaptureService:
         def stop_filter(_pkt) -> bool:
             return not self._state.enhanced_capture_running or _time.time() >= stop_time
 
-        result = run_enhanced_capture(duration, stop_filter=stop_filter, iface=iface)
+        result = run_enhanced_capture(
+            duration, stop_filter=stop_filter, iface=iface, bpf=bpf
+        )
 
         if result is None:
             self._state.enhanced_capture_result = {
