@@ -401,7 +401,7 @@ def save_flows_to_csv(flows: list[FlowFeatures], path: Path | None = None) -> Pa
     return out
 
 
-def run_enhanced_capture(duration: int, stop_filter=None) -> tuple[int, int] | None:
+def run_enhanced_capture(duration: int, stop_filter=None, iface: str | None = None) -> tuple[int, int] | None:
     """公共增强抓包逻辑：提取多维度流特征 + TLS 分析，保存 CSV。
 
     T-22: 合并阻塞版与线程版的公共逻辑，消除重复。
@@ -409,6 +409,9 @@ def run_enhanced_capture(duration: int, stop_filter=None) -> tuple[int, int] | N
     Args:
         duration: 抓包时长（秒）
         stop_filter: 可选 scapy stop_filter 回调，返回 True 时提前终止
+        iface: 抓包网卡。None 时使用 scapy conf.iface —— Windows 上 conf.iface
+            常指向非活动适配器导致 0 包（2026-09-19 基础抓包同款坑），
+            调用方应显式传入 _resolve_iface() 的结果。
 
     Returns:
         (packet_count, flow_count) 成功时，None 失败时
@@ -428,7 +431,10 @@ def run_enhanced_capture(duration: int, stop_filter=None) -> tuple[int, int] | N
             tls_analyzer.parse_tls_from_packet(pkt)
 
     try:
-        sniff(prn=_on_pkt, store=False, timeout=duration, stop_filter=stop_filter)
+        # iface 必须显式传递，否则 scapy 用 conf.iface，Windows 上常是
+        # 非活动适配器（同 capture_service._capture_worker 的教训）。
+        sniff(prn=_on_pkt, store=False, timeout=duration,
+              stop_filter=stop_filter, iface=iface)
     except RuntimeError as exc:
         logger.error("抓包失败: %s", exc)
         return None

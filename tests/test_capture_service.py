@@ -166,7 +166,7 @@ class TestEnhancedLifecycle:
         默认实现只是把 enhanced_capture_running 置回 False（模拟"跑完了"）。
         """
 
-        def _fake(duration, stop_filter=None):
+        def _fake(duration, stop_filter=None, iface=None):
             return (0, 0)
 
         monkeypatch.setattr(
@@ -345,8 +345,29 @@ class TestEnhancedCaptureWorker:
     def _install(self, monkeypatch, result) -> None:
         monkeypatch.setattr(
             "campus_ids.capture.enhanced_features.run_enhanced_capture",
-            lambda duration, stop_filter=None: result,
+            lambda duration, stop_filter=None, iface=None: result,
         )
+
+    def test_worker_passes_resolved_iface_to_capture(self, monkeypatch, state):
+        """start_enhanced 必须把 _resolve_iface 的结果传给 run_enhanced_capture。
+
+        2026-09-19 教训：scapy sniff 不传 iface 时回退 conf.iface，Windows 上
+        常指向非活动适配器 → 增强抓包 0 包（基础抓包同款坑）。
+        """
+        captured: dict = {}
+
+        def _fake(duration, stop_filter=None, iface=None):
+            captured["iface"] = iface
+            return (1, 1)
+
+        monkeypatch.setattr(
+            "campus_ids.capture.enhanced_features.run_enhanced_capture", _fake
+        )
+        svc = self._svc(state)
+        monkeypatch.setattr(svc, "_resolve_iface", lambda _req: "\\Device\\NPF_FAKE")
+        svc.start_enhanced(duration=5)
+
+        assert captured["iface"] == "\\Device\\NPF_FAKE"
 
     def test_result_tuple_becomes_completed_status(self, monkeypatch, state):
         self._install(monkeypatch, (1500, 42))
@@ -377,7 +398,7 @@ class TestEnhancedCaptureWorker:
         """`run_enhanced_capture` 调用期间，结果必须是 `running` —— 否则前端进度条无起点。"""
         seen: dict = {}
 
-        def _fake(duration, stop_filter=None):
+        def _fake(duration, stop_filter=None, iface=None):
             seen["during"] = dict(state.enhanced_capture_result)
             seen["running_flag_during"] = state.enhanced_capture_running
             return (5, 6)
@@ -398,7 +419,7 @@ class TestEnhancedCaptureWorker:
         """`stop_enhanced()` 把标志置 False 后，stop_filter 必须立刻返回 True。"""
         captured: dict = {}
 
-        def _fake(duration, stop_filter=None):
+        def _fake(duration, stop_filter=None, iface=None):
             captured["stop_filter"] = stop_filter
             captured["during_running"] = stop_filter(None)
             return (1, 1)
@@ -422,7 +443,7 @@ class TestEnhancedCaptureWorker:
         """
         captured: dict = {}
 
-        def _fake(duration, stop_filter=None):
+        def _fake(duration, stop_filter=None, iface=None):
             captured["running_flag"] = state.enhanced_capture_running
             captured["stop"] = stop_filter(None)
             return (1, 1)

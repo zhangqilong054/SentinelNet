@@ -138,9 +138,17 @@ class CaptureService:
             "error": None,
         }
 
+        # 与基础抓包同一套网卡解析：不解析时 scapy 回退 conf.iface，
+        # Windows 上常指向非活动适配器 → 增强抓包 0 包（2026-09-19 实测）。
+        enhanced_iface = self._resolve_iface(None)
+        if enhanced_iface:
+            logger.info("增强抓包已启动 (duration=%ds, 网卡: %s)", duration, enhanced_iface)
+        else:
+            logger.info("增强抓包已启动 (duration=%ds, scapy 默认网卡)", duration)
+
         thread = threading.Thread(
             target=self._enhanced_capture_worker,
-            args=(duration,),
+            args=(duration, enhanced_iface),
             daemon=True,
         )
         self._state.enhanced_capture_thread = thread
@@ -215,7 +223,7 @@ class CaptureService:
         except Exception as exc:
             logger.error("后台抓包线程异常退出: %s", exc)
 
-    def _enhanced_capture_worker(self, duration: int) -> None:
+    def _enhanced_capture_worker(self, duration: int, iface: str | None = None) -> None:
         """后台增强抓包线程：提取 18 维流特征 + TLS 分析，保存 CSV。
 
         对应旧实现: helpers._enhanced_capture_worker()
@@ -236,7 +244,7 @@ class CaptureService:
         def stop_filter(_pkt) -> bool:
             return not self._state.enhanced_capture_running or _time.time() >= stop_time
 
-        result = run_enhanced_capture(duration, stop_filter=stop_filter)
+        result = run_enhanced_capture(duration, stop_filter=stop_filter, iface=iface)
 
         if result is None:
             self._state.enhanced_capture_result = {
