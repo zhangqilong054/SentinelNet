@@ -68,7 +68,11 @@ class TaskActionRequest(BaseModel):
 
 
 class TaskStatusResponse(BaseModel):
-    """单个任务状态响应。"""
+    """单个任务状态响应。
+
+    F5 修复：新增 duration 字段，暴露启动时实际使用的窗口时长。
+    前端进度条应使用 `duration ?? default_duration` 计算进度。
+    """
     name: str
     kind: str = Field(description="continuous | timed")
     status: str = Field(description="idle | running | stopping | finished | failed")
@@ -76,6 +80,7 @@ class TaskStatusResponse(BaseModel):
     error: str | None = None
     description: str = ""
     default_duration: int | None = Field(default=None, description="限时任务默认时长(秒)")
+    duration: int | None = Field(default=None, description="限时任务实际启动时长(秒)，前端进度条应用此值")
 
 
 class TaskListResponse(BaseModel):
@@ -86,7 +91,12 @@ class TaskListResponse(BaseModel):
 # ── 流量 (Traffic) ────────────────────────────────────────────────
 
 class TrafficStatsResponse(BaseModel):
-    """流量统计响应。"""
+    """流量统计响应。
+
+    F2 修复：新增 data_source 字段，标记数据来源：
+    - "capture": 真实抓包数据
+    - "demo": 模拟兜底数据（无抓包时随机生成，不触发告警）
+    """
     qps: float = 0.0
     connections: int = 0
     alert: str = ""
@@ -97,6 +107,7 @@ class TrafficStatsResponse(BaseModel):
     syn_packets: int = 0
     udp_packets: int = 0
     dns_packets: int = 0
+    data_source: str = "demo"
 
     model_config = {
         "json_schema_extra": {

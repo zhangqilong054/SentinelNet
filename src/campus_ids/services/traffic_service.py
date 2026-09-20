@@ -31,6 +31,8 @@ class TrafficService:
         """获取当前实时流量统计数据。
 
         对应旧端点 GET /api/traffic 返回的字段。
+
+        F2 修复：新增 data_source 字段，标记数据来源。
         """
         with self._state._state_lock:
             td = self._state.traffic_data
@@ -45,6 +47,7 @@ class TrafficService:
                 "syn_packets": int(td.get("syn_packets") or 0),
                 "udp_packets": int(td.get("udp_packets") or 0),
                 "dns_packets": int(td.get("dns_packets") or 0),
+                "data_source": td.get("data_source") or "demo",
             }
 
     def get_traffic_history(self, limit: int = 60, offset: int = 0) -> dict[str, Any]:

@@ -52,6 +52,10 @@ class FakeSniff:
 
     这样 `_capture_worker` 在**调用线程内同步跑完**，测试不需要 sleep 或 join。
     同时记录收到的 `stop_filter`，供"停止条件是否连接了 capture_running"的断言用。
+
+    F1 修复后 finally 块会复位 capture_running，空包立即返回会导致线程瞬间退出、
+    标志位复位，测试无法观测 "running" 状态。因此空包时模拟真实 sniff 阻塞：
+    等待 stop_filter 返回 True（即 stop_capture 被调用）才退出。
     """
 
     def __init__(self, packets, *, raises: Exception | None = None) -> None:
@@ -67,8 +71,17 @@ class FakeSniff:
         if self.raises is not None:
             raise self.raises
         for pkt in self.packets:
+            if stop_filter and stop_filter(pkt):
+                break
             prn(pkt)
             self.prn_calls += 1
+        # 无包时模拟真实 sniff 阻塞：等待 stop_filter 触发
+        if not self.packets and stop_filter is not None:
+            import time
+            for _ in range(500):  # 最多等 5 秒
+                if stop_filter(None):
+                    break
+                time.sleep(0.01)
 
 
 # ── fixtures ──────────────────────────────────────────────────────
@@ -345,12 +358,31 @@ class TestCaptureWorker:
         assert len(_drain(state)) == 2
 
     def test_sniff_failure_is_logged_not_raised(self, svc, state, patch_sniff, caplog):
-        """网卡不可用（权限/接口名错误）时线程必须安静退出并记日志。"""
+        """网卡不可用（权限/接口名错误）时线程必须安静退出、记日志、并复位标志位。
+
+        F1 修复后 finally 块保证 capture_running=False；
+        F9 同步补上状态复位断言，防止缺陷被测试固化。
+        """
         patch_sniff([], raises=OSError("无法打开网卡"))
         with caplog.at_level("ERROR", logger="campus_ids.services.capture_service"):
             svc.start_capture()  # 不得抛异常
         _wait_for_thread(state)
         assert any("后台抓包线程异常退出" in r.getMessage() for r in caplog.records)
+        # F9: 必须断言状态复位 —— 否则 start_capture 返回 already_running，永久锁死
+        assert state.capture_running is False, "异常退出后 capture_running 必须复位为 False"
+
+    def test_sniff_failure_allows_restart(self, svc, state, patch_sniff):
+        """F1 回归：异常退出后可以重新启动（不会返回 already_running）。"""
+        patch_sniff([], raises=OSError("无法打开网卡"))
+        svc.start_capture()
+        _wait_for_thread(state)
+        assert state.capture_running is False
+
+        # 重新安装一个正常的 sniff，应该可以重新启动
+        patch_sniff([IP() / TCP(sport=1234, dport=80)])
+        result = svc.start_capture()
+        assert result["status"] == "started"
+        _wait_for_thread(state)
 
 
 # ══ _enhanced_capture_worker ═══════════════════════════════════════
@@ -484,6 +516,35 @@ class TestEnhancedCaptureWorker:
 
         assert captured["running_flag"] is True, "前提：求值时仍标记为运行中"
         assert captured["stop"] is True, "duration 到期后应停止"
+
+    def test_exception_resets_running_flag(self, monkeypatch, state):
+        """F1/F9: 增强抓包异常退出后 enhanced_capture_running 必须复位为 False。
+
+        run_enhanced_capture 抛异常时（如 BPF 非法 → Scapy_Exception），
+        _enhanced_capture_worker 的 except BaseException + finally 必须复位标志位，
+        否则后续 start_enhanced 返回 already_running → 永久锁死。
+        """
+        def _boom(duration, stop_filter=None, iface=None, bpf=""):
+            raise RuntimeError("模拟 BPF 编译失败")
+
+        monkeypatch.setattr(
+            "campus_ids.capture.enhanced_features.run_enhanced_capture", _boom
+        )
+        svc = self._svc(state)
+        result = svc.start_enhanced(duration=5)
+        assert result["status"] == "started"
+        _wait_enhanced(state)
+
+        # 标志位必须复位
+        assert state.enhanced_capture_running is False, \
+            "异常退出后 enhanced_capture_running 必须复位为 False"
+        # 结果字典必须是 error
+        assert state.enhanced_capture_result["status"] == "error"
+        # 异常退出后可以重新启动
+        self._install(monkeypatch, (10, 2))
+        result2 = svc.start_enhanced(duration=5)
+        assert result2["status"] == "started"
+        _wait_enhanced(state)
 
 
 # ══ 网卡选择（2026-09-19 真机缺陷修复）════════════════════════════
@@ -756,3 +817,49 @@ class TestFilterWiring:
         _wait_enhanced(state)
 
         assert captured["bpf"] == "tcp or udp"
+
+
+# ══ BPF 预校验（F1 修复配套）════════════════════════════════════════
+
+
+class TestValidateBpf:
+    """validate_bpf 在启动前拦截非法 BPF，避免线程启动后锁死。"""
+
+    def test_valid_bpf_returns_none(self):
+        from campus_ids.services.capture_service import validate_bpf
+
+        assert validate_bpf("tcp or udp") is None
+        assert validate_bpf("tcp port 80") is None
+
+    def test_empty_bpf_returns_none(self):
+        from campus_ids.services.capture_service import validate_bpf
+
+        assert validate_bpf("") is None
+        assert validate_bpf(None) is None
+
+    def test_invalid_bpf_returns_error(self):
+        from campus_ids.services.capture_service import validate_bpf
+
+        result = validate_bpf("tcp and and bogus")
+        assert result is not None
+        assert "BPF" in result or "非法" in result
+
+    def test_start_capture_rejects_invalid_bpf(self, svc, state, monkeypatch):
+        """非法 BPF 必须在 start_capture 入口被拦截，不启动线程。"""
+        from campus_ids.runtime.settings import get_settings
+
+        monkeypatch.setattr(get_settings(), "capture_filter", "tcp and and bogus")
+        result = svc.start_capture()
+        assert result["status"] == "error"
+        assert "BPF" in result.get("message", "") or "非法" in result.get("message", "")
+        # 线程不应启动
+        assert state.capture_running is False
+
+    def test_start_enhanced_rejects_invalid_bpf(self, svc, state, monkeypatch):
+        """非法 BPF 必须在 start_enhanced 入口被拦截。"""
+        from campus_ids.runtime.settings import get_settings
+
+        monkeypatch.setattr(get_settings(), "capture_filter", "tcp and and bogus")
+        result = svc.start_enhanced(duration=10)
+        assert result["status"] == "error"
+        assert state.enhanced_capture_running is False

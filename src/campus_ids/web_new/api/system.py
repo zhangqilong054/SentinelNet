@@ -83,6 +83,27 @@ async def health_check(request: Request) -> HealthResponse:
             capture_comp["filter"] = snap.get("filter")
         except Exception:  # noqa: BLE001 —— 状态快照失败不影响健康检查
             pass
+    # F4 修复：暴露增强抓包诊断信息（packets/flows/error/iface/filter）
+    enhanced_comp: dict = {
+        "status": "stopped",
+        "packets": 0,
+        "flows": 0,
+        "error": None,
+    }
+    if capture_service is not None and hasattr(capture_service, "enhanced_status"):
+        try:
+            enhanced_snap = capture_service.enhanced_status()
+            enhanced_comp.update({
+                "status": "running" if enhanced_snap.get("running") else "stopped",
+                "packets": enhanced_snap.get("packets", 0),
+                "flows": enhanced_snap.get("flows", 0),
+                "error": enhanced_snap.get("error"),
+                "iface": enhanced_snap.get("iface"),
+                "filter": enhanced_snap.get("filter"),
+            })
+        except Exception:  # noqa: BLE001
+            pass
+    capture_comp["enhanced"] = enhanced_comp
     health["components"]["capture"] = capture_comp
 
     # ML 模型状态
@@ -143,7 +164,7 @@ async def health_check(request: Request) -> HealthResponse:
 # ── GET /api/check ─────────────────────────────────────────────────
 
 @router.get("/check", dependencies=[Public], summary="环境自检")
-async def environment_check() -> CheckResponse:
+async def environment_check(request: Request) -> CheckResponse:
     """环境自检：Python 版本、依赖包、Npcap、模型文件、数据文件。
 
     数据目录取自 `Settings.data_dir`（而非硬算项目根），这样
@@ -210,24 +231,41 @@ async def environment_check() -> CheckResponse:
         is_admin = None  # 非 Windows
 
     settings = get_settings()
-    capture_iface = settings.capture_iface
-    if capture_iface:
-        iface_source = "config"
-    else:
+
+    # F7 修复：抓包运行中时优先取 capture_service 快照，避免 autodetect 与实际不一致
+    capture_service = getattr(request.app.state, "capture_service", None)
+    running_snap = None
+    if capture_service is not None and hasattr(capture_service, "capture_status"):
         try:
-            from campus_ids.services.capture_service import autodetect_iface
+            running_snap = capture_service.capture_status()
+        except Exception:  # noqa: BLE001
+            pass
 
-            capture_iface, iface_source = autodetect_iface()
-        except Exception:  # noqa: BLE001 —— 诊断失败不影响自检结论
-            capture_iface, iface_source = None, "fallback"
+    if running_snap and running_snap.get("running"):
+        # 抓包运行中 → 取 service 快照（单一真相源）
+        capture_iface = running_snap.get("iface")
+        iface_source = running_snap.get("iface_source", "service")
+        effective_filter = running_snap.get("filter") or "<无>"
+    else:
+        # 抓包未运行 → 回退到配置/autodetect 逻辑
+        capture_iface = settings.capture_iface
+        if capture_iface:
+            iface_source = "config"
+        else:
+            try:
+                from campus_ids.services.capture_service import autodetect_iface
 
-    # 生效的 BPF：与实际抓包共用同一构造逻辑（避免诊断口径漂移）
-    try:
-        from campus_ids.services.capture_service import build_capture_filter
+                capture_iface, iface_source = autodetect_iface()
+            except Exception:  # noqa: BLE001 —— 诊断失败不影响自检结论
+                capture_iface, iface_source = None, "fallback"
 
-        effective_filter = build_capture_filter() or "<无>"
-    except Exception:  # noqa: BLE001
-        effective_filter = settings.capture_filter or "<无>"
+        # 生效的 BPF：与实际抓包共用同一构造逻辑（避免诊断口径漂移）
+        try:
+            from campus_ids.services.capture_service import build_capture_filter
+
+            effective_filter = build_capture_filter() or "<无>"
+        except Exception:  # noqa: BLE001
+            effective_filter = settings.capture_filter or "<无>"
 
     candidates = []
     if capture_ok:

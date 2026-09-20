@@ -137,10 +137,11 @@ class TestInit:
     def test_seeds_traffic_data_when_empty(self):
         h = _make()
         td = h.state.traffic_data
-        assert td["qps"] == 200 and td["connections"] == 80
+        assert td["qps"] == 0 and td["connections"] == 0  # F2: 初始值置零，不伪装成真实数据
         assert td["alert"] is None
         assert td["packet_count"] == 0
         assert td["syn_packets"] == td["udp_packets"] == td["dns_packets"] == 0
+        assert td["data_source"] == "demo"  # F2: 标记数据来源
         # 窗口容器必须是 deque 且容量 = WINDOW_SIZE（否则 append 无界增长）
         assert td["unique_ports"].maxlen is not None
         assert td["src_ips"].maxlen is not None
@@ -256,10 +257,10 @@ class TestUpdateTrafficData:
         h = _make()
         h.service._update_traffic_data()
         td = h.state.traffic_data
-        assert DEMO_QPS_MIN <= td["qps"] <= DEMO_QPS_MAX
+        assert DEMO_QPS_MIN <= td["qps"] <= min(DEMO_QPS_MAX, 400)  # F2: 封顶 400
         assert DEMO_CONN_MIN <= td["connections"] <= DEMO_CONN_MAX
         assert td["alert"] is None, "无告警时 alert 必须是 None（不是空串）"
-        assert h.detector.detect_calls[0]["packets"] == [], "模拟数据不得送 ML 推理"
+        assert h.detector.detect_calls == [], "F2: 兜底数据不送 ML 推理"
 
     def test_packets_drive_qps_and_packet_count(self):
         """有包时 qps 必须由 包数/间隔 算出，而不是随机数。"""
@@ -288,6 +289,9 @@ class TestUpdateTrafficData:
             is_anomaly=True, level="high", attack_type="SYN_FLOOD",
             description="SYN 洪泛", ml_confidence=0.93,
         )])
+        # F2: 必须有真实抓包数据才触发检测
+        h.state.last_update_time = time.time() - 1.0
+        h.state.packet_queue.put(_packet())
         h.service._update_traffic_data()
 
         assert len(h.alerts.emitted) == 1, "异常必须发一条告警"
@@ -311,6 +315,9 @@ class TestUpdateTrafficData:
             h = _make(results=[FakeDetectionResult(
                 is_anomaly=True, level=level, attack_type="X", description="d",
             )])
+            # F2: 必须有真实抓包数据才触发检测
+            h.state.last_update_time = time.time() - 1.0
+            h.state.packet_queue.put(_packet())
             h.service._update_traffic_data()
             assert tag in h.state.traffic_data["alert"], f"level={level} 的标签不对"
 

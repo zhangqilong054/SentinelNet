@@ -46,8 +46,13 @@ def _register_default_tasks(registry: TaskRegistry, *, capture_service, detectio
 
     # ── capture_full: 增强抓包（TIMED） ──────────────────────────
     def capture_full_target(stop_event: threading.Event, duration: int = 60, **kwargs) -> None:
-        capture_service.start_enhanced(duration=duration)
+        result = capture_service.start_enhanced(duration=duration)
+        if result.get("status") == "error":
+            logger.error("增强抓包启动失败: %s", result.get("message"))
+            return
         stop_event.wait()
+        # F3 修复：补配对 stop_enhanced()，与 capture_target 的 stop_capture() 对称。
+        capture_service.stop_enhanced()
 
     # ── detection: 检测节拍（CONTINUOUS） ──────────────────────────
     def detection_target(stop_event: threading.Event, **kwargs) -> None:

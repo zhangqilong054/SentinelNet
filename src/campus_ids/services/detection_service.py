@@ -77,10 +77,14 @@ class DetectionService:
             self._init_traffic_data()
 
     def _init_traffic_data(self) -> None:
-        """初始化流量数据字典。"""
+        """初始化流量数据字典。
+
+        F2 修复：初始值不再用硬编码的 qps=200/connections=80（与真实数据不可区分），
+        而是置零并标记 data_source="demo"，前端可据此显示「模拟数据」水印。
+        """
         self._state.traffic_data = {
-            "qps": 200,
-            "connections": 80,
+            "qps": 0,
+            "connections": 0,
             "alert": None,
             "timestamp": now_str(),
             "packet_count": 0,
@@ -89,6 +93,7 @@ class DetectionService:
             "syn_packets": 0,
             "udp_packets": 0,
             "dns_packets": 0,
+            "data_source": "demo",  # F2: 标记数据来源，"capture"=真实抓包, "demo"=模拟兜底
         }
 
     # ── 检测节拍 ──────────────────────────────────────────────────
@@ -190,15 +195,23 @@ class DetectionService:
 
         logger.info("检测节拍线程已停止")
 
+    # F8: 单次排空上限，防止队列积压时节拍抖动
+    _DRAIN_MAX_PACKETS = 2000
+
     def _drain_packets(self) -> dict | None:
-        """从队列取出所有包并返回统计信息，无包时返回 None。
+        """从队列取出包并返回统计信息，无包时返回 None。
+
+        F8 修复：添加单次排空上限（2000），队列积压时在下个节拍继续，
+        避免单次节拍处理 2 万包导致抖动和 recent_packets 内存尖峰。
 
         对应旧实现: helpers._drain_packets()
         """
         packets = []
-        while True:
+        drained = 0
+        while drained < self._DRAIN_MAX_PACKETS:
             try:
                 packets.append(self._state.packet_queue.get_nowait())
+                drained += 1
             except Exception:
                 break
         if not packets:
@@ -222,6 +235,12 @@ class DetectionService:
         """更新流量数据（优先使用真实抓包数据，无包时回退到随机模拟）。
 
         对应旧实现: helpers.update_traffic_data()
+
+        F2 修复：
+        - 有真实抓包数据时 data_source="capture"，无数据时 data_source="demo"
+        - 兜底区间与阈值解耦：DEMO_QPS_MAX 必须 < 最小规则阈值（当前 800 ≫ 500），
+          改为 DEMO_QPS_MAX=400（低于 ddos_threshold=500），SYN/UDP 同理
+        - 兜底数据不进入规则检测（stats is None 时跳过 detect()），避免假告警
         """
         stats = self._drain_packets()
         now = _time.time()
@@ -234,6 +253,7 @@ class DetectionService:
         current_port_count = 0
 
         if stats is not None:
+            # 真实抓包数据
             qps = int(stats["count"] / interval)
             connections = len(stats["src_ips"])
             syn_count = int(stats["syn_count"] / interval)
@@ -245,11 +265,16 @@ class DetectionService:
                 td["unique_ports"].append(p)
             for ip in stats["src_ips"]:
                 td["src_ips"].append(ip)
+            td["data_source"] = "capture"
         else:
-            qps = random.randint(DEMO_QPS_MIN, DEMO_QPS_MAX)
+            # F2 修复：兜底区间与阈值解耦 — 最大值必须低于对应规则阈值
+            # ddos_threshold=500 → DEMO_QPS_MAX=400
+            # syn_flood_threshold=100 → DEMO_SYN_MAX=80
+            # udp_flood_threshold=200 → DEMO_UDP_MAX=150
+            qps = random.randint(DEMO_QPS_MIN, min(DEMO_QPS_MAX, 400))
             connections = random.randint(DEMO_CONN_MIN, DEMO_CONN_MAX)
-            syn_count = random.randint(DEMO_SYN_MIN, DEMO_SYN_MAX)
-            udp_count = random.randint(DEMO_UDP_MIN, DEMO_UDP_MAX)
+            syn_count = random.randint(DEMO_SYN_MIN, min(DEMO_SYN_MAX, 80))
+            udp_count = random.randint(DEMO_UDP_MIN, min(DEMO_UDP_MAX, 150))
             dns_count = random.randint(DEMO_DNS_MIN, DEMO_DNS_MAX)
             current_port_count = 2
             td["packet_count"] += random.randint(DEMO_PKT_MIN, DEMO_PKT_MAX)
@@ -259,6 +284,7 @@ class DetectionService:
                 f"{random.randint(1, 255)}.{random.randint(1, 255)}."
                 f"{random.randint(1, 255)}.{random.randint(1, 255)}"
             )
+            td["data_source"] = "demo"
 
         td["qps"] = qps
         td["connections"] = connections
@@ -267,30 +293,34 @@ class DetectionService:
         td["dns_packets"] = dns_count
         td["timestamp"] = now_str()
 
-        packets_for_ml = self._state.recent_packets if stats is not None else []
+        # F2 修复：兜底数据（stats is None）不进入规则检测，避免假告警
+        if stats is not None:
+            packets_for_ml = self._state.recent_packets
+            result = self._dual_detector.detect(
+                qps=qps,
+                port_count=current_port_count,
+                syn_count=syn_count,
+                udp_count=udp_count,
+                packets=packets_for_ml,
+            )
 
-        result = self._dual_detector.detect(
-            qps=qps,
-            port_count=current_port_count,
-            syn_count=syn_count,
-            udp_count=udp_count,
-            packets=packets_for_ml,
-        )
+            if result.is_anomaly:
+                level_tag = ALERT_LEVEL_LABELS.get(result.level, "⚠️异常")
+                alert_msg = f"{level_tag} {result.description}"
+                td["alert"] = alert_msg
 
-        if result.is_anomaly:
-            level_tag = ALERT_LEVEL_LABELS.get(result.level, "⚠️异常")
-            alert_msg = f"{level_tag} {result.description}"
-            td["alert"] = alert_msg
-
-            # 通过 AlertService 发送告警（含冷却）
-            if self._alert_service:
-                self._alert_service.emit_alert(
-                    alert_type=result.attack_type,
-                    severity=result.level,
-                    description=alert_msg,
-                    ml_confidence=result.ml_confidence,
-                )
+                # 通过 AlertService 发送告警（含冷却）
+                if self._alert_service:
+                    self._alert_service.emit_alert(
+                        alert_type=result.attack_type,
+                        severity=result.level,
+                        description=alert_msg,
+                        ml_confidence=result.ml_confidence,
+                    )
+            else:
+                td["alert"] = None
         else:
+            # F2 修复：无真实抓包数据时不触发告警
             td["alert"] = None
 
         # 持久化流量历史

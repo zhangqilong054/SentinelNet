@@ -38,14 +38,20 @@ COMMON_PORTS = [22, 80, 443, 3306, 5432, 8080, 8443, 25, 53, 110]
 SCAN_PORTS = list(range(1, 1025))
 
 
-def _send_packets(packets: list, interval: float = 0.001) -> int:
-    """发送数据包列表。返回成功发送的数量。"""
+def _send_packets(packets: list, interval: float = 0.001, iface: str | None = None) -> int:
+    """发送数据包列表。返回成功发送的数量。
+
+    Args:
+        packets: 待发送的数据包列表。
+        interval: 发包间隔（秒）。
+        iface: 目标网卡名（None 时由 scapy 自行选择，Windows 上可能选错）。
+    """
     try:
         from scapy.all import sendp
         sent = 0
         for pkt in packets:
             try:
-                sendp(pkt, verbose=False)
+                sendp(pkt, verbose=False, iface=iface)
                 sent += 1
                 if interval > 0:
                     time.sleep(interval)
@@ -140,15 +146,22 @@ def save_pcap(packets: list, output: Path) -> None:
 
 
 def load_and_replay(pcap_path: Path, count: int | None = None,
-                    interval: float = 0.001) -> int:
-    """P0-22: 从 pcap 文件回放攻击流量。"""
+                    interval: float = 0.001, iface: str | None = None) -> int:
+    """P0-22: 从 pcap 文件回放攻击流量。
+
+    Args:
+        pcap_path: pcap 文件路径。
+        count: 最大回放包数（None=全部）。
+        interval: 发包间隔（秒）。
+        iface: 目标网卡名（None 时由 scapy 自行选择）。
+    """
     try:
         from scapy.all import rdpcap
         packets = rdpcap(str(pcap_path))
         if count:
             packets = packets[:count]
         logger.info("从 %s 加载 %d 个数据包，开始回放...", pcap_path, len(packets))
-        return _send_packets(list(packets), interval)
+        return _send_packets(list(packets), interval, iface=iface)
     except Exception as exc:
         logger.error("回放失败: %s", exc)
         return 0
@@ -362,11 +375,13 @@ def main():
     p_syn.add_argument("--count", type=int, default=500)
     p_syn.add_argument("--target", default=TARGET_IP)
     p_syn.add_argument("--port", type=int, default=80)
+    p_syn.add_argument("--iface", default=None, help="发包网卡（None=scapy 默认）")
     p_syn.add_argument("--send", action="store_true", help="直接发送（需管理员权限）")
 
     # 端口扫描
     p_scan = sub.add_parser("port_scan", help="生成端口扫描")
     p_scan.add_argument("--target", default=TARGET_IP)
+    p_scan.add_argument("--iface", default=None, help="发包网卡（None=scapy 默认）")
     p_scan.add_argument("--send", action="store_true")
 
     # UDP Flood
@@ -374,17 +389,20 @@ def main():
     p_udp.add_argument("--count", type=int, default=1000)
     p_udp.add_argument("--target", default=TARGET_IP)
     p_udp.add_argument("--port", type=int, default=53)
+    p_udp.add_argument("--iface", default=None, help="发包网卡（None=scapy 默认）")
     p_udp.add_argument("--send", action="store_true")
 
     # DDoS
     p_ddos = sub.add_parser("ddos", help="生成 DDoS 攻击（混合 TCP+UDP）")
     p_ddos.add_argument("--count", type=int, default=2000)
     p_ddos.add_argument("--target", default=TARGET_IP)
+    p_ddos.add_argument("--iface", default=None, help="发包网卡（None=scapy 默认）")
     p_ddos.add_argument("--send", action="store_true")
 
     # 全部攻击
     p_all = sub.add_parser("all", help="生成所有类型攻击")
     p_all.add_argument("--target", default=TARGET_IP)
+    p_all.add_argument("--iface", default=None, help="发包网卡（None=scapy 默认）")
     p_all.add_argument("--send", action="store_true")
 
     # 保存 pcap
@@ -397,6 +415,7 @@ def main():
     p_replay.add_argument("pcap_file")
     p_replay.add_argument("--count", type=int, default=None)
     p_replay.add_argument("--interval", type=float, default=0.001)
+    p_replay.add_argument("--iface", default=None, help="发包网卡（None=scapy 默认）")
 
     args = parser.parse_args()
 
@@ -407,35 +426,35 @@ def main():
     if args.command == "syn_flood":
         pkts = generate_syn_flood(args.target, args.port, args.count)
         if args.send:
-            _send_packets(pkts)
+            _send_packets(pkts, iface=args.iface)
         else:
             save_pcap(pkts, Path("syn_flood.pcap"))
 
     elif args.command == "port_scan":
         pkts = generate_port_scan(args.target)
         if args.send:
-            _send_packets(pkts)
+            _send_packets(pkts, iface=args.iface)
         else:
             save_pcap(pkts, Path("port_scan.pcap"))
 
     elif args.command == "udp_flood":
         pkts = generate_udp_flood(args.target, args.port, args.count)
         if args.send:
-            _send_packets(pkts)
+            _send_packets(pkts, iface=args.iface)
         else:
             save_pcap(pkts, Path("udp_flood.pcap"))
 
     elif args.command == "ddos":
         pkts = generate_ddos(args.target, args.count)
         if args.send:
-            _send_packets(pkts)
+            _send_packets(pkts, iface=args.iface)
         else:
             save_pcap(pkts, Path("ddos.pcap"))
 
     elif args.command == "all":
         pkts = generate_all_attacks(args.target)
         if args.send:
-            _send_packets(pkts)
+            _send_packets(pkts, iface=args.iface)
         else:
             save_pcap(pkts, Path("all_attacks.pcap"))
 
@@ -444,7 +463,7 @@ def main():
         save_pcap(pkts, Path(args.output))
 
     elif args.command == "replay":
-        load_and_replay(Path(args.pcap_file), args.count, args.interval)
+        load_and_replay(Path(args.pcap_file), args.count, args.interval, iface=args.iface)
 
 
 if __name__ == "__main__":

@@ -107,6 +107,33 @@ def build_capture_filter() -> str:
     return expr
 
 
+def validate_bpf(bpf: str) -> str | None:
+    """预校验 BPF 过滤表达式合法性。
+
+    F1 修复：在启动抓包线程前做一次 BPF 编译校验，
+    非法表达式直接返回错误信息，不启动线程（避免永久锁死）。
+
+    Returns:
+        None 表示合法，str 为错误描述。
+    """
+    if not bpf:
+        return None
+    try:
+        from scapy.arch.common import compile_filter
+        compile_filter(bpf, linktype=1)
+    except ImportError:
+        # scapy.arch.common 不可用时，尝试 scapy.all（旧版兼容）
+        try:
+            from scapy.all import compile_filter as _cf
+            _cf(bpf)
+        except ImportError:
+            # compile_filter 完全不可用 → 跳过校验，交由 sniff 阶段报错
+            return None
+    except Exception as exc:
+        return f"BPF 过滤表达式非法: {exc}"
+    return None
+
+
 class CaptureService:
     """抓包服务 — 管理基础抓包和增强抓包的生命周期。
 
@@ -198,14 +225,27 @@ class CaptureService:
                 None 时使用 Settings.capture_iface，仍为空则自动识别活动网卡。
 
         对应旧实现: helpers.start_capture_thread()
+
+        F1 修复：启动前预校验 BPF，非法直接返回错误，不启动线程。
         """
         with self._state._state_lock:
             if self._state.capture_running:
                 return {"status": "already_running"}
-            self._state.capture_running = True
 
+        # F1 修复：先解析网卡和过滤表达式，校验 BPF 合法性后再置标志位
         self._capture_iface = self._resolve_iface(interface)
         self._capture_filter = self._build_filter()
+
+        bpf_error = validate_bpf(self._capture_filter)
+        if bpf_error:
+            logger.error("基础抓包启动被拒绝: %s", bpf_error)
+            return {"status": "error", "message": bpf_error}
+
+        with self._state._state_lock:
+            if self._state.capture_running:
+                # 并发启动竞争，另一个已成功
+                return {"status": "already_running"}
+            self._state.capture_running = True
         if self._capture_iface:
             logger.info(
                 "基础抓包已启动（网卡: %s, 来源: %s, 过滤: %s）",
@@ -246,24 +286,26 @@ class CaptureService:
         """启动增强抓包（限时）。
 
         对应旧实现: helpers.start_enhanced_capture_thread()
+
+        F1 修复：启动前预校验 BPF，非法直接返回错误，不启动线程。
         """
         with self._state._state_lock:
             if self._state.enhanced_capture_running:
                 return {"status": "already_running"}
-            self._state.enhanced_capture_running = True
 
-        self._state.enhanced_capture_result = {
-            "status": "running",
-            "duration": duration,
-            "packets": 0,
-            "flows": 0,
-            "error": None,
-        }
-
-        # 与基础抓包同一套网卡解析：不解析时 scapy 回退 conf.iface，
-        # Windows 上常指向非活动适配器 → 增强抓包 0 包（2026-09-19 实测）。
+        # F1 修复：先解析网卡和过滤表达式，校验 BPF 合法性后再置标志位
         enhanced_iface = self._resolve_iface(None)
         enhanced_filter = self._build_filter()
+
+        bpf_error = validate_bpf(enhanced_filter)
+        if bpf_error:
+            logger.error("增强抓包启动被拒绝: %s", bpf_error)
+            return {"status": "error", "message": bpf_error}
+
+        with self._state._state_lock:
+            if self._state.enhanced_capture_running:
+                return {"status": "already_running"}
+            self._state.enhanced_capture_running = True
         if enhanced_iface:
             logger.info(
                 "增强抓包已启动 (duration=%ds, 网卡: %s, 过滤: %s)",
@@ -311,6 +353,9 @@ class CaptureService:
         """后台抓包线程：持续抓包并把关键信息放入队列。
 
         对应旧实现: helpers._capture_worker()
+
+        F1 修复：finally 块确保 capture_running 复位，避免异常/非法 BPF
+        导致线程死亡后标志位仍为 True → 永久锁死。
         """
         from scapy.all import TCP, UDP, sniff  # type: ignore[attr-defined]  # scapy 动态导出，无静态属性
 
@@ -351,8 +396,14 @@ class CaptureService:
             sniff(prn=_on_pkt, store=False, iface=self._capture_iface,
                   filter=self._capture_filter or None,
                   stop_filter=lambda _: not self._state.capture_running)
-        except Exception as exc:
+        except BaseException as exc:
+            # F1 修复：捕获 BaseException（含 scapy.error.Scapy_Exception 等非 RuntimeError）
+            # 而非仅 Exception，确保 KeyboardInterrupt 等也能复位。
             logger.error("后台抓包线程异常退出: %s", exc)
+        finally:
+            # F1 修复：无论正常退出还是异常，都必须复位 capture_running，
+            # 否则后续 start_capture() 永远返回 already_running。
+            self._state.capture_running = False
 
     def _enhanced_capture_worker(
         self, duration: int, iface: str | None = None, bpf: str = ""
@@ -360,6 +411,9 @@ class CaptureService:
         """后台增强抓包线程：提取 18 维流特征 + TLS 分析，保存 CSV。
 
         对应旧实现: helpers._enhanced_capture_worker()
+
+        F1 修复：try/except BaseException 包住 run_enhanced_capture，
+        确保 Scapy_Exception 等非 RuntimeError 异常也能被捕获并复位标志位。
         """
         from campus_ids.capture.enhanced_features import run_enhanced_capture
 
@@ -377,25 +431,39 @@ class CaptureService:
         def stop_filter(_pkt) -> bool:
             return not self._state.enhanced_capture_running or _time.time() >= stop_time
 
-        result = run_enhanced_capture(
-            duration, stop_filter=stop_filter, iface=iface, bpf=bpf
-        )
+        try:
+            result = run_enhanced_capture(
+                duration, stop_filter=stop_filter, iface=iface, bpf=bpf
+            )
 
-        if result is None:
+            if result is None:
+                self._state.enhanced_capture_result = {
+                    "status": "error",
+                    "duration": duration,
+                    "packets": 0,
+                    "flows": 0,
+                    "error": "抓包失败",
+                }
+            else:
+                packets, flows = result
+                self._state.enhanced_capture_result = {
+                    "status": "completed",
+                    "duration": duration,
+                    "packets": packets,
+                    "flows": flows,
+                    "error": None,
+                }
+        except BaseException as exc:
+            # F1 修复：捕获 BaseException（含 scapy.error.Scapy_Exception 等），
+            # 写入错误信息到 result，避免状态停留在 "running"。
+            logger.error("增强抓包线程异常退出: %s", exc)
             self._state.enhanced_capture_result = {
                 "status": "error",
                 "duration": duration,
                 "packets": 0,
                 "flows": 0,
-                "error": "抓包失败",
+                "error": str(exc),
             }
-        else:
-            packets, flows = result
-            self._state.enhanced_capture_result = {
-                "status": "completed",
-                "duration": duration,
-                "packets": packets,
-                "flows": flows,
-                "error": None,
-            }
-        self._state.enhanced_capture_running = False
+        finally:
+            # F1 修复：无论正常退出还是异常，都必须复位 enhanced_capture_running。
+            self._state.enhanced_capture_running = False

@@ -441,7 +441,9 @@ def run_enhanced_capture(
         # 非活动适配器（同 capture_service._capture_worker 的教训）。
         sniff(prn=_on_pkt, store=False, timeout=duration, stop_filter=stop_filter,
               iface=iface, filter=bpf or None)
-    except RuntimeError as exc:
+    except Exception as exc:
+        # F1 修复：从 RuntimeError 放宽为 Exception，
+        # 因为 scapy 设过滤器失败抛的是 Scapy_Exception（Exception 子类，非 RuntimeError）。
         logger.error("抓包失败: %s", exc)
         return None
 
