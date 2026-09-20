@@ -68,14 +68,9 @@ def _register_default_tasks(registry: TaskRegistry, *, capture_service, detectio
 
     # ── attack: 攻击模拟（TIMED） ──────────────────────────────────
     def attack_target(stop_event: threading.Event, duration: int = 30, **kwargs) -> None:
-        # T4: 使用 autodetect_iface 与抓包同源，避免 Windows 上 scapy conf.iface 选错网卡
-        iface: str | None = None
-        try:
-            from campus_ids.services.capture_service import autodetect_iface
-            iface, _ = autodetect_iface()
-        except Exception:
-            pass
-        attack_simulator.start_all(duration=duration, iface=iface)
+        # 注：web 攻击模拟经 inject_* 直接向 packet_queue 注入合成流量，
+        # 不经过 Npcap/sendp，无需指定网卡（iface 仅 CLI 真实发包路径需要）。
+        attack_simulator.start_all(duration=duration)
         stop_event.wait()
         attack_simulator.stop()
 

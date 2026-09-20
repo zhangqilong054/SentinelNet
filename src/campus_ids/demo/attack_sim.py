@@ -339,15 +339,17 @@ class AttackSimulator:
                     pass
             time.sleep(1)
 
-    def start_all(self, duration: int = 30, iface: str | None = None) -> None:
+    def start_all(self, duration: int = 30) -> None:
         """同时启动所有攻击模拟。
 
         Args:
             duration: 持续秒数
-            iface: 发包网卡（None 时由 scapy 自行选择，Windows 上可能选错）
+
+        注：本方法经 inject_* 直接向 packet_queue 注入合成流量，不涉及
+        Npcap/sendp，因此无需网卡参数；iface 仅 CLI 真实发包路径（
+        _send_packets / load_and_replay）需要。
         """
         self._running = True
-        self._iface = iface  # T4: 保存 iface 供后续真实发包使用
         attacks = [
             threading.Thread(target=self.inject_syn_flood, args=(duration, 80), daemon=True),
             threading.Thread(target=self.inject_port_scan, args=(duration, 40), daemon=True),
@@ -358,7 +360,7 @@ class AttackSimulator:
         for t in attacks:
             t.start()
         self._threads.extend(attacks)
-        logger.info("所有攻击模拟已启动（持续 %d 秒，iface=%s）", duration, iface or "default")
+        logger.info("所有攻击模拟已启动（持续 %d 秒）", duration)
 
     def stop(self) -> None:
         """停止所有攻击模拟。"""
