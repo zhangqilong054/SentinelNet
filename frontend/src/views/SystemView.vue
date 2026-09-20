@@ -43,7 +43,7 @@ async function fetchHealth() {
       health.value = data
       uptimeAnchor.value = { seconds: Math.floor(data.uptime_seconds), at: Date.now() }
       // T3: 从 health.components.capture 提取抓包诊断
-      const captureComp = (data.components as Record<string, Record<string, unknown>> | undefined)?.?.capture
+      const captureComp = (data.components as Record<string, Record<string, unknown>> | undefined)?.capture
       if (captureComp) {
         captureDiag.value = {
           status: String(captureComp.status ?? 'unknown'),
