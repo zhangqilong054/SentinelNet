@@ -1,13 +1,13 @@
 """O-10: 密码验证与安全机制单元测试。
 
-验证 web_new.auth.verify_password / hash_password 的行为：
+验证 web.auth.verify_password / hash_password 的行为：
 - werkzeug pbkdf2 格式正确/错误密码
 - 空哈希返回 False（而非抛 ValueError）
 - hash_password 生成 werkzeug 格式哈希
 - 边界情况：空密码、非哈希字符串
 """
 
-from campus_ids.web_new.auth import verify_password, hash_password
+from campus_ids.web.auth import verify_password, hash_password
 
 
 class TestVerifyPasswordWerkzeug:

@@ -1,4 +1,4 @@
-"""web_new/api/tasks.py — 任务 API 路由。
+"""web/api/tasks.py — 任务 API 路由。
 
 端点（21→3 合并，根因 A）：
 - GET  /api/tasks           所有任务状态
@@ -12,10 +12,10 @@ from __future__ import annotations
 from fastapi import APIRouter, Request
 
 from campus_ids.runtime.tasks import TaskRegistry
-from campus_ids.web_new.deps import get_service, raise_for_task_result
-from campus_ids.web_new.errors import NotFoundError
-from campus_ids.web_new.security import Readonly, Write, limiter
-from campus_ids.web_new.schemas import (
+from campus_ids.web.deps import get_service, raise_for_task_result
+from campus_ids.web.errors import NotFoundError
+from campus_ids.web.security import Readonly, Write, limiter
+from campus_ids.web.schemas import (
     MessageResponse,
     TaskActionRequest,
     TaskListResponse,

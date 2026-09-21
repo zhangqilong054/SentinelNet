@@ -30,13 +30,20 @@ class Settings(BaseSettings):
     )
 
     # ── 项目路径 ──────────────────────────────────────────────────
+    # data_dir：运行时产物根（DB、CSV、混淆矩阵、评估报告、legacy model.pkl）。
+    # 2026-09-21 从项目根改为 var/，避免散落污染根目录；models_root 单独锚定
+    # 项目根的 models/，避免破坏 latest.json 的 run_dir 相对指针。
     data_dir: Path = Field(
-        default=Path(__file__).resolve().parent.parent.parent.parent,
-        description="数据目录根路径",
+        default=Path(__file__).resolve().parent.parent.parent.parent / "var",
+        description="运行时产物目录根路径（DB/CSV/legacy model.pkl 等）",
     )
     log_dir: Path = Field(
         default=Path(__file__).resolve().parent.parent.parent.parent / "logs",
         description="日志目录",
+    )
+    models_root: Path = Field(
+        default=Path(__file__).resolve().parent.parent.parent.parent / "models",
+        description="训练产物根目录（runs/、latest.json、registry.json，独立于 data_dir）",
     )
 
     # ── Web 面板 ──────────────────────────────────────────────────
@@ -225,7 +232,7 @@ class Settings(BaseSettings):
 
     @property
     def models_dir(self) -> Path:
-        return self.data_dir / "models"
+        return self.models_root
 
     @property
     def runs_dir(self) -> Path:

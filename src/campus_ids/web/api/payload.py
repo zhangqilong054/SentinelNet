@@ -1,4 +1,4 @@
-"""web_new/api/payload.py — 载荷分析 API 路由。
+"""web/api/payload.py — 载荷分析 API 路由。
 
 端点：
 - POST /api/payload/check   载荷送检（旧路径，保持兼容）
@@ -10,8 +10,8 @@ import logging
 
 from fastapi import APIRouter, Request
 
-from campus_ids.web_new.security import Write, limiter
-from campus_ids.web_new.schemas import PayloadAnalysisRequest, PayloadAnalysisResponse
+from campus_ids.web.security import Write, limiter
+from campus_ids.web.schemas import PayloadAnalysisRequest, PayloadAnalysisResponse
 
 logger = logging.getLogger(__name__)
 

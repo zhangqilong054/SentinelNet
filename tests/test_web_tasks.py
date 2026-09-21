@@ -16,7 +16,7 @@ import time
 import pytest
 from fastapi.testclient import TestClient
 
-from campus_ids.web_new.app import create_app
+from campus_ids.web.app import create_app
 from campus_ids.runtime.settings import reset_settings
 from campus_ids.runtime.tasks import Task, TaskKind, TaskRegistry
 
@@ -30,7 +30,7 @@ def _clean_env():
     os.environ.pop("CAMPUS_IDS_AUTH_ENABLED", None)
     os.environ.pop("CAMPUS_IDS_API_TOKEN", None)
     reset_settings()
-    from campus_ids.web_new.security import limiter
+    from campus_ids.web.security import limiter
     limiter.reset()
     yield
     os.environ.pop("CAMPUS_IDS_AUTH_ENABLED", None)

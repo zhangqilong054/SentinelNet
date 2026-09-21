@@ -30,7 +30,7 @@ guard_no_real_training()               # 兜底哨兵：真有 train() 调用则
 
 from fastapi.testclient import TestClient  # noqa: E402
 
-from campus_ids.web_new.app import create_app  # noqa: E402
+from campus_ids.web.app import create_app  # noqa: E402
 
 
 def hr(title: str) -> None:
@@ -189,9 +189,9 @@ with TestClient(create_app()) as c:
     for p in ["/api/login", "/api/logout", "/api/change-password"]:
         r = c.post(p, json={})
         print(f"     POST {p:<24} -> {r.status_code}（API 版存在，但路径/方法已与旧契约不同）")
-    has_tpl = (ROOT / "src" / "campus_ids" / "web_new" / "templates").exists()
-    has_static = (ROOT / "src" / "campus_ids" / "web_new" / "static").exists()
-    verdict("T2.17 web_new 具备页面渲染能力（templates/static）", has_tpl and has_static,
+    has_tpl = (ROOT / "src" / "campus_ids" / "web" / "templates").exists()
+    has_static = (ROOT / "src" / "campus_ids" / "web" / "static").exists()
+    verdict("T2.17 web 具备页面渲染能力（templates/static）", has_tpl and has_static,
             f"templates={has_tpl} static={has_static}")
 
 # ── ⑥ cleanup days 语义（T2.14）──────────────────────────────────────
@@ -306,7 +306,7 @@ except Exception as _exc:  # noqa: BLE001
 # ── ⑧ CSRF / 限流 / 安全头 ─────────────────────────────────────────
 hr("⑧ CSRF / 限流 / 安全头")
 
-from campus_ids.web_new.security import limiter  # noqa: E402
+from campus_ids.web.security import limiter  # noqa: E402
 
 with TestClient(create_app()) as c:
     r = c.post("/api/tasks/capture/start", json={"duration": 3})

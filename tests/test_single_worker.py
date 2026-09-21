@@ -22,7 +22,7 @@ import sys
 
 import pytest
 
-from campus_ids.web_new.app import (
+from campus_ids.web.app import (
     _assert_single_worker,
     _assert_secret_key,
     _INSECURE_SECRET_KEYS,

@@ -20,9 +20,9 @@ from fastapi.testclient import TestClient
 from campus_ids.runtime.db import get_connection, init_db
 from campus_ids.runtime.repositories import UserRepository
 from campus_ids.runtime.settings import get_settings, reset_settings
-from campus_ids.web_new.app import _ensure_env_file
-from campus_ids.web_new.auth import verify_password
-from campus_ids.web_new.cli import reset_password
+from campus_ids.web.app import _ensure_env_file
+from campus_ids.web.auth import verify_password
+from campus_ids.web.cli import reset_password
 
 
 # ── _ensure_env_file ─────────────────────────────────────────────
@@ -118,7 +118,7 @@ def test_spa_mode_serves_dist_and_logout_is_405(monkeypatch):
     monkeypatch.setenv("CAMPUS_IDS_FRONTEND", "new")
     reset_settings()
     try:
-        from campus_ids.web_new.app import create_app
+        from campus_ids.web.app import create_app
 
         app = create_app()
         with TestClient(app) as client:

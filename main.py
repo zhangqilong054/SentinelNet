@@ -26,12 +26,12 @@ setup_logging()
 def main(argv: list[str] | None = None) -> int:
     args = list(sys.argv[1:] if argv is None else argv)
     if not args or args[0].lower() in ("app", "run", "start", ""):
-        from campus_ids.web_new.app import run_app
+        from campus_ids.web.app import run_app
         run_app()
         return 0
 
     if args[0].lower() == "reset-password":
-        from campus_ids.web_new.cli import reset_password
+        from campus_ids.web.cli import reset_password
         return reset_password(args[1:])
 
     print(

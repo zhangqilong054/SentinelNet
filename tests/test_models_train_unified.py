@@ -23,14 +23,14 @@ from fastapi.testclient import TestClient
 
 from campus_ids.runtime.settings import get_settings, reset_settings
 from campus_ids.services.model_service import ModelService
-from campus_ids.web_new.app import create_app
+from campus_ids.web.app import create_app
 
 
 @pytest.fixture(autouse=True)
 def _clean_env():
     import os
 
-    from campus_ids.web_new.security import limiter
+    from campus_ids.web.security import limiter
 
     def _clear():
         os.environ.pop("CAMPUS_IDS_API_TOKEN", None)

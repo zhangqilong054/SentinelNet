@@ -1,4 +1,4 @@
-"""web_new/cli.py — 命令行辅助子命令（2026-09-19，可用性 P0-U2）。
+"""web/cli.py — 命令行辅助子命令（2026-09-19，可用性 P0-U2）。
 
 当前仅提供 `reset-password`：管理员密码找回的唯一入口。
 背景：users 表中 admin 的历史密码一旦遗失（操作手册承诺的默认密码
@@ -57,7 +57,7 @@ def reset_password(argv: list[str] | None = None) -> int:
 
     from campus_ids.runtime.db import get_connection, init_db
     from campus_ids.runtime.repositories import UserRepository
-    from campus_ids.web_new.auth import hash_password
+    from campus_ids.web.auth import hash_password
 
     try:
         # 全新数据目录（目录不存在 / 空库）也要能用：先建目录与表，

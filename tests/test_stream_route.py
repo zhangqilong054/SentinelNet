@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""`web_new/api/stream.py` 单元级行为测试（R5 覆盖率补齐）。
+"""`web/api/stream.py` 单元级行为测试（R5 覆盖率补齐）。
 
 ## 与 `tests/test_sse_live.py` 的分工
 
@@ -32,9 +32,9 @@ from campus_ids.runtime.events import (
     VALID_TOPICS,
     EventBus,
 )
-from campus_ids.web_new.api import stream as stream_mod
-from campus_ids.web_new.api.stream import event_stream
-from campus_ids.web_new.errors import ApiError
+from campus_ids.web.api import stream as stream_mod
+from campus_ids.web.api.stream import event_stream
+from campus_ids.web.errors import ApiError
 
 
 # ── 伪造 Request ──────────────────────────────────────────────────

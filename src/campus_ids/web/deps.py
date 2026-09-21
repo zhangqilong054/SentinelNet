@@ -1,4 +1,4 @@
-"""web_new/deps.py — FastAPI 依赖注入工具。
+"""web/deps.py — FastAPI 依赖注入工具。
 
 R-06: 消除 7 处 service-getter 模板代码（getattr → None → 503 ApiError）。
 R-07: 消除 tasks/scenarios 重复的任务结果→HTTP异常映射。
@@ -9,7 +9,7 @@ from typing import Any
 
 from fastapi import Request
 
-from campus_ids.web_new.errors import AlreadyRunningError, ApiError
+from campus_ids.web.errors import AlreadyRunningError, ApiError
 
 
 def get_service(request: Request, attr: str, label: str) -> Any:

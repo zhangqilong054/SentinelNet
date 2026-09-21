@@ -13,7 +13,7 @@ from __future__ import annotations
 import pytest
 from fastapi.testclient import TestClient
 
-from campus_ids.web_new.app import create_app
+from campus_ids.web.app import create_app
 
 
 @pytest.fixture

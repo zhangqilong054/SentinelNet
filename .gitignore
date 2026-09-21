@@ -26,6 +26,7 @@ env/
 *.csv
 !docs/*.csv
 models/
+var/
 
 # Logs
 *.log
@@ -62,7 +63,7 @@ coverage.xml
 
 # Generated API spec dumps
 apispec_check.json
-openapi_new.json
+# tests/contract/openapi.json 已纳入版本控制（契约基线，需跟踪）
 # Playwright e2e（frontend/）
 frontend/test-results/
 frontend/playwright-report/

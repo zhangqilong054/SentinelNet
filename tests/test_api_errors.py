@@ -11,7 +11,7 @@ from __future__ import annotations
 from fastapi import FastAPI, status
 from fastapi.testclient import TestClient
 
-from campus_ids.web_new.errors import (
+from campus_ids.web.errors import (
     AlreadyRunningError,
     ApiError,
     ConflictError,

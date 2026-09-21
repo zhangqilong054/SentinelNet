@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""`web_new/api/models.py` 行为测试（R5 覆盖率补齐）。
+"""`web/api/models.py` 行为测试（R5 覆盖率补齐）。
 
 改动前覆盖率 **72%** —— 已覆盖的只是"列表 + 正常启停"。未覆盖的是**全部保护逻辑**，
 而 T2.13 收敛的核心恰恰就是这些保护：
@@ -25,8 +25,8 @@ import pytest
 from fastapi.testclient import TestClient
 
 from campus_ids.runtime.settings import get_settings, reset_settings
-from campus_ids.web_new.api.models import TRAINING_PRODUCTS, backup_training_products
-from campus_ids.web_new.app import create_app
+from campus_ids.web.api.models import TRAINING_PRODUCTS, backup_training_products
+from campus_ids.web.app import create_app
 
 TRAIN = "train"
 
@@ -70,7 +70,7 @@ def _clean_env():
         os.environ.pop("CAMPUS_IDS_API_TOKEN", None)
         os.environ["CAMPUS_IDS_AUTH_ENABLED"] = "0"
         reset_settings()
-        from campus_ids.web_new.security import limiter
+        from campus_ids.web.security import limiter
 
         limiter.reset()
 
@@ -598,7 +598,7 @@ class TestDeleteModel:
 
         monkeypatch.setattr(Path, "write_text", _explode)
 
-        with caplog.at_level("ERROR", logger="campus_ids.web_new.api.models"):
+        with caplog.at_level("ERROR", logger="campus_ids.web.api.models"):
             resp = client.delete("/api/models/boom", headers=_csrf(client))
 
         assert resp.status_code == 500, resp.text

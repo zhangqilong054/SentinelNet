@@ -1,4 +1,4 @@
-"""web_new/api/auth_routes.py — 认证 API 路由。
+"""web/api/auth_routes.py — 认证 API 路由。
 
 端点：
 - POST /api/login          会话登录
@@ -14,7 +14,7 @@ from pydantic import BaseModel, Field
 
 from campus_ids.runtime.db import get_connection
 from campus_ids.runtime.repositories import UserRepository
-from campus_ids.web_new.auth import (
+from campus_ids.web.auth import (
     authenticate,
     AuthenticationError,
     get_current_user,
@@ -23,8 +23,8 @@ from campus_ids.web_new.auth import (
     logout_user,
     verify_password,
 )
-from campus_ids.web_new.errors import ApiError, NotFoundError, UnauthorizedError
-from campus_ids.web_new.security import Public, Write, limiter
+from campus_ids.web.errors import ApiError, NotFoundError, UnauthorizedError
+from campus_ids.web.security import Public, Write, limiter
 
 logger = logging.getLogger(__name__)
 

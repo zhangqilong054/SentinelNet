@@ -9,7 +9,7 @@
     "preview": "vite preview",
     "e2e": "playwright test",
     "e2e:baseline": "playwright test -g 视觉基线 --update-snapshots",
-    "generate-api": "openapi-typescript ../openapi_new.json -o src/types/api-generated.d.ts",
+    "generate-api": "openapi-typescript ../tests/contract/openapi.json -o src/types/api-generated.d.ts",
     "typecheck": "vue-tsc -b --noEmit"
   },
   "dependencies": {

@@ -1,4 +1,4 @@
-"""web_new/api/admin.py — 管理操作 API 路由。
+"""web/api/admin.py — 管理操作 API 路由。
 
 端点：
 - POST /api/admin/cleanup   清理过期历史数据
@@ -15,8 +15,8 @@ from pydantic import BaseModel, Field
 from campus_ids.runtime.db import get_connection
 from campus_ids.runtime.repositories import UserRepository
 from campus_ids.runtime.settings import get_settings
-from campus_ids.web_new.errors import ApiError
-from campus_ids.web_new.security import Write, limiter
+from campus_ids.web.errors import ApiError
+from campus_ids.web.security import Write, limiter
 
 logger = logging.getLogger(__name__)
 

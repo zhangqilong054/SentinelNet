@@ -1,4 +1,4 @@
-"""web_new/schemas.py — 请求/响应 Pydantic 模型。
+"""web/schemas.py — 请求/响应 Pydantic 模型。
 
 取代原 Flask 版手写 JSON 序列化（根因 B），利用 Pydantic v2 自动生成 OpenAPI。
 所有 API 端点的请求体和响应体均在此定义，确保类型安全和文档自动生成。

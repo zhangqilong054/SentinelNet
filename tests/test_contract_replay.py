@@ -60,7 +60,7 @@ class TestReplay:
 
     def test_schema_gate_has_no_unexplained_loss(self):
         """规格门禁：旧规格 34 条路径不得出现"未解释丢失"。"""
-        from campus_ids.web_new.app import create_app
+        from campus_ids.web.app import create_app
 
         unexplained, lines = run_schema_gate(create_app())
         assert unexplained == 0, "存在未解释的路径丢失：\n" + "\n".join(lines)
@@ -71,7 +71,7 @@ class TestReplay:
 
         from fastapi.testclient import TestClient
 
-        from campus_ids.web_new.app import create_app
+        from campus_ids.web.app import create_app
 
         app = create_app()
         lost_report = []

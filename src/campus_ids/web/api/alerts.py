@@ -1,4 +1,4 @@
-"""web_new/api/alerts.py — 告警 API 路由。
+"""web/api/alerts.py — 告警 API 路由。
 
 端点：
 - GET  /api/alerts        告警列表（分页 + 级别筛选）
@@ -11,9 +11,9 @@ from __future__ import annotations
 from fastapi import APIRouter, Query, Request
 
 from campus_ids.services.alert_service import AlertService
-from campus_ids.web_new.deps import get_service
-from campus_ids.web_new.security import Readonly
-from campus_ids.web_new.schemas import (
+from campus_ids.web.deps import get_service
+from campus_ids.web.security import Readonly
+from campus_ids.web.schemas import (
     AlertListResponse,
     AlertResponse,
     AlertStatsResponse,

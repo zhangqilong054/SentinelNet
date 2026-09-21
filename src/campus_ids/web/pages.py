@@ -1,7 +1,7 @@
-"""web_new/pages.py — 服务端渲染页面路由（T2.17）。
+"""web/pages.py — 服务端渲染页面路由（T2.17）。
 
 背景：重写期新应用**完全不提供界面** —— `GET /`、`/login`、`/logout`、
-`/change-password` 全部 404，`web_new/` 下既无 `templates/` 也无 `static/`。
+`/change-password` 全部 404，`web/` 下既无 `templates/` 也无 `static/`。
 本模块补上这一层，使新应用可以独立启动并被人使用。
 
 路径与旧 Flask 保持一致（`/`、`/login`、`/logout`、`/change-password`），
@@ -35,7 +35,7 @@ from starlette.exceptions import HTTPException
 from campus_ids.runtime.db import get_connection
 from campus_ids.runtime.repositories import UserRepository
 from campus_ids.runtime.settings import get_settings
-from campus_ids.web_new.auth import (
+from campus_ids.web.auth import (
     AuthenticationError,
     authenticate,
     get_current_user,
@@ -44,7 +44,7 @@ from campus_ids.web_new.auth import (
     logout_user,
     verify_password,
 )
-from campus_ids.web_new.security import (
+from campus_ids.web.security import (
     CSRF_COOKIE_NAME,
     generate_csrf_token,
     limiter,

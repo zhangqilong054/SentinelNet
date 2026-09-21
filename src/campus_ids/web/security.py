@@ -1,4 +1,4 @@
-"""web_new/security.py — 安全策略三档。
+"""web/security.py — 安全策略三档。
 
 取代原 Flask 版 18 处 @_csrf_exempt，用显式装饰器表达安全语义：
 - @public:   完全免认证/免 CSRF（SSE、/api/health、页面）

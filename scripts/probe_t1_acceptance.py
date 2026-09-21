@@ -41,10 +41,10 @@ print("=" * 74)
 print("A. import 副作用（T1.1 / T1.2）")
 before = set(os.listdir(ROOT))
 threads_before = threading.active_count()
-import campus_ids.web_new.app  # noqa: E402,F401
+import campus_ids.web.app  # noqa: E402,F401
 
 after = set(os.listdir(ROOT))
-import campus_ids.web_new.app as _mod  # noqa: E402,F811
+import campus_ids.web.app as _mod  # noqa: E402,F811
 
 print("  新建文件      :", sorted(after - before) or "无")
 print("  线程数        :", threads_before, "->", threading.active_count(),
@@ -53,7 +53,7 @@ print("  模块级 app 对象:", hasattr(_mod, "app"), "（False 才符合 T1.2�
 
 from fastapi.testclient import TestClient  # noqa: E402
 from campus_ids.runtime.settings import Settings, get_settings, reset_settings  # noqa: E402
-from campus_ids.web_new.app import create_app  # noqa: E402
+from campus_ids.web.app import create_app  # noqa: E402
 
 # 业务 service 换 stub（仍然走真实 create_app()，接线事实不动）
 REC = install_service_stubs()
@@ -105,7 +105,7 @@ reset_settings()
 print("=" * 74)
 print("D. 写端点限流（T1.7）")
 c3 = new_client()
-from campus_ids.web_new.security import limiter  # noqa: E402
+from campus_ids.web.security import limiter  # noqa: E402
 
 limiter.reset()
 tok = c3.get("/api/csrf-token").json()["csrf_token"]

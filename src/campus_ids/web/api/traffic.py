@@ -1,4 +1,4 @@
-"""web_new/api/traffic.py — 流量 API 路由。
+"""web/api/traffic.py — 流量 API 路由。
 
 端点：
 - GET /api/traffic          实时流量统计
@@ -11,9 +11,9 @@ from __future__ import annotations
 from fastapi import APIRouter, Query, Request
 
 from campus_ids.services.traffic_service import TrafficService
-from campus_ids.web_new.deps import get_service
-from campus_ids.web_new.security import Readonly
-from campus_ids.web_new.schemas import (
+from campus_ids.web.deps import get_service
+from campus_ids.web.security import Readonly
+from campus_ids.web.schemas import (
     TrafficHistoryResponse,
     TrafficHistoryRecord,
     TrafficStatsResponse,

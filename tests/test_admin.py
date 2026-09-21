@@ -27,7 +27,7 @@ from sqlalchemy import insert, select
 from campus_ids.runtime.db import alerts, get_connection, traffic_history
 from campus_ids.runtime.repositories import TrafficRepository
 from campus_ids.runtime.settings import get_settings, reset_settings
-from campus_ids.web_new.app import create_app
+from campus_ids.web.app import create_app
 
 CSV_HEADER = ["Time", "QPS", "Connections", "PacketCount", "PortCount", "SrcIPCount", "Alert"]
 
@@ -40,7 +40,7 @@ def _clean_env():
         os.environ.pop("CAMPUS_IDS_API_TOKEN", None)
         os.environ.pop("CAMPUS_IDS_AUTH_ENABLED", None)
         reset_settings()
-        from campus_ids.web_new.security import limiter
+        from campus_ids.web.security import limiter
 
         limiter.reset()
 

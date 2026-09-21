@@ -1,4 +1,4 @@
-"""web_new/errors.py — 统一错误协议。
+"""web/errors.py — 统一错误协议。
 
 取代原 Flask 版 6 种不同错误格式（根因 D），统一为：
 - ApiError: 业务异常基类，携带 error_code + detail + status_code

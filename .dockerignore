@@ -6,6 +6,7 @@ backup/
 data/
 logs/
 models/
+var/
 docs/
 tests/
 scripts/
@@ -20,6 +21,5 @@ frontend/node_modules/
 frontend/test-results/
 frontend/playwright-report/
 frontend/e2e/smoke.spec.ts-snapshots/
-openapi_new.json
 apispec_check.json
 test_endpoints.bat

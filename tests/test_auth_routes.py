@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""`web_new/api/auth_routes.py` 行为测试（R5 覆盖率补齐）。
+"""`web/api/auth_routes.py` 行为测试（R5 覆盖率补齐）。
 
 改动前覆盖率 **47%**。注意 `tests/test_web_auth_routes.py` 测的是**旧 Flask 版**
 （旧 Flask 版 `campus_ids.web.app`），对新栈的 `/api/login`、`/api/logout`、`/api/change-password`
@@ -11,7 +11,7 @@
    必须返回**字面相同**的错误，否则攻击者可枚举用户名。
 2. **空哈希必须是 401 而不是 500**：`app.py` 在 `CAMPUS_IDS_API_TOKEN` 未配置时把
    `password_hash` 写成空串，而 werkzeug 对此会抛 `ValueError`。这是一条真实踩过的
-   缺陷路径（见 `web_new/auth.py::verify_password` 的 docstring）。
+   缺陷路径（见 `web/auth.py::verify_password` 的 docstring）。
 3. **会话真的能授权写操作**：开启认证后，未登录的写请求 401；登录后同一请求 200。
    只断言"login 返回 200"是不够的 —— 会话没写进去也能返回 200。
 """
@@ -26,8 +26,8 @@ from werkzeug.security import generate_password_hash
 from campus_ids.runtime.db import get_connection, init_db, users
 from campus_ids.runtime.repositories import UserRepository
 from campus_ids.runtime.settings import reset_settings
-from campus_ids.web_new.app import create_app
-from campus_ids.web_new.auth import hash_password, verify_password
+from campus_ids.web.app import create_app
+from campus_ids.web.auth import hash_password, verify_password
 
 TOKEN = "tok-3f9a2b7c"
 ADMIN = "admin"
@@ -48,7 +48,7 @@ def _clean_env():
         for key in ("CAMPUS_IDS_API_TOKEN", "CAMPUS_IDS_AUTH_ENABLED"):
             os.environ.pop(key, None)
         reset_settings()
-        from campus_ids.web_new.security import limiter
+        from campus_ids.web.security import limiter
 
         limiter.reset()
 

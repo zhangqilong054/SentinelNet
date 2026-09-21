@@ -62,7 +62,7 @@ def live_server():
     import os
 
     from campus_ids.runtime.settings import reset_settings
-    from campus_ids.web_new.app import create_app
+    from campus_ids.web.app import create_app
 
     prev_key = os.environ.get("CAMPUS_IDS_SECRET_KEY")
     os.environ["CAMPUS_IDS_SECRET_KEY"] = "live-sse-test-secret-key-9f3a2b1c"

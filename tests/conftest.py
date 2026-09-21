@@ -24,6 +24,9 @@ import pytest
 _SESSION_TMP = Path(tempfile.mkdtemp(prefix="sn_pytest_session_"))
 os.environ["CAMPUS_IDS_DATA_DIR"] = str(_SESSION_TMP)
 os.environ["CAMPUS_IDS_LOG_DIR"] = str(_SESSION_TMP / "logs")
+# 2026-09-21：models_root 从 data_dir 解耦（settings.py B2），需单独重定向，
+# 否则 config.MODELS_DIR 仍指向项目根 models/，破坏产物隔离。
+os.environ["CAMPUS_IDS_MODELS_ROOT"] = str(_SESSION_TMP / "models")
 # DEBUG 必须在 import 期就设好（2026-09-19）：config.py 的兼容委托层在模块顶层
 # 执行 `_s = get_settings()`，任何 campus_ids 模块的首次 import 都会缓存 Settings
 # 单例——若此时 DEBUG 未设，缓存的是 debug=False，随后 create_app() 的
@@ -67,6 +70,7 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent
 ISOLATION_ENV_VARS = frozenset({
     "CAMPUS_IDS_DATA_DIR",
     "CAMPUS_IDS_LOG_DIR",
+    "CAMPUS_IDS_MODELS_ROOT",
     "CAMPUS_IDS_DEBUG",
     "CAMPUS_IDS_FRONTEND",
 })
@@ -208,6 +212,8 @@ def _isolate_artifacts(tmp_path, monkeypatch):
     # 1. 环境变量 → 影响 Settings.data_dir（新应用路径）
     monkeypatch.setenv("CAMPUS_IDS_DATA_DIR", str(tmp_path))
     monkeypatch.setenv("CAMPUS_IDS_LOG_DIR", str(tmp_path / "logs"))
+    # 2026-09-21：models_root 已从 data_dir 解耦，需单独重定向
+    monkeypatch.setenv("CAMPUS_IDS_MODELS_ROOT", str(tmp_path / "models"))
 
     # 2. 重置单例，使新 data_dir 生效
     from campus_ids.runtime.settings import reset_settings

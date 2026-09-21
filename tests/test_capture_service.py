@@ -918,7 +918,7 @@ class TestHealthCaptureFields:
         self, svc, state, monkeypatch
     ):
         """抓包未启动时：resolved=false，显示候选口径（autodetect/config）。"""
-        from campus_ids.web_new.api.system import health_check
+        from campus_ids.web.api.system import health_check
         from unittest.mock import MagicMock
 
         # 确保 capture_service 存在且 capture_status 返回 running=False
@@ -958,7 +958,7 @@ class TestHealthCaptureFields:
 
     def test_running_capture_shows_resolved_true(self, svc, state, monkeypatch):
         """抓包运行中：resolved=true，显示 service 快照口径。"""
-        from campus_ids.web_new.api.system import health_check
+        from campus_ids.web.api.system import health_check
         from unittest.mock import MagicMock
 
         state.capture_running = True
@@ -985,7 +985,7 @@ class TestHealthCaptureFields:
 
     def test_backlog_level_ok_when_queue_low(self, state, monkeypatch):
         """R3.2: 队列占用 <50% 时 backlog_level=ok。"""
-        from campus_ids.web_new.api.system import health_check
+        from campus_ids.web.api.system import health_check
         from unittest.mock import MagicMock
 
         # queue_size=10, capacity=20000 → usage=0.05% → ok
@@ -1007,7 +1007,7 @@ class TestHealthCaptureFields:
 
     def test_backlog_level_warn_when_queue_half(self, state, monkeypatch):
         """R3.2: 队列占用 >=50% 时 backlog_level=warn。"""
-        from campus_ids.web_new.api.system import health_check
+        from campus_ids.web.api.system import health_check
         from unittest.mock import MagicMock
 
         # queue_size=10001, capacity=20000 → usage=50.005% → warn
@@ -1027,7 +1027,7 @@ class TestHealthCaptureFields:
 
     def test_backlog_level_critical_when_queue_near_full(self, state, monkeypatch):
         """R3.2: 队列占用 >=80% 时 backlog_level=critical。"""
-        from campus_ids.web_new.api.system import health_check
+        from campus_ids.web.api.system import health_check
         from unittest.mock import MagicMock
 
         # queue_size=16001, capacity=20000 → usage=80.005% → critical

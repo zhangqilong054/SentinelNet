@@ -53,7 +53,7 @@ line-length = 100
 [tool.ruff.lint.per-file-ignores]
 # E402 为刻意保留：这些模块的 import 顺序承载语义（避免循环依赖 /
 # 避免 config 兼容层在 import 期提前物化 Settings 单例），不可随意上移。
-"src/campus_ids/web_new/api/system.py" = ["E402"]
+"src/campus_ids/web/api/system.py" = ["E402"]
 "src/campus_ids/capture/enhanced_features.py" = ["E402"]
 "src/campus_ids/model/train.py" = ["E402"]
 # detector.py 为冻结模块（ML 行为基线，重构期约定不改），E731 lambda 暂留。

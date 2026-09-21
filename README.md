@@ -224,7 +224,7 @@ Task-main/
     │   └── dual_detector.py       # 双引擎检测器（规则 + ML 融合）
     ├── demo/
     │   └── attack_sim.py          # 攻击模拟脚本
-    └── web_new/
+    └── web/
         ├── app.py                 # FastAPI 应用工厂 + lifespan + 路由注册
         ├── auth.py                # 认证（登录/登出/密码修改）
         ├── security.py            # 安全策略（@public/@readonly/@write + CSRF + 限流）

@@ -35,7 +35,7 @@ T2 阶段 `_register_default_tasks()` 接上真实 target 之后，**同样的�
 
     from _probe_safety import bootstrap, install_service_stubs, assert_targets_wired, verdict
     TMP = bootstrap()                     # ← 第一件事
-    from campus_ids.web_new.app import create_app   # ← 之后才能 import 项目模块
+    from campus_ids.web.app import create_app   # ← 之后才能 import 项目模块
     rec = install_service_stubs()
     ...
 """

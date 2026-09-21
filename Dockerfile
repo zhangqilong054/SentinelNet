@@ -77,4 +77,4 @@ USER appuser
 
 # Uvicorn 单 worker 运行（ADR-0001 §4.1：多 worker 会导致状态分裂）
 # WEB_CONCURRENCY>1 时 create_app() 会拒绝启动
-CMD ["uvicorn", "campus_ids.web_new.app:create_app", "--host", "0.0.0.0", "--port", "5000", "--factory"]
+CMD ["uvicorn", "campus_ids.web.app:create_app", "--host", "0.0.0.0", "--port", "5000", "--factory"]

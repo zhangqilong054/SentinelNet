@@ -57,7 +57,7 @@ TMP_DIR = bootstrap()
 # ② 之后才能 import 项目模块
 import campus_ids.logging_config as lc  # noqa: E402
 lc.setup_logging()
-from campus_ids.web_new.app import create_app  # noqa: E402
+from campus_ids.web.app import create_app  # noqa: E402
 
 OUT_DIR = ROOT / "tests" / "contract" / "baseline"
 
@@ -246,7 +246,7 @@ def record() -> int:
     meta = {
         "recorded_at": datetime.now().isoformat(timespec="seconds"),
         "recorder": "scripts/record_golden.py",
-        "target": "FastAPI 应用 campus_ids.web_new.app（基线对照）",
+        "target": "FastAPI 应用 campus_ids.web.app（基线对照）",
         "config": {
             "CAMPUS_IDS_DATA_DIR": str(TMP_DIR),
             "auth": "默认（api_token 为空 → 认证关闭，CSRF 强制生效）",

@@ -36,7 +36,7 @@ from tests.contract.specdiff import dump_snapshot, summarize_snapshot  # noqa: E
 
 def _update_snapshot() -> int:
     """刷新 `tests/contract/schema_snapshot.json`。"""
-    from campus_ids.web_new.app import create_app
+    from campus_ids.web.app import create_app
 
     app = create_app()
     spec = dump_snapshot(app)

@@ -19,6 +19,10 @@ interface CaptureDiagnostics {
   filter?: string
   queue_size?: number
   dropped_packets?: number
+  resolved?: boolean
+  queue_capacity?: number
+  queue_usage?: number
+  backlog_level?: 'ok' | 'warn' | 'critical'
   is_admin?: boolean
   candidate_count?: number
   enhanced?: {
@@ -52,6 +56,10 @@ async function fetchHealth() {
           filter: captureComp.filter as string | undefined,
           queue_size: captureComp.queue_size as number | undefined,
           dropped_packets: captureComp.dropped_packets as number | undefined,
+          resolved: captureComp.resolved as boolean | undefined,
+          queue_capacity: captureComp.queue_capacity as number | undefined,
+          queue_usage: captureComp.queue_usage as number | undefined,
+          backlog_level: captureComp.backlog_level as CaptureDiagnostics['backlog_level'],
           enhanced: captureComp.enhanced as CaptureDiagnostics['enhanced'],
         }
       }
@@ -308,6 +316,19 @@ onUnmounted(() => {
             <span :class="{ 'text-danger': (captureDiag.dropped_packets ?? 0) > 0 }">
               {{ captureDiag.dropped_packets ?? 0 }}
             </span>
+          </el-descriptions-item>
+          <el-descriptions-item label="积压水位" v-if="captureDiag.backlog_level">
+            <el-tag :type="captureDiag.backlog_level === 'critical' ? 'danger' : captureDiag.backlog_level === 'warn' ? 'warning' : 'success'" size="small">
+              {{ captureDiag.backlog_level === 'critical' ? '危险' : captureDiag.backlog_level === 'warn' ? '警告' : '正常' }}
+            </el-tag>
+            <span v-if="captureDiag.queue_usage != null" style="margin-left: 6px; font-size: 12px; color: var(--el-text-color-secondary)">
+              ({{ (captureDiag.queue_usage * 100).toFixed(1) }}%)
+            </span>
+          </el-descriptions-item>
+          <el-descriptions-item label="口径状态" v-if="captureDiag.resolved != null">
+            <el-tag :type="captureDiag.resolved ? 'success' : 'info'" size="small">
+              {{ captureDiag.resolved ? '已解析' : '预览' }}
+            </el-tag>
           </el-descriptions-item>
           <el-descriptions-item label="候选网卡数" v-if="captureDiag.candidate_count != null">
             {{ captureDiag.candidate_count }}

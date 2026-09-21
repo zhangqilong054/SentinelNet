@@ -19,7 +19,7 @@ logger = logging.getLogger(__name__)
 #
 # ⚠️ 2026-09-17 修复的真实缺陷（T2.9 端到端验真时发现）：
 # 这些常量此前**定义了却零使用**，生产端（services/）各自写字符串字面量，
-# SSE 订阅端（web_new/api/stream.py）又维护了第三份 `VALID_TOPICS` 字面量，
+# SSE 订阅端（web/api/stream.py）又维护了第三份 `VALID_TOPICS` 字面量，
 # 三方各自漂移，结果是**订阅了也收不到**：
 #
 #   alert_service.py     发布 "alerts"          （复数）

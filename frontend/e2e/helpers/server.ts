@@ -50,7 +50,7 @@ export async function startServer(): Promise<void> {
   const dataDir = mkdtempSync(join(tmpdir(), 'sn-e2e-data-'))
   const launcher = [
     "import subprocess,sys",
-    "p = subprocess.Popen([sys.executable,'-m','uvicorn','campus_ids.web_new.app:create_app','--factory',"
+    "p = subprocess.Popen([sys.executable,'-m','uvicorn','campus_ids.web.app:create_app','--factory',"
       + `'--port','${PORT}','--log-level','warning'],`,
     `cwd=r'${PROJECT_ROOT}',`,
     "creationflags=0x00000008|0x00000200,",  // DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP

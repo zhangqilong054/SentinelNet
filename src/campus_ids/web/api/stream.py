@@ -1,4 +1,4 @@
-"""web_new/api/stream.py — SSE 实时推送路由。
+"""web/api/stream.py — SSE 实时推送路由。
 
 端点：
 - GET /api/stream  单条 SSE（?topics=traffic,alert）
@@ -24,8 +24,8 @@ from fastapi import APIRouter, Query, Request
 from fastapi.responses import StreamingResponse
 
 from campus_ids.runtime.events import DEFAULT_TOPICS, MAX_SUBSCRIBERS, VALID_TOPICS, EventBus
-from campus_ids.web_new.errors import ApiError
-from campus_ids.web_new.security import Public
+from campus_ids.web.errors import ApiError
+from campus_ids.web.security import Public
 
 logger = logging.getLogger(__name__)
 

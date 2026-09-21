@@ -1,4 +1,4 @@
-"""web_new/app.py — FastAPI 应用工厂。
+"""web/app.py — FastAPI 应用工厂。
 
 消除 import 期副作用（原 Flask app.py 的 init_db() / DB 配置覆盖在导入时执行）。
 所有初始化在 create_app() 中显式执行。
@@ -27,8 +27,8 @@ from campus_ids.runtime.repositories import ConfigRepository, UserRepository
 from campus_ids.runtime.settings import Settings, get_settings, reset_settings
 from campus_ids.runtime.state import RuntimeState
 from campus_ids.runtime.tasks import Task, TaskKind, TaskRegistry
-from campus_ids.web_new.errors import register_exception_handlers
-from campus_ids.web_new.security import limiter
+from campus_ids.web.errors import register_exception_handlers
+from campus_ids.web.security import limiter
 
 logger = logging.getLogger(__name__)
 
@@ -178,7 +178,7 @@ async def lifespan(app: FastAPI):
         # werkzeug 解析失败抛 ValueError → 登录端点 500（认证失败应当是 401）。
         # api_token 未配置时写空哈希：verify_password 对空哈希恒为 False，
         # 即"没有任何密码可登录"，与"认证关闭"的语义一致。
-        from campus_ids.web_new.auth import hash_password
+        from campus_ids.web.auth import hash_password
         bootstrap_hash = hash_password(settings.api_token) if settings.api_token else ""
         UserRepository.ensure_default(
             conn, username="admin", password_hash=bootstrap_hash
@@ -424,7 +424,7 @@ def create_app() -> FastAPI:
     app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)  # type: ignore[arg-type]
 
     # ── 注册路由 ──────────────────────────────────────────────
-    from campus_ids.web_new.api import system, traffic, alerts, tasks, models, scenarios, tls, payload, stream, admin, auth_routes
+    from campus_ids.web.api import system, traffic, alerts, tasks, models, scenarios, tls, payload, stream, admin, auth_routes
 
     app.include_router(system.router, tags=["system"])
     app.include_router(traffic.router, tags=["traffic"])
@@ -444,14 +444,14 @@ def create_app() -> FastAPI:
     # 2026-09-19 起从 Settings 读取（支持 .env）；此前直接 os.environ.get，
     # 写进 .env 的 CAMPUS_IDS_FRONTEND 会被静默忽略。
     from fastapi.staticfiles import StaticFiles
-    from campus_ids.web_new import pages
+    from campus_ids.web import pages
 
     frontend_mode = (settings.frontend or "legacy").lower()
 
     if frontend_mode == "new":
         # ── Vue3 SPA 模式 ──────────────────────────────────────
         # 查找前端构建产物：优先项目根目录 frontend/dist/，其次 /app/frontend/dist/
-        # 注意：app.py 位于 src/campus_ids/web_new/，parents[3] 才是项目根
+        # 注意：app.py 位于 src/campus_ids/web/，parents[3] 才是项目根
         # （parents[2] 是 src/，曾导致拼出 src/frontend/dist 静默回退 legacy）
         _candidates = [
             Path(__file__).resolve().parents[3] / "frontend" / "dist",
@@ -592,7 +592,7 @@ def run_app() -> None:
     logger.info("访问地址: http://localhost:%s", port)
 
     uvicorn.run(
-        "campus_ids.web_new.app:create_app",
+        "campus_ids.web.app:create_app",
         host=host,
         port=port,
         workers=1,

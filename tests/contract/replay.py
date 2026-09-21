@@ -214,7 +214,7 @@ def _format_findings(findings: list[tuple[str, str]]) -> list[str]:
 
 def run_replay(*, schema_only: bool = False) -> tuple[int, list[str]]:
     """执行回放。返回 (失败数, 输出行)。**调用前必须已完成 data_dir 隔离。**"""
-    from campus_ids.web_new.app import create_app
+    from campus_ids.web.app import create_app
 
     app = create_app()
     lines: list[str] = []

@@ -184,8 +184,8 @@ class TestThresholdHotReloadEndToEnd:
     def client(self):
         from fastapi.testclient import TestClient
 
-        from campus_ids.web_new.app import create_app
-        from campus_ids.web_new.security import limiter
+        from campus_ids.web.app import create_app
+        from campus_ids.web.security import limiter
 
         limiter.reset()
         app = create_app()

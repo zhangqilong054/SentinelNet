@@ -1,4 +1,4 @@
-"""web_new/api/models.py — 模型管理 API 路由。
+"""web/api/models.py — 模型管理 API 路由。
 
 端点：
 - GET   /api/models                模型列表（从 registry.json 读取）
@@ -36,10 +36,10 @@ from pathlib import Path
 from fastapi import APIRouter, Request
 
 from campus_ids.runtime.settings import get_settings
-from campus_ids.web_new.deps import get_service
-from campus_ids.web_new.errors import ApiError, ConflictError, NotFoundError, ValidationError
-from campus_ids.web_new.security import Readonly, Write, limiter
-from campus_ids.web_new.schemas import (
+from campus_ids.web.deps import get_service
+from campus_ids.web.errors import ApiError, ConflictError, NotFoundError, ValidationError
+from campus_ids.web.security import Readonly, Write, limiter
+from campus_ids.web.schemas import (
     MessageResponse,
     ModelInfoResponse,
     ModelListResponse,

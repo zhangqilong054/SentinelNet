@@ -11,7 +11,7 @@ import os
 import pytest
 from fastapi.testclient import TestClient
 
-from campus_ids.web_new.app import create_app
+from campus_ids.web.app import create_app
 from campus_ids.runtime.settings import reset_settings
 
 
@@ -23,7 +23,7 @@ def _clean_env():
     os.environ.pop("CAMPUS_IDS_API_TOKEN", None)
     reset_settings()
     # 重置限流器存储，避免跨测试污染
-    from campus_ids.web_new.security import limiter
+    from campus_ids.web.security import limiter
     limiter.reset()
     yield
     os.environ.pop("CAMPUS_IDS_AUTH_ENABLED", None)
@@ -405,7 +405,7 @@ class TestPasswordHash:
 
     def test_hash_password_returns_hash(self):
         """hash_password 返回非空哈希字符串。"""
-        from campus_ids.web_new.auth import hash_password
+        from campus_ids.web.auth import hash_password
         h = hash_password("test-password")
         assert isinstance(h, str)
         assert len(h) > 0
@@ -413,32 +413,32 @@ class TestPasswordHash:
 
     def test_hash_password_format(self):
         """哈希格式为 pbkdf2:sha256（werkzeug 格式）。"""
-        from campus_ids.web_new.auth import hash_password
+        from campus_ids.web.auth import hash_password
         h = hash_password("test-password")
         assert h.startswith("pbkdf2:sha256:"), f"哈希格式不符: {h[:30]}..."
 
     def test_verify_password_correct(self):
         """正确密码验证成功。"""
-        from campus_ids.web_new.auth import hash_password, verify_password
+        from campus_ids.web.auth import hash_password, verify_password
         h = hash_password("my-secret")
         assert verify_password("my-secret", h) is True
 
     def test_verify_password_wrong(self):
         """错误密码验证失败。"""
-        from campus_ids.web_new.auth import hash_password, verify_password
+        from campus_ids.web.auth import hash_password, verify_password
         h = hash_password("my-secret")
         assert verify_password("wrong-password", h) is False
 
     def test_hash_password_salts_differ(self):
         """相同密码的两次哈希不同（盐值随机）。"""
-        from campus_ids.web_new.auth import hash_password
+        from campus_ids.web.auth import hash_password
         h1 = hash_password("same-password")
         h2 = hash_password("same-password")
         assert h1 != h2, "相同密码应产生不同哈希（盐值应随机）"
 
     def test_verify_password_both_succeed(self):
         """不同盐值哈希均能验证同一密码。"""
-        from campus_ids.web_new.auth import hash_password, verify_password
+        from campus_ids.web.auth import hash_password, verify_password
         h1 = hash_password("same-password")
         h2 = hash_password("same-password")
         assert verify_password("same-password", h1) is True
@@ -466,7 +466,7 @@ class TestSessionAuth:
         resp = client_no_auth.get("/api/health")
         assert resp.status_code == 200
         # 验证 app 中间件栈包含 SessionMiddleware
-        from campus_ids.web_new.app import create_app
+        from campus_ids.web.app import create_app
         app = create_app()
         middleware_classes = [m.cls.__name__ for m in app.user_middleware]
         assert "SessionMiddleware" in middleware_classes, (
@@ -484,7 +484,7 @@ class TestSessionAuth:
 
     def test_login_user_writes_session(self):
         """login_user 将 user 和 authenticated 写入会话。"""
-        from campus_ids.web_new.auth import login_user
+        from campus_ids.web.auth import login_user
 
         class FakeSession(dict):
             pass
@@ -499,7 +499,7 @@ class TestSessionAuth:
 
     def test_logout_user_clears_session(self):
         """logout_user 清除会话中的认证信息。"""
-        from campus_ids.web_new.auth import login_user, logout_user
+        from campus_ids.web.auth import login_user, logout_user
 
         class FakeSession(dict):
             pass
@@ -516,7 +516,7 @@ class TestSessionAuth:
 
     def test_get_current_user_returns_username(self):
         """get_current_user 从会话返回已认证用户名。"""
-        from campus_ids.web_new.auth import get_current_user
+        from campus_ids.web.auth import get_current_user
 
         class FakeRequest:
             session = {"user": "alice", "authenticated": True}
@@ -526,7 +526,7 @@ class TestSessionAuth:
 
     def test_get_current_user_returns_none_when_not_logged_in(self):
         """未登录时 get_current_user 返回 None。"""
-        from campus_ids.web_new.auth import get_current_user
+        from campus_ids.web.auth import get_current_user
 
         class FakeRequest:
             session = {}
@@ -536,7 +536,7 @@ class TestSessionAuth:
 
     def test_is_authenticated_true(self):
         """is_authenticated 对已认证会话返回 True。"""
-        from campus_ids.web_new.auth import is_authenticated
+        from campus_ids.web.auth import is_authenticated
 
         class FakeRequest:
             session = {"user": "admin", "authenticated": True}
@@ -546,7 +546,7 @@ class TestSessionAuth:
 
     def test_is_authenticated_false(self):
         """is_authenticated 对未认证会话返回 False。"""
-        from campus_ids.web_new.auth import is_authenticated
+        from campus_ids.web.auth import is_authenticated
 
         class FakeRequest:
             session = {}

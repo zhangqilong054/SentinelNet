@@ -34,7 +34,7 @@ import ast
 from pathlib import Path
 
 from campus_ids.runtime import events as events_mod
-from campus_ids.web_new.api import stream as stream_mod
+from campus_ids.web.api import stream as stream_mod
 
 SRC_ROOT = Path(__file__).resolve().parent.parent / "src" / "campus_ids"
 
@@ -166,7 +166,7 @@ def test_stream_router_reuses_shared_topic_set() -> None:
 
 def test_stream_router_has_no_hardcoded_topic_literals() -> None:
     """`stream.py` 源码里不得再出现 topic 字符串字面量（防第三份真相回流）。"""
-    src = (SRC_ROOT / "web_new" / "api" / "stream.py").read_text(encoding="utf-8")
+    src = (SRC_ROOT / "web" / "api" / "stream.py").read_text(encoding="utf-8")
     tree = ast.parse(src)
     literals = set()
     for node in ast.walk(tree):

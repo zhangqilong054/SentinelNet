@@ -16,7 +16,7 @@ from fastapi.testclient import TestClient
 @pytest.fixture
 def app():
     """创建测试用 FastAPI 应用。"""
-    from campus_ids.web_new.app import create_app
+    from campus_ids.web.app import create_app
     return create_app()
 
 
@@ -86,7 +86,7 @@ class TestOpenAPIInfo:
 class TestOpenAPIPaths:
     """验证 API 路径出现在 OpenAPI 规范中。"""
 
-    # 预期的 API 路径（基于 web_new/api/ 路由模块）
+    # 预期的 API 路径（基于 web/api/ 路由模块）
     EXPECTED_PATHS = [
         "/api/health",
         "/api/check",

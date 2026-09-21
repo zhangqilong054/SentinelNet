@@ -17,7 +17,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from campus_ids.runtime.settings import reset_settings
-from campus_ids.web_new.app import create_app
+from campus_ids.web.app import create_app
 
 CSRF_RE = re.compile(r'name="csrf_token"\s+value="([^"]+)"')
 
@@ -30,7 +30,7 @@ def _clean_env():
     """每个测试前后清理认证相关环境变量与限流计数。"""
     import os
 
-    from campus_ids.web_new.security import limiter
+    from campus_ids.web.security import limiter
 
     def _clear():
         os.environ.pop("CAMPUS_IDS_API_TOKEN", None)
